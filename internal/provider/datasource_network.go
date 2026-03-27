@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -17,7 +18,11 @@ type NetworkDataSource struct {
 }
 
 type NetworkDataSourceModel struct {
-	Networks []NetworkModel `tfsdk:"networks"`
+	Name       types.String   `tfsdk:"name"`
+	Id         types.String   `tfsdk:"id"`
+	Ipv4Prefix types.String   `tfsdk:"ipv4_prefix"`
+	VlanId     types.Int64    `tfsdk:"vlan_id"`
+	Networks   []NetworkModel `tfsdk:"networks"`
 }
 
 type NetworkModel struct {
@@ -43,25 +48,45 @@ func (d *NetworkDataSource) Metadata(_ context.Context, req datasource.MetadataR
 }
 
 func (d *NetworkDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	networkAttrs := map[string]schema.Attribute{
+		"id": schema.StringAttribute{
+			Computed: true,
+		},
+		"name": schema.StringAttribute{
+			Computed: true,
+		},
+		"ipv4_prefix": schema.StringAttribute{
+			Computed: true,
+		},
+		"vlan_id": schema.Int64Attribute{
+			Computed: true,
+		},
+	}
+
 	resp.Schema = schema.Schema{
+		Description: "Look up MCS networks. Set `name` to fetch a single network by exact name, or omit it to list all networks.",
 		Attributes: map[string]schema.Attribute{
+			"name": schema.StringAttribute{
+				Optional:    true,
+				Description: "Exact network name to look up. When set, the data source returns a single network and the `networks` list is empty.",
+			},
+			"id": schema.StringAttribute{
+				Computed:    true,
+				Description: "ID of the matched network (only set when `name` is provided).",
+			},
+			"ipv4_prefix": schema.StringAttribute{
+				Computed:    true,
+				Description: "IPv4 prefix of the matched network (only set when `name` is provided).",
+			},
+			"vlan_id": schema.Int64Attribute{
+				Computed:    true,
+				Description: "VLAN ID of the matched network (only set when `name` is provided).",
+			},
 			"networks": schema.ListNestedAttribute{
-				Computed: true,
+				Computed:    true,
+				Description: "All networks (populated when `name` is not set).",
 				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"id": schema.StringAttribute{
-							Computed: true,
-						},
-						"name": schema.StringAttribute{
-							Computed: true,
-						},
-						"ipv4_prefix": schema.StringAttribute{
-							Computed: true,
-						},
-						"vlan_id": schema.Int64Attribute{
-							Computed: true,
-						},
-					},
+					Attributes: networkAttrs,
 				},
 			},
 		},
@@ -81,18 +106,53 @@ func (d *NetworkDataSource) Configure(_ context.Context, req datasource.Configur
 	d.client = client
 }
 
-func (d *NetworkDataSource) Read(ctx context.Context, _ datasource.ReadRequest, resp *datasource.ReadResponse) {
+func (d *NetworkDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	var config NetworkDataSourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	path := "/api/networking/networks/?page_size=1000"
+	if !config.Name.IsNull() && config.Name.ValueString() != "" {
+		path += "&name__icontains=" + url.QueryEscape(config.Name.ValueString())
+	}
+
 	var page struct {
 		Results []networkAPIModel `json:"results"`
 	}
-	err := d.client.Get(ctx, "/api/networking/networks/?page_size=1000", &page)
-	if err != nil {
+	if err := d.client.Get(ctx, path, &page); err != nil {
 		resp.Diagnostics.AddError("Error reading networks", err.Error())
 		return
 	}
 
+	if !config.Name.IsNull() && config.Name.ValueString() != "" {
+		var match *networkAPIModel
+		for i := range page.Results {
+			if page.Results[i].Name == config.Name.ValueString() {
+				match = &page.Results[i]
+				break
+			}
+		}
+		if match == nil {
+			resp.Diagnostics.AddError("Network not found",
+				fmt.Sprintf("No network with exact name %q was found.", config.Name.ValueString()))
+			return
+		}
+		config.Id = types.StringValue(match.Id)
+		config.Ipv4Prefix = types.StringValue(match.Ipv4Prefix)
+		config.VlanId = types.Int64Value(match.VlanId)
+		config.Networks = []NetworkModel{}
+		resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
+		return
+	}
+
 	state := NetworkDataSourceModel{
-		Networks: make([]NetworkModel, 0, len(page.Results)),
+		Name:       types.StringNull(),
+		Id:         types.StringNull(),
+		Ipv4Prefix: types.StringNull(),
+		VlanId:     types.Int64Null(),
+		Networks:   make([]NetworkModel, 0, len(page.Results)),
 	}
 	for _, item := range page.Results {
 		state.Networks = append(state.Networks, NetworkModel{
@@ -102,6 +162,5 @@ func (d *NetworkDataSource) Read(ctx context.Context, _ datasource.ReadRequest, 
 			VlanId:     types.Int64Value(item.VlanId),
 		})
 	}
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

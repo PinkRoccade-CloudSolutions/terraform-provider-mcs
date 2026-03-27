@@ -112,7 +112,14 @@ func (c *Client) ListAll(ctx context.Context, path string) ([]json.RawMessage, e
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body, result interface{}) error {
-	if !strings.HasSuffix(path, "/") {
+	if idx := strings.IndexByte(path, '?'); idx != -1 {
+		base := path[:idx]
+		query := path[idx:]
+		if !strings.HasSuffix(base, "/") {
+			base += "/"
+		}
+		path = base + query
+	} else if !strings.HasSuffix(path, "/") {
 		path += "/"
 	}
 
