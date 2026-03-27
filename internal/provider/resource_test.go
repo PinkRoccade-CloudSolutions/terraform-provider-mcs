@@ -1255,3 +1255,113 @@ resource "mcs_alert" "test" {
 		},
 	})
 }
+
+// ---------------------------------------------------------------------------
+// mcs_nat_translation
+// ---------------------------------------------------------------------------
+
+func TestAccNATTranslationResource_CRUD(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	natResp := map[string]interface{}{
+		"id": "nat-001", "public_ip": "pip-uuid-1", "interface": "if-uuid-1",
+		"firewall": "fw-uuid-1", "translation": "10.0.0.1 -> 192.168.1.1",
+		"private_ip": "192.168.1.1", "translation_type": "one_to_one",
+		"protocol": "tcp", "customer": "acme", "description": "Web NAT",
+		"state": "synced", "enabled": true,
+	}
+
+	mock.On("/api/networking/nattranslations", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(natResp)
+		case http.MethodGet:
+			json.NewEncoder(w).Encode(natResp)
+		case http.MethodPut:
+			json.NewEncoder(w).Encode(natResp)
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_nat_translation" "test" {
+  public_ip   = "pip-uuid-1"
+  interface   = "if-uuid-1"
+  firewall    = "fw-uuid-1"
+  customer    = "acme"
+  description = "Web NAT"
+  protocol    = "tcp"
+  enabled     = true
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_nat_translation.test", "id", "nat-001"),
+					resource.TestCheckResourceAttr("mcs_nat_translation.test", "public_ip", "pip-uuid-1"),
+					resource.TestCheckResourceAttr("mcs_nat_translation.test", "translation_type", "one_to_one"),
+					resource.TestCheckResourceAttr("mcs_nat_translation.test", "state", "synced"),
+					resource.TestCheckResourceAttr("mcs_nat_translation.test", "enabled", "true"),
+				),
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// mcs_public_ip_address
+// ---------------------------------------------------------------------------
+
+func TestAccPublicIPAddressResource_CRUD(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	pipResp := map[string]interface{}{
+		"id": "pip-001", "ip_address": "203.0.113.10",
+		"pool": "pool-uuid-1", "description": "Web server IP",
+		"status": "available", "type": "nat", "customer": "acme",
+	}
+
+	mock.On("/api/networking/publicipaddresss", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(pipResp)
+		case http.MethodGet:
+			json.NewEncoder(w).Encode(pipResp)
+		case http.MethodPut:
+			json.NewEncoder(w).Encode(pipResp)
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_public_ip_address" "test" {
+  pool        = "pool-uuid-1"
+  description = "Web server IP"
+  status      = "available"
+  type        = "nat"
+  customer    = "acme"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "id", "pip-001"),
+					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "ip_address", "203.0.113.10"),
+					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "pool", "pool-uuid-1"),
+					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "status", "available"),
+					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "type", "nat"),
+				),
+			},
+		},
+	})
+}

@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/pinkroccade/terraform-provider-mcs/internal/apiclient"
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &ZoneDataSource{}

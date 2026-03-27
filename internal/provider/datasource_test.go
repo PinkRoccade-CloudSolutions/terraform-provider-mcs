@@ -432,3 +432,464 @@ data "mcs_zone" "missing" {
 		},
 	})
 }
+
+// ---------------------------------------------------------------------------
+// mcs_firewall data source
+// ---------------------------------------------------------------------------
+
+func TestAccFirewallDataSource_ByName(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	fws := []map[string]interface{}{
+		{"id": "fw-001", "name": "internet-fw", "description": "Internet firewall", "customer": "acme", "type": "internet"},
+		{"id": "fw-002", "name": "wan-fw", "description": "WAN firewall", "customer": "acme", "type": "wan"},
+	}
+
+	mock.On("/api/networking/firewalls", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": fws})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_firewall" "test" {
+  name = "internet-fw"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "id", "fw-001"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "name", "internet-fw"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "type", "internet"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccFirewallDataSource_ListAll(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	fws := []map[string]interface{}{
+		{"id": "fw-001", "name": "internet-fw", "description": "Internet firewall", "customer": "acme", "type": "internet"},
+		{"id": "fw-002", "name": "wan-fw", "description": "WAN firewall", "customer": "acme", "type": "wan"},
+	}
+
+	mock.On("/api/networking/firewalls", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": fws})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_firewall" "all" {}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_firewall.all", "firewalls.#", "2"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.all", "firewalls.0.name", "internet-fw"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccFirewallDataSource_NotFound(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	mock.On("/api/networking/firewalls", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": []interface{}{}})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_firewall" "missing" {
+  name = "nonexistent"
+}`,
+				ExpectError: regexpMustCompile(`Firewall not found`),
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// mcs_interface data source
+// ---------------------------------------------------------------------------
+
+func TestAccInterfaceDataSource_ByName(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	ifaces := []map[string]interface{}{
+		{"id": "if-001", "name": "eth0", "ipaddress": "10.0.0.5", "ipv6address": "::1", "network": "net-001", "macAddress": "AA:BB:CC:DD:EE:FF", "vm_name": "web-01"},
+	}
+
+	mock.On("/api/virtualization/interface", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": ifaces})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_interface" "test" {
+  name = "eth0"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_interface.test", "id", "if-001"),
+					resource.TestCheckResourceAttr("data.mcs_interface.test", "ipaddress", "10.0.0.5"),
+					resource.TestCheckResourceAttr("data.mcs_interface.test", "mac_address", "AA:BB:CC:DD:EE:FF"),
+					resource.TestCheckResourceAttr("data.mcs_interface.test", "vm_name", "web-01"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccInterfaceDataSource_ListAll(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	ifaces := []map[string]interface{}{
+		{"id": "if-001", "name": "eth0", "ipaddress": "10.0.0.5", "ipv6address": "::1", "network": "net-001", "macAddress": "AA:BB:CC:DD:EE:FF", "vm_name": "web-01"},
+		{"id": "if-002", "name": "eth1", "ipaddress": "10.0.0.6", "ipv6address": "::2", "network": nil, "macAddress": "11:22:33:44:55:66", "vm_name": "db-01"},
+	}
+
+	mock.On("/api/virtualization/interface", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": ifaces})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_interface" "all" {}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_interface.all", "interfaces.#", "2"),
+					resource.TestCheckResourceAttr("data.mcs_interface.all", "interfaces.0.name", "eth0"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccInterfaceDataSource_NotFound(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	mock.On("/api/virtualization/interface", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": []interface{}{}})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_interface" "missing" {
+  name = "nonexistent"
+}`,
+				ExpectError: regexpMustCompile(`Interface not found`),
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// mcs_ippool data source
+// ---------------------------------------------------------------------------
+
+func TestAccIPPoolDataSource_ByName(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	pools := []map[string]interface{}{
+		{"id": "pool-001", "name": "Public Pool", "subnet": "203.0.113.0/24", "customer": "acme"},
+	}
+
+	mock.On("/api/networking/ippools", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": pools})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_ippool" "test" {
+  name = "Public Pool"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_ippool.test", "id", "pool-001"),
+					resource.TestCheckResourceAttr("data.mcs_ippool.test", "subnet", "203.0.113.0/24"),
+					resource.TestCheckResourceAttr("data.mcs_ippool.test", "customer", "acme"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccIPPoolDataSource_ListAll(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	pools := []map[string]interface{}{
+		{"id": "pool-001", "name": "Public Pool", "subnet": "203.0.113.0/24", "customer": "acme"},
+		{"id": "pool-002", "name": "Private Pool", "subnet": "10.0.0.0/8", "customer": nil},
+	}
+
+	mock.On("/api/networking/ippools", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": pools})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_ippool" "all" {}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_ippool.all", "ip_pools.#", "2"),
+					resource.TestCheckResourceAttr("data.mcs_ippool.all", "ip_pools.0.name", "Public Pool"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccIPPoolDataSource_NotFound(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	mock.On("/api/networking/ippools", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": []interface{}{}})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_ippool" "missing" {
+  name = "nonexistent"
+}`,
+				ExpectError: regexpMustCompile(`IP pool not found`),
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// mcs_networkpool data source
+// ---------------------------------------------------------------------------
+
+func TestAccNetworkPoolDataSource_ByName(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	pools := []map[string]interface{}{
+		{"id": "np-001", "name": "LAN Pool", "network": "10.0.0.0/8", "description": "Internal LAN", "type": "lan", "enabled": true},
+	}
+
+	mock.On("/api/networking/networkpools", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": pools})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_networkpool" "test" {
+  name = "LAN Pool"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_networkpool.test", "id", "np-001"),
+					resource.TestCheckResourceAttr("data.mcs_networkpool.test", "network", "10.0.0.0/8"),
+					resource.TestCheckResourceAttr("data.mcs_networkpool.test", "type", "lan"),
+					resource.TestCheckResourceAttr("data.mcs_networkpool.test", "enabled", "true"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccNetworkPoolDataSource_ListAll(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	pools := []map[string]interface{}{
+		{"id": "np-001", "name": "LAN Pool", "network": "10.0.0.0/8", "description": "Internal LAN", "type": "lan", "enabled": true},
+		{"id": "np-002", "name": "WAN Pool", "network": "172.16.0.0/12", "description": "WAN transit", "type": "wan", "enabled": false},
+	}
+
+	mock.On("/api/networking/networkpools", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": pools})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_networkpool" "all" {}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_networkpool.all", "network_pools.#", "2"),
+					resource.TestCheckResourceAttr("data.mcs_networkpool.all", "network_pools.0.name", "LAN Pool"),
+					resource.TestCheckResourceAttr("data.mcs_networkpool.all", "network_pools.1.enabled", "false"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccNetworkPoolDataSource_NotFound(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	mock.On("/api/networking/networkpools", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": []interface{}{}})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_networkpool" "missing" {
+  name = "nonexistent"
+}`,
+				ExpectError: regexpMustCompile(`Network pool not found`),
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// mcs_virtualmachine data source
+// ---------------------------------------------------------------------------
+
+func TestAccVirtualMachineDataSource_ByName(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	vms := []map[string]interface{}{
+		{
+			"id": "vm-001", "name": "web-01", "cpu": 4, "memory": 8192, "os": "Ubuntu 22.04",
+			"disks": []map[string]interface{}{
+				{"id": "disk-001", "name": "sda", "size": 100, "path": "/dev/sda", "type": "ssd"},
+			},
+			"interfaces": []map[string]interface{}{
+				{"id": "if-001", "name": "eth0", "ipaddress": "10.0.0.5", "ipv6address": "::1", "network": "net-001", "macAddress": "AA:BB:CC:DD:EE:FF"},
+			},
+		},
+	}
+
+	mock.On("/api/virtualization/virtualmachine", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": vms})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_virtualmachine" "test" {
+  name = "web-01"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_virtualmachine.test", "id", "vm-001"),
+					resource.TestCheckResourceAttr("data.mcs_virtualmachine.test", "cpu", "4"),
+					resource.TestCheckResourceAttr("data.mcs_virtualmachine.test", "memory", "8192"),
+					resource.TestCheckResourceAttr("data.mcs_virtualmachine.test", "os", "Ubuntu 22.04"),
+					resource.TestCheckResourceAttr("data.mcs_virtualmachine.test", "disks.#", "1"),
+					resource.TestCheckResourceAttr("data.mcs_virtualmachine.test", "disks.0.name", "sda"),
+					resource.TestCheckResourceAttr("data.mcs_virtualmachine.test", "interfaces.#", "1"),
+					resource.TestCheckResourceAttr("data.mcs_virtualmachine.test", "interfaces.0.ipaddress", "10.0.0.5"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccVirtualMachineDataSource_ListAll(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	vms := []map[string]interface{}{
+		{
+			"id": "vm-001", "name": "web-01", "cpu": 4, "memory": 8192, "os": "Ubuntu 22.04",
+			"disks":      []map[string]interface{}{},
+			"interfaces": []map[string]interface{}{},
+		},
+		{
+			"id": "vm-002", "name": "db-01", "cpu": 8, "memory": 16384, "os": "Debian 12",
+			"disks":      []map[string]interface{}{},
+			"interfaces": []map[string]interface{}{},
+		},
+	}
+
+	mock.On("/api/virtualization/virtualmachine", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": vms})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_virtualmachine" "all" {}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_virtualmachine.all", "virtual_machines.#", "2"),
+					resource.TestCheckResourceAttr("data.mcs_virtualmachine.all", "virtual_machines.0.name", "web-01"),
+					resource.TestCheckResourceAttr("data.mcs_virtualmachine.all", "virtual_machines.1.name", "db-01"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccVirtualMachineDataSource_NotFound(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	mock.On("/api/virtualization/virtualmachine", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": []interface{}{}})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_virtualmachine" "missing" {
+  name = "nonexistent"
+}`,
+				ExpectError: regexpMustCompile(`Virtual machine not found`),
+			},
+		},
+	})
+}

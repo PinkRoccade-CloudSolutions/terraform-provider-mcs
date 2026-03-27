@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/pinkroccade/terraform-provider-mcs/internal/apiclient"
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ provider.Provider = &MCSProvider{}

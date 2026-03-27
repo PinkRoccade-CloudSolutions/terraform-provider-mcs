@@ -1,11 +1,11 @@
 default: build
 
 build:
-	go build -o terraform-provider-mcs
+	go build -ldflags="-s -w" -o terraform-provider-mcs
 
 install: build
-	mkdir -p ~/.terraform.d/plugins/registry.terraform.io/pinkroccade/mcs/0.1.0/$$(go env GOOS)_$$(go env GOARCH)
-	cp terraform-provider-mcs ~/.terraform.d/plugins/registry.terraform.io/pinkroccade/mcs/0.1.0/$$(go env GOOS)_$$(go env GOARCH)/
+	mkdir -p ~/.terraform.d/plugins/registry.terraform.io/PinkRoccade-CloudSolutions/mcs/0.1.0/$$(go env GOOS)_$$(go env GOARCH)
+	cp terraform-provider-mcs ~/.terraform.d/plugins/registry.terraform.io/PinkRoccade-CloudSolutions/mcs/0.1.0/$$(go env GOOS)_$$(go env GOARCH)/
 
 test:
 	go test ./... -v -count=1
@@ -20,6 +20,6 @@ fmt:
 	gofmt -w .
 
 generate:
-	go generate ./...
+	cd tools && go generate ./...
 
 .PHONY: build install test testacc lint fmt generate

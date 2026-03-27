@@ -1,20 +1,87 @@
-# Introduction 
-TODO: Give a short introduction of your project. Let this section explain the objectives or the motivation behind this project. 
+# Terraform Provider MCS
 
-# Getting Started
-TODO: Guide users through getting your code up and running on their own system. In this section you can talk about:
-1.	Installation process
-2.	Software dependencies
-3.	Latest releases
-4.	API references
+The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud infrastructure resources through the MCS API. It supports managing networking, firewalls, load balancing, virtual machines, VPN, alerting, and tenant administration.
 
-# Build and Test
-TODO: Describe and show how to build your code and run the tests. 
+## Requirements
 
-# Contribute
-TODO: Explain how other users and developers can contribute to make your code better. 
+- [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.0
+- [Go](https://golang.org/doc/install) >= 1.23 (to build the provider)
 
-If you want to learn more about creating good readme files then refer the following [guidelines](https://docs.microsoft.com/en-us/azure/devops/repos/git/create-a-readme?view=azure-devops). You can also seek inspiration from the below readme files:
-- [ASP.NET Core](https://github.com/aspnet/Home)
-- [Visual Studio Code](https://github.com/Microsoft/vscode)
-- [Chakra Core](https://github.com/Microsoft/ChakraCore)
+## Using the Provider
+
+Configure the provider in your Terraform configuration:
+
+```hcl
+terraform {
+  required_providers {
+    mcs = {
+      source  = "PinkRoccade-CloudSolutions/mcs"
+      version = "~> 0.1"
+    }
+  }
+}
+
+provider "mcs" {
+  host  = "https://mcs.example.com"
+  token = var.mcs_token
+}
+```
+
+Authentication can be configured via provider arguments or environment variables:
+
+```bash
+export MCS_HOST="https://mcs.example.com"
+export MCS_TOKEN="your-api-token"
+```
+
+For full documentation on all supported resources and data sources, see the [docs](./docs/index.md).
+
+## Developing the Provider
+
+### Building
+
+```bash
+make build
+```
+
+### Installing locally
+
+```bash
+make install
+```
+
+### Running tests
+
+```bash
+make test
+```
+
+### Running acceptance tests
+
+Acceptance tests create real resources and require a configured MCS environment:
+
+```bash
+make testacc
+```
+
+### Using development overrides
+
+For local development without installing, use the `dev.tfrc` CLI override:
+
+```bash
+export TF_CLI_CONFIG_FILE=/path/to/this/repo/dev.tfrc
+terraform plan
+```
+
+## Releasing
+
+Releases are automated via GitHub Actions. To create a new release:
+
+1. Ensure the `GPG_PRIVATE_KEY` and `PASSPHRASE` secrets are configured in the GitHub repository settings.
+2. Tag the commit:
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+3. The release workflow will build binaries for all platforms, sign the checksums, and create a draft GitHub release.
+4. Review and publish the draft release to make it available on the Terraform Registry.

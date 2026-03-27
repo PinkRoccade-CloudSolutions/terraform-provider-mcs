@@ -1,4 +1,4 @@
-module github.com/pinkroccade/terraform-provider-mcs
+module github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs
 
 go 1.25.0
 

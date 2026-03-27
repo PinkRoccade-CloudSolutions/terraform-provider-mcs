@@ -2,7 +2,7 @@
 
 The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud infrastructure resources through the MCS API. It supports managing networking, firewalls, load balancing, virtual machines, VPN, alerting, and tenant administration.
 
-**Provider source:** `registry.terraform.io/pinkroccade/mcs`
+**Provider source:** `registry.terraform.io/PinkRoccade-CloudSolutions/mcs`
 
 ---
 
@@ -62,7 +62,7 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
 terraform {
   required_providers {
     mcs = {
-      source = "registry.terraform.io/pinkroccade/mcs"
+      source = "registry.terraform.io/PinkRoccade-CloudSolutions/mcs"
     }
   }
 }
@@ -1307,7 +1307,7 @@ The following example demonstrates a realistic workflow: setting up a customer, 
 terraform {
   required_providers {
     mcs = {
-      source = "registry.terraform.io/pinkroccade/mcs"
+      source = "registry.terraform.io/PinkRoccade-CloudSolutions/mcs"
     }
   }
 }
