@@ -1,3 +1,14 @@
+# Go build artifacts
+terraform-provider-mcs
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go test cache
+*.test
+*.out
+
 # Local .terraform directories
 **/.terraform/*
 
