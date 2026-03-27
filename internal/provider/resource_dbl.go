@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -21,7 +22,6 @@ type DblResource struct {
 
 type dblModel struct {
 	Id         types.String `tfsdk:"id"`
-	ApiId      types.Int64  `tfsdk:"api_id"`
 	IpAddress  types.String `tfsdk:"ipaddress"`
 	Timestamp  types.String `tfsdk:"timestamp"`
 	Source     types.String `tfsdk:"source"`
@@ -55,12 +55,6 @@ func (r *DblResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 				Computed: true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
-			"api_id": schema.Int64Attribute{
-				Computed: true,
-				PlanModifiers: []planmodifier.Int64{
-					int64planmodifier.UseStateForUnknown(),
 				},
 			},
 			"ipaddress": schema.StringAttribute{
@@ -125,8 +119,7 @@ func dblBodyFromPlan(plan *dblModel) dblAPIModel {
 }
 
 func dblStateFromAPI(result *dblAPIModel, state *dblModel) {
-	state.Id = types.StringValue(result.IpAddress)
-	state.ApiId = types.Int64Value(int64(result.Id))
+	state.Id = types.StringValue(strconv.Itoa(result.Id))
 	state.IpAddress = types.StringValue(result.IpAddress)
 	state.Timestamp = types.StringValue(result.Timestamp)
 	if result.Source != nil {
@@ -171,7 +164,7 @@ func (r *DblResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	}
 
 	var result dblAPIModel
-	err := r.client.Get(ctx, fmt.Sprintf("/api/dbl/%s/", state.Id.ValueString()), &result)
+	err := r.client.Get(ctx, fmt.Sprintf("/api/dbl/%s/", state.IpAddress.ValueString()), &result)
 	if err != nil {
 		if apiclient.IsNotFound(err) {
 			resp.State.RemoveResource(ctx)
@@ -195,7 +188,7 @@ func (r *DblResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	body := dblBodyFromPlan(&plan)
 
 	var result dblAPIModel
-	err := r.client.Put(ctx, fmt.Sprintf("/api/dbl/%s/", plan.Id.ValueString()), body, &result)
+	err := r.client.Put(ctx, fmt.Sprintf("/api/dbl/%s/", plan.IpAddress.ValueString()), body, &result)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating dbl entry", err.Error())
 		return
@@ -212,7 +205,7 @@ func (r *DblResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 		return
 	}
 
-	err := r.client.Delete(ctx, fmt.Sprintf("/api/dbl/%s/", state.Id.ValueString()))
+	err := r.client.Delete(ctx, fmt.Sprintf("/api/dbl/%s/", state.IpAddress.ValueString()))
 	if err != nil {
 		if apiclient.IsNotFound(err) {
 			return

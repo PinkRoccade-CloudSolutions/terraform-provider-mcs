@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -160,12 +159,8 @@ func (r *FirewallServiceResource) Read(ctx context.Context, req resource.ReadReq
 		return
 	}
 
-	parts := strings.SplitN(state.Id.ValueString(), "/", 2)
-	if len(parts) != 2 {
-		resp.Diagnostics.AddError("Invalid ID format", "Expected domain/name")
-		return
-	}
-	domain, name := parts[0], parts[1]
+	domain := state.Domain.ValueString()
+	name := state.Name.ValueString()
 
 	var apiResp firewallServiceAPI
 	path := fmt.Sprintf("/api/networking/domain/%s/services/%s/", domain, name)
@@ -196,12 +191,8 @@ func (r *FirewallServiceResource) Delete(ctx context.Context, req resource.Delet
 		return
 	}
 
-	parts := strings.SplitN(state.Id.ValueString(), "/", 2)
-	if len(parts) != 2 {
-		resp.Diagnostics.AddError("Invalid ID format", "Expected domain/name")
-		return
-	}
-	domain, name := parts[0], parts[1]
+	domain := state.Domain.ValueString()
+	name := state.Name.ValueString()
 
 	path := fmt.Sprintf("/api/networking/domain/%s/services/%s/", domain, name)
 	if err := r.client.Delete(ctx, path); err != nil {
@@ -213,7 +204,7 @@ func (r *FirewallServiceResource) Delete(ctx context.Context, req resource.Delet
 }
 
 func mapFirewallServiceToState(ctx context.Context, model *FirewallServiceModel, domain string, api *firewallServiceAPI, diagnostics *diag.Diagnostics) {
-	model.Id = types.StringValue(domain + "/" + api.Name)
+	model.Id = types.StringValue(api.Uuid)
 	model.Domain = types.StringValue(domain)
 	model.Name = types.StringValue(api.Name)
 	model.Uuid = types.StringValue(api.Uuid)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -233,12 +232,8 @@ func (r *FirewallRuleResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
-	parts := strings.SplitN(state.Id.ValueString(), "/", 2)
-	if len(parts) != 2 {
-		resp.Diagnostics.AddError("Invalid ID format", "Expected domain/policyid")
-		return
-	}
-	domain, policyid := parts[0], parts[1]
+	domain := state.Domain.ValueString()
+	policyid := strconv.FormatInt(state.PolicyId.ValueInt64(), 10)
 
 	var apiResp firewallRuleAPI
 	path := fmt.Sprintf("/api/networking/domain/%s/rules/%s/", domain, policyid)
@@ -269,12 +264,8 @@ func (r *FirewallRuleResource) Delete(ctx context.Context, req resource.DeleteRe
 		return
 	}
 
-	parts := strings.SplitN(state.Id.ValueString(), "/", 2)
-	if len(parts) != 2 {
-		resp.Diagnostics.AddError("Invalid ID format", "Expected domain/policyid")
-		return
-	}
-	domain, policyid := parts[0], parts[1]
+	domain := state.Domain.ValueString()
+	policyid := strconv.FormatInt(state.PolicyId.ValueInt64(), 10)
 
 	path := fmt.Sprintf("/api/networking/domain/%s/rules/%s/", domain, policyid)
 	if err := r.client.Delete(ctx, path); err != nil {
@@ -286,7 +277,7 @@ func (r *FirewallRuleResource) Delete(ctx context.Context, req resource.DeleteRe
 }
 
 func mapFirewallRuleToState(ctx context.Context, model *FirewallRuleModel, domain string, api *firewallRuleAPI, diagnostics *diag.Diagnostics) {
-	model.Id = types.StringValue(domain + "/" + strconv.Itoa(api.PolicyId))
+	model.Id = types.StringValue(api.Uuid)
 	model.Domain = types.StringValue(domain)
 	model.Enabled = types.BoolValue(api.Enabled)
 	model.Action = types.BoolValue(api.Action)

@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -134,7 +133,7 @@ func (r *FirewallObjectResource) Create(ctx context.Context, req resource.Create
 		return
 	}
 
-	plan.Id = types.StringValue(domain + "/" + apiResp.Name)
+	plan.Id = types.StringValue(apiResp.Uuid)
 	plan.Name = types.StringValue(apiResp.Name)
 	plan.Uuid = types.StringValue(apiResp.Uuid)
 	plan.Used = types.BoolValue(apiResp.Used)
@@ -158,12 +157,8 @@ func (r *FirewallObjectResource) Read(ctx context.Context, req resource.ReadRequ
 		return
 	}
 
-	parts := strings.SplitN(state.Id.ValueString(), "/", 2)
-	if len(parts) != 2 {
-		resp.Diagnostics.AddError("Invalid ID format", "Expected domain/name")
-		return
-	}
-	domain, name := parts[0], parts[1]
+	domain := state.Domain.ValueString()
+	name := state.Name.ValueString()
 
 	var apiResp firewallObjectAPI
 	path := fmt.Sprintf("/api/networking/domain/%s/objects/%s/", domain, name)
@@ -176,7 +171,7 @@ func (r *FirewallObjectResource) Read(ctx context.Context, req resource.ReadRequ
 		return
 	}
 
-	state.Domain = types.StringValue(domain)
+	state.Id = types.StringValue(apiResp.Uuid)
 	state.Name = types.StringValue(apiResp.Name)
 	state.Uuid = types.StringValue(apiResp.Uuid)
 	state.Used = types.BoolValue(apiResp.Used)
@@ -213,12 +208,8 @@ func (r *FirewallObjectResource) Delete(ctx context.Context, req resource.Delete
 		return
 	}
 
-	parts := strings.SplitN(state.Id.ValueString(), "/", 2)
-	if len(parts) != 2 {
-		resp.Diagnostics.AddError("Invalid ID format", "Expected domain/name")
-		return
-	}
-	domain, name := parts[0], parts[1]
+	domain := state.Domain.ValueString()
+	name := state.Name.ValueString()
 
 	path := fmt.Sprintf("/api/networking/domain/%s/objects/%s/", domain, name)
 	if err := r.client.Delete(ctx, path); err != nil {
