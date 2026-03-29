@@ -893,3 +893,129 @@ data "mcs_virtualmachine" "missing" {
 		},
 	})
 }
+
+// ---------------------------------------------------------------------------
+// mcs_public_ip_address data source
+// ---------------------------------------------------------------------------
+
+func TestAccPublicIPAddressDataSource_ByIPAddress(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	addrs := []map[string]interface{}{
+		{"id": "ip-001", "ip_address": "203.0.113.10", "pool": "pool-001", "description": "Web server", "status": "assigned", "type": "nat", "customer": "acme"},
+		{"id": "ip-002", "ip_address": "203.0.113.20", "pool": "pool-001", "description": "DB server", "status": "available", "type": "nat", "customer": "acme"},
+	}
+
+	mock.On("/api/networking/publicipaddresss", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"results": addrs})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_public_ip_address" "test" {
+  ip_address = "203.0.113.10"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.test", "id", "ip-001"),
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.test", "ip_address", "203.0.113.10"),
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.test", "description", "Web server"),
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.test", "status", "assigned"),
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.test", "type", "nat"),
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.test", "customer", "acme"),
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.test", "pool", "pool-001"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccPublicIPAddressDataSource_ById(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	mock.On("/api/networking/publicipaddresss", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "ip-001", "ip_address": "203.0.113.10", "pool": "pool-001",
+			"description": "Web server", "status": "assigned", "type": "nat", "customer": "acme",
+		})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_public_ip_address" "test" {
+  id = "ip-001"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.test", "id", "ip-001"),
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.test", "ip_address", "203.0.113.10"),
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.test", "status", "assigned"),
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.test", "type", "nat"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccPublicIPAddressDataSource_ListAll(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	addrs := []map[string]interface{}{
+		{"id": "ip-001", "ip_address": "203.0.113.10", "pool": "pool-001", "description": "Web server", "status": "assigned", "type": "nat", "customer": "acme"},
+		{"id": "ip-002", "ip_address": "203.0.113.20", "pool": nil, "description": "Spare IP", "status": "available", "type": "vip", "customer": nil},
+	}
+
+	mock.On("/api/networking/publicipaddresss", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"results": addrs})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_public_ip_address" "all" {}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.all", "public_ip_addresses.#", "2"),
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.all", "public_ip_addresses.0.ip_address", "203.0.113.10"),
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.all", "public_ip_addresses.0.status", "assigned"),
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.all", "public_ip_addresses.1.ip_address", "203.0.113.20"),
+					resource.TestCheckResourceAttr("data.mcs_public_ip_address.all", "public_ip_addresses.1.status", "available"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccPublicIPAddressDataSource_NotFound(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	mock.On("/api/networking/publicipaddresss", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"results": []interface{}{}})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_public_ip_address" "missing" {
+  ip_address = "192.0.2.99"
+}`,
+				ExpectError: regexpMustCompile(`Public IP address not found`),
+			},
+		},
+	})
+}

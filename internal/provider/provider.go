@@ -128,6 +128,7 @@ func (p *MCSProvider) DataSources(_ context.Context) []func() datasource.DataSou
 		NewJobDataSource,
 		NewNetworkDataSource,
 		NewNetworkPoolDataSource,
+		NewPublicIPAddressDataSource,
 		NewTenantDataSource,
 		NewVirtualMachineDataSource,
 		NewZoneDataSource,

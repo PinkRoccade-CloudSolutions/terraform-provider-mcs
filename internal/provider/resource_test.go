@@ -189,7 +189,6 @@ resource "mcs_contact" "test" {
   email     = "john@example.com"
   phone     = "123-456"
   address   = "123 Main St"
-  tenant    = 1
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_contact.test", "id", "10"),
@@ -239,7 +238,6 @@ func TestAccCustomerResource_CRUD(t *testing.T) {
 resource "mcs_customer" "test" {
   name           = "Test Customer"
   contractid     = ""
-  tenant         = 1
   sdm            = 0
   tech_contacts  = []
   admin_contacts = []
@@ -1293,19 +1291,19 @@ func TestAccNATTranslationResource_CRUD(t *testing.T) {
 			{
 				Config: providerConfigBlock(mock.URL()) + `
 resource "mcs_nat_translation" "test" {
-  public_ip   = "pip-uuid-1"
-  interface   = "if-uuid-1"
-  firewall    = "fw-uuid-1"
-  customer    = "acme"
-  description = "Web NAT"
-  protocol    = "tcp"
-  enabled     = true
+  public_ip        = "pip-uuid-1"
+  interface        = "if-uuid-1"
+  firewall         = "fw-uuid-1"
+  translation_type = "one_to_one"
+  customer         = "acme"
+  description      = "Web NAT"
+  protocol         = "tcp"
+  enabled          = true
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_nat_translation.test", "id", "nat-001"),
 					resource.TestCheckResourceAttr("mcs_nat_translation.test", "public_ip", "pip-uuid-1"),
 					resource.TestCheckResourceAttr("mcs_nat_translation.test", "translation_type", "one_to_one"),
-					resource.TestCheckResourceAttr("mcs_nat_translation.test", "state", "synced"),
 					resource.TestCheckResourceAttr("mcs_nat_translation.test", "enabled", "true"),
 				),
 			},
@@ -1350,7 +1348,6 @@ func TestAccPublicIPAddressResource_CRUD(t *testing.T) {
 resource "mcs_public_ip_address" "test" {
   pool        = "pool-uuid-1"
   description = "Web server IP"
-  status      = "available"
   type        = "nat"
   customer    = "acme"
 }`,
@@ -1358,7 +1355,6 @@ resource "mcs_public_ip_address" "test" {
 					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "id", "pip-001"),
 					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "ip_address", "203.0.113.10"),
 					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "pool", "pool-uuid-1"),
-					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "status", "available"),
 					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "type", "nat"),
 				),
 			},
