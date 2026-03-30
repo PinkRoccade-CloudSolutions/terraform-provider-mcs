@@ -188,11 +188,57 @@ func (r *FirewallServiceGroupResource) Read(ctx context.Context, req resource.Re
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-func (r *FirewallServiceGroupResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
-	resp.Diagnostics.AddError(
-		"Update not supported",
-		"mcs_firewall_service_group does not support updates, destroy and recreate the resource.",
-	)
+func (r *FirewallServiceGroupResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan FirewallServiceGroupModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	domain := plan.Domain.ValueString()
+	name := plan.Name.ValueString()
+
+	body := firewallServiceGroupAPI{
+		Name: name,
+	}
+	if !plan.Comment.IsNull() {
+		v := plan.Comment.ValueString()
+		body.Comment = &v
+	}
+	if !plan.Member.IsNull() {
+		var members []string
+		resp.Diagnostics.Append(plan.Member.ElementsAs(ctx, &members, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		body.Member = members
+	}
+
+	var apiResp firewallServiceGroupAPI
+	path := fmt.Sprintf("/api/networking/domain/%s/servicegroups/%s/", domain, name)
+	if err := r.client.Patch(ctx, path, body, &apiResp); err != nil {
+		resp.Diagnostics.AddError("Error updating firewall service group", err.Error())
+		return
+	}
+
+	plan.Id = types.StringValue(apiResp.Uuid)
+	plan.Name = types.StringValue(apiResp.Name)
+	plan.Uuid = types.StringValue(apiResp.Uuid)
+	plan.Used = types.BoolValue(apiResp.Used)
+	if apiResp.Comment != nil {
+		plan.Comment = types.StringValue(*apiResp.Comment)
+	} else {
+		plan.Comment = types.StringNull()
+	}
+	if len(apiResp.Member) > 0 {
+		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Member)
+		resp.Diagnostics.Append(diags...)
+		plan.Member = listVal
+	} else {
+		plan.Member = types.ListValueMust(types.StringType, []attr.Value{})
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *FirewallServiceGroupResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

@@ -478,25 +478,46 @@ func TestAccFirewallObjectResource_CRUD(t *testing.T) {
 	mock := newMockAPIServer()
 	defer mock.Close()
 
+	currentAddress := "10.0.0.1"
+	currentSubnet := "255.255.255.255"
+
 	mock.On("/api/networking/domain", func(w http.ResponseWriter, r *http.Request, body []byte) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method {
 		case http.MethodPost:
 			var req map[string]interface{}
 			_ = json.Unmarshal(body, &req)
+			if v, ok := req["address"]; ok {
+				currentAddress = v.(string)
+			}
+			if v, ok := req["subnet"]; ok {
+				currentSubnet = v.(string)
+			}
 			resp := map[string]interface{}{
 				"name": req["name"], "uuid": "fw-obj-uuid-001", "used": false,
-			}
-			if v, ok := req["address"]; ok {
-				resp["address"] = v
+				"address": currentAddress, "subnet": currentSubnet,
 			}
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(resp)
 		case http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"name": "test-obj", "uuid": "fw-obj-uuid-001", "used": false,
-				"address": "10.0.0.1",
+				"address": currentAddress, "subnet": currentSubnet,
 			})
+		case http.MethodPatch:
+			var req map[string]interface{}
+			_ = json.Unmarshal(body, &req)
+			if v, ok := req["address"]; ok {
+				currentAddress = v.(string)
+			}
+			if v, ok := req["subnet"]; ok {
+				currentSubnet = v.(string)
+			}
+			resp := map[string]interface{}{
+				"name": "test-obj", "uuid": "fw-obj-uuid-001", "used": false,
+				"address": currentAddress, "subnet": currentSubnet,
+			}
+			_ = json.NewEncoder(w).Encode(resp)
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -511,10 +532,27 @@ resource "mcs_firewall_object" "test" {
   domain  = "test-domain"
   name    = "test-obj"
   address = "10.0.0.1"
+  subnet  = "255.255.255.255"
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_firewall_object.test", "uuid", "fw-obj-uuid-001"),
 					resource.TestCheckResourceAttr("mcs_firewall_object.test", "name", "test-obj"),
+					resource.TestCheckResourceAttr("mcs_firewall_object.test", "address", "10.0.0.1"),
+					resource.TestCheckResourceAttr("mcs_firewall_object.test", "subnet", "255.255.255.255"),
+				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_firewall_object" "test" {
+  domain  = "test-domain"
+  name    = "test-obj"
+  address = "10.0.0.2"
+  subnet  = "255.255.255.0"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_firewall_object.test", "uuid", "fw-obj-uuid-001"),
+					resource.TestCheckResourceAttr("mcs_firewall_object.test", "address", "10.0.0.2"),
+					resource.TestCheckResourceAttr("mcs_firewall_object.test", "subnet", "255.255.255.0"),
 				),
 			},
 		},
@@ -528,6 +566,8 @@ resource "mcs_firewall_object" "test" {
 func TestAccFirewallObjectGroupResource_CRUD(t *testing.T) {
 	mock := newMockAPIServer()
 	defer mock.Close()
+
+	currentMembers := []string{"obj-1"}
 
 	mock.On("/api/networking/domain", func(w http.ResponseWriter, r *http.Request, body []byte) {
 		w.Header().Set("Content-Type", "application/json")
@@ -546,8 +586,21 @@ func TestAccFirewallObjectGroupResource_CRUD(t *testing.T) {
 		case http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"name": "test-group", "uuid": "grp-uuid-001", "used": false,
-				"member": []string{"obj-1"},
+				"member": currentMembers,
 			})
+		case http.MethodPatch:
+			var req map[string]interface{}
+			_ = json.Unmarshal(body, &req)
+			resp := map[string]interface{}{
+				"name": "test-group", "uuid": "grp-uuid-001", "used": false,
+				"member": currentMembers,
+			}
+			if v, ok := req["member"]; ok {
+				resp["member"] = v
+				raw, _ := json.Marshal(v)
+				_ = json.Unmarshal(raw, &currentMembers)
+			}
+			_ = json.NewEncoder(w).Encode(resp)
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -566,6 +619,19 @@ resource "mcs_firewall_object_group" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_firewall_object_group.test", "uuid", "grp-uuid-001"),
 					resource.TestCheckResourceAttr("mcs_firewall_object_group.test", "name", "test-group"),
+					resource.TestCheckResourceAttr("mcs_firewall_object_group.test", "member.#", "1"),
+				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_firewall_object_group" "test" {
+  domain = "test-domain"
+  name   = "test-group"
+  member = ["obj-1", "obj-2"]
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_firewall_object_group.test", "uuid", "grp-uuid-001"),
+					resource.TestCheckResourceAttr("mcs_firewall_object_group.test", "member.#", "2"),
 				),
 			},
 		},
@@ -580,31 +646,34 @@ func TestAccFirewallRuleResource_CRUD(t *testing.T) {
 	mock := newMockAPIServer()
 	defer mock.Close()
 
+	currentService := []string{"HTTP"}
+
+	ruleResponse := func() map[string]interface{} {
+		return map[string]interface{}{
+			"enabled": true, "action": true,
+			"uuid": "rule-uuid-001", "policyid": 100, "group": "",
+			"src": []string{"all"}, "dst": []string{"all"},
+			"src_intf": []string{"any"}, "dst_intf": []string{"any"},
+			"service": currentService,
+		}
+	}
+
 	mock.On("/api/networking/domain", func(w http.ResponseWriter, r *http.Request, body []byte) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method {
 		case http.MethodPost:
-			resp := map[string]interface{}{
-				"enabled": true, "action": true, "used": false, "compliant": true,
-				"uuid": "rule-uuid-001", "policyid": 100, "hit_count": 0,
-				"last_hit": "", "group": "",
-				"src": []string{"all"}, "dst": []string{"all"},
-				"src_intf": []string{"any"}, "dst_intf": []string{"any"},
-				"service": []string{"HTTP"},
-				"compliancy_errors": []string{},
-			}
 			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(ruleResponse())
 		case http.MethodGet:
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"enabled": true, "action": true, "used": false, "compliant": true,
-				"uuid": "rule-uuid-001", "policyid": 100, "hit_count": 0,
-				"last_hit": "", "group": "",
-				"src": []string{"all"}, "dst": []string{"all"},
-				"src_intf": []string{"any"}, "dst_intf": []string{"any"},
-				"service": []string{"HTTP"},
-				"compliancy_errors": []string{},
-			})
+			_ = json.NewEncoder(w).Encode(ruleResponse())
+		case http.MethodPatch:
+			var req map[string]interface{}
+			_ = json.Unmarshal(body, &req)
+			if v, ok := req["service"]; ok {
+				raw, _ := json.Marshal(v)
+				_ = json.Unmarshal(raw, &currentService)
+			}
+			_ = json.NewEncoder(w).Encode(ruleResponse())
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -628,6 +697,25 @@ resource "mcs_firewall_rule" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_firewall_rule.test", "uuid", "rule-uuid-001"),
 					resource.TestCheckResourceAttr("mcs_firewall_rule.test", "policyid", "100"),
+					resource.TestCheckResourceAttr("mcs_firewall_rule.test", "service.0", "HTTP"),
+				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_firewall_rule" "test" {
+  domain   = "test-domain"
+  enabled  = true
+  action   = true
+  src      = ["all"]
+  dst      = ["all"]
+  src_intf = ["any"]
+  dst_intf = ["any"]
+  service  = ["HTTPS"]
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_firewall_rule.test", "uuid", "rule-uuid-001"),
+					resource.TestCheckResourceAttr("mcs_firewall_rule.test", "policyid", "100"),
+					resource.TestCheckResourceAttr("mcs_firewall_rule.test", "service.0", "HTTPS"),
 				),
 			},
 		},
@@ -642,14 +730,21 @@ func TestAccFirewallServiceResource_CRUD(t *testing.T) {
 	mock := newMockAPIServer()
 	defer mock.Close()
 
+	currentTcpPorts := []string{"443"}
+	currentProtocol := "TCP/UDP/SCTP"
+
 	mock.On("/api/networking/domain", func(w http.ResponseWriter, r *http.Request, body []byte) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method {
 		case http.MethodPost:
 			var req map[string]interface{}
 			_ = json.Unmarshal(body, &req)
+			if v, ok := req["protocol"]; ok {
+				currentProtocol = v.(string)
+			}
 			resp := map[string]interface{}{
 				"name": req["name"], "uuid": "svc-uuid-001", "used": false,
+				"protocol": currentProtocol,
 			}
 			if v, ok := req["tcp_portrange"]; ok {
 				resp["tcp_portrange"] = v
@@ -662,8 +757,26 @@ func TestAccFirewallServiceResource_CRUD(t *testing.T) {
 		case http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"name": "https-svc", "uuid": "svc-uuid-001", "used": false,
-				"tcp_portrange": []string{"443"}, "udp_portrange": []string{},
+				"protocol":      currentProtocol,
+				"tcp_portrange": currentTcpPorts, "udp_portrange": []string{},
 			})
+		case http.MethodPatch:
+			var req map[string]interface{}
+			_ = json.Unmarshal(body, &req)
+			if v, ok := req["protocol"]; ok {
+				currentProtocol = v.(string)
+			}
+			resp := map[string]interface{}{
+				"name": "https-svc", "uuid": "svc-uuid-001", "used": false,
+				"protocol":      currentProtocol,
+				"tcp_portrange": currentTcpPorts, "udp_portrange": []string{},
+			}
+			if v, ok := req["tcp_portrange"]; ok {
+				resp["tcp_portrange"] = v
+				raw, _ := json.Marshal(v)
+				_ = json.Unmarshal(raw, &currentTcpPorts)
+			}
+			_ = json.NewEncoder(w).Encode(resp)
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -677,12 +790,31 @@ func TestAccFirewallServiceResource_CRUD(t *testing.T) {
 resource "mcs_firewall_service" "test" {
   domain        = "test-domain"
   name          = "https-svc"
+  protocol      = "TCP/UDP/SCTP"
   tcp_portrange = ["443"]
   udp_portrange = []
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_firewall_service.test", "uuid", "svc-uuid-001"),
 					resource.TestCheckResourceAttr("mcs_firewall_service.test", "name", "https-svc"),
+					resource.TestCheckResourceAttr("mcs_firewall_service.test", "protocol", "TCP/UDP/SCTP"),
+					resource.TestCheckResourceAttr("mcs_firewall_service.test", "tcp_portrange.0", "443"),
+				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_firewall_service" "test" {
+  domain        = "test-domain"
+  name          = "https-svc"
+  protocol      = "TCP/UDP/SCTP"
+  tcp_portrange = ["443", "8443"]
+  udp_portrange = []
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_firewall_service.test", "uuid", "svc-uuid-001"),
+					resource.TestCheckResourceAttr("mcs_firewall_service.test", "protocol", "TCP/UDP/SCTP"),
+					resource.TestCheckResourceAttr("mcs_firewall_service.test", "tcp_portrange.#", "2"),
+					resource.TestCheckResourceAttr("mcs_firewall_service.test", "tcp_portrange.1", "8443"),
 				),
 			},
 		},
@@ -696,6 +828,8 @@ resource "mcs_firewall_service" "test" {
 func TestAccFirewallServiceGroupResource_CRUD(t *testing.T) {
 	mock := newMockAPIServer()
 	defer mock.Close()
+
+	currentMembers := []string{"svc-1"}
 
 	mock.On("/api/networking/domain", func(w http.ResponseWriter, r *http.Request, body []byte) {
 		w.Header().Set("Content-Type", "application/json")
@@ -714,8 +848,21 @@ func TestAccFirewallServiceGroupResource_CRUD(t *testing.T) {
 		case http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"name": "web-services", "uuid": "svcgrp-uuid-001", "used": false,
-				"member": []string{"svc-1"},
+				"member": currentMembers,
 			})
+		case http.MethodPatch:
+			var req map[string]interface{}
+			_ = json.Unmarshal(body, &req)
+			resp := map[string]interface{}{
+				"name": "web-services", "uuid": "svcgrp-uuid-001", "used": false,
+				"member": currentMembers,
+			}
+			if v, ok := req["member"]; ok {
+				resp["member"] = v
+				raw, _ := json.Marshal(v)
+				_ = json.Unmarshal(raw, &currentMembers)
+			}
+			_ = json.NewEncoder(w).Encode(resp)
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -734,6 +881,19 @@ resource "mcs_firewall_service_group" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_firewall_service_group.test", "uuid", "svcgrp-uuid-001"),
 					resource.TestCheckResourceAttr("mcs_firewall_service_group.test", "name", "web-services"),
+					resource.TestCheckResourceAttr("mcs_firewall_service_group.test", "member.#", "1"),
+				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_firewall_service_group" "test" {
+  domain = "test-domain"
+  name   = "web-services"
+  member = ["svc-1", "svc-2"]
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_firewall_service_group.test", "uuid", "svcgrp-uuid-001"),
+					resource.TestCheckResourceAttr("mcs_firewall_service_group.test", "member.#", "2"),
 				),
 			},
 		},

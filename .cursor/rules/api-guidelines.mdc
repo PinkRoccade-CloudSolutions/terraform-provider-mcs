@@ -1,0 +1,11 @@
+---
+description: API schema field filtering rules when implementing resources and data sources
+alwaysApply: true
+---
+
+# API Schema Guidelines
+
+When implementing API endpoints as Terraform resources or data sources:
+
+- **Ignore all audit fields** from the API schema. Do not add them to Terraform resource schemas or data models.
+- **Ignore the `state` field** from the API schema. Do not add it to Terraform resource schemas or data models.

@@ -9,9 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -25,43 +23,33 @@ type FirewallRuleResource struct {
 }
 
 type FirewallRuleModel struct {
-	Id               types.String `tfsdk:"id"`
-	Domain           types.String `tfsdk:"domain"`
-	Enabled          types.Bool   `tfsdk:"enabled"`
-	Src              types.List   `tfsdk:"src"`
-	Dst              types.List   `tfsdk:"dst"`
-	SrcIntf          types.List   `tfsdk:"src_intf"`
-	DstIntf          types.List   `tfsdk:"dst_intf"`
-	Service          types.List   `tfsdk:"service"`
-	Action           types.Bool   `tfsdk:"action"`
-	Used             types.Bool   `tfsdk:"used"`
-	Compliant        types.Bool   `tfsdk:"compliant"`
-	Uuid             types.String `tfsdk:"uuid"`
-	PolicyId         types.Int64  `tfsdk:"policyid"`
-	HitCount         types.Int64  `tfsdk:"hit_count"`
-	LastHit          types.String `tfsdk:"last_hit"`
-	Group            types.String `tfsdk:"group"`
-	Comment          types.String `tfsdk:"comment"`
-	CompliancyErrors types.List   `tfsdk:"compliancy_errors"`
+	Id       types.String `tfsdk:"id"`
+	Domain   types.String `tfsdk:"domain"`
+	Enabled  types.Bool   `tfsdk:"enabled"`
+	Src      types.List   `tfsdk:"src"`
+	Dst      types.List   `tfsdk:"dst"`
+	SrcIntf  types.List   `tfsdk:"src_intf"`
+	DstIntf  types.List   `tfsdk:"dst_intf"`
+	Service  types.List   `tfsdk:"service"`
+	Action   types.Bool   `tfsdk:"action"`
+	Uuid     types.String `tfsdk:"uuid"`
+	PolicyId types.Int64  `tfsdk:"policyid"`
+	Group    types.String `tfsdk:"group"`
+	Comment  types.String `tfsdk:"comment"`
 }
 
 type firewallRuleAPI struct {
-	Enabled          bool     `json:"enabled"`
-	Src              []string `json:"src,omitempty"`
-	Dst              []string `json:"dst,omitempty"`
-	SrcIntf          []string `json:"src_intf,omitempty"`
-	DstIntf          []string `json:"dst_intf,omitempty"`
-	Service          []string `json:"service,omitempty"`
-	Action           bool     `json:"action"`
-	Used             bool     `json:"used"`
-	Compliant        bool     `json:"compliant"`
-	Uuid             string   `json:"uuid,omitempty"`
-	PolicyId         int      `json:"policyid"`
-	HitCount         int      `json:"hit_count"`
-	LastHit          string   `json:"last_hit,omitempty"`
-	Group            string   `json:"group,omitempty"`
-	Comment          *string  `json:"comment,omitempty"`
-	CompliancyErrors []string `json:"compliancy_errors,omitempty"`
+	Enabled  bool     `json:"enabled"`
+	Src      []string `json:"src,omitempty"`
+	Dst      []string `json:"dst,omitempty"`
+	SrcIntf  []string `json:"src_intf,omitempty"`
+	DstIntf  []string `json:"dst_intf,omitempty"`
+	Service  []string `json:"service,omitempty"`
+	Action   bool     `json:"action"`
+	Uuid     string   `json:"uuid,omitempty"`
+	PolicyId int      `json:"policyid"`
+	Group    string   `json:"group,omitempty"`
+	Comment  *string  `json:"comment,omitempty"`
 }
 
 func NewFirewallRuleResource() resource.Resource {
@@ -117,16 +105,6 @@ func (r *FirewallRuleResource) Schema(_ context.Context, _ resource.SchemaReques
 				Required:    true,
 				Description: "Action for the rule (true=allow, false=deny).",
 			},
-			"used": schema.BoolAttribute{
-				Computed:      true,
-				Description:   "Whether the rule is currently in use.",
-				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
-			},
-			"compliant": schema.BoolAttribute{
-				Computed:      true,
-				Description:   "Whether the rule is compliant.",
-				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
-			},
 			"uuid": schema.StringAttribute{
 				Computed:      true,
 				Description:   "UUID assigned by the firewall.",
@@ -137,16 +115,6 @@ func (r *FirewallRuleResource) Schema(_ context.Context, _ resource.SchemaReques
 				Description:   "Policy ID assigned by the firewall.",
 				PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
 			},
-			"hit_count": schema.Int64Attribute{
-				Computed:      true,
-				Description:   "Number of times the rule was hit.",
-				PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
-			},
-			"last_hit": schema.StringAttribute{
-				Computed:      true,
-				Description:   "Timestamp of the last hit.",
-				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
-			},
 			"group": schema.StringAttribute{
 				Computed:      true,
 				Description:   "Group the rule belongs to.",
@@ -155,12 +123,6 @@ func (r *FirewallRuleResource) Schema(_ context.Context, _ resource.SchemaReques
 			"comment": schema.StringAttribute{
 				Optional:    true,
 				Description: "Comment for the rule.",
-			},
-			"compliancy_errors": schema.ListAttribute{
-				ElementType:   types.StringType,
-				Computed:      true,
-				Description:   "List of compliancy errors.",
-				PlanModifiers: []planmodifier.List{listplanmodifier.UseStateForUnknown()},
 			},
 		},
 	}
@@ -250,11 +212,52 @@ func (r *FirewallRuleResource) Read(ctx context.Context, req resource.ReadReques
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-func (r *FirewallRuleResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
-	resp.Diagnostics.AddError(
-		"Update not supported",
-		"mcs_firewall_rule does not support updates, destroy and recreate the resource.",
-	)
+func (r *FirewallRuleResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan FirewallRuleModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	domain := plan.Domain.ValueString()
+	policyid := strconv.FormatInt(plan.PolicyId.ValueInt64(), 10)
+
+	body := firewallRuleAPI{
+		Enabled: plan.Enabled.ValueBool(),
+		Action:  plan.Action.ValueBool(),
+	}
+	if !plan.Src.IsNull() {
+		resp.Diagnostics.Append(plan.Src.ElementsAs(ctx, &body.Src, false)...)
+	}
+	if !plan.Dst.IsNull() {
+		resp.Diagnostics.Append(plan.Dst.ElementsAs(ctx, &body.Dst, false)...)
+	}
+	if !plan.SrcIntf.IsNull() {
+		resp.Diagnostics.Append(plan.SrcIntf.ElementsAs(ctx, &body.SrcIntf, false)...)
+	}
+	if !plan.DstIntf.IsNull() {
+		resp.Diagnostics.Append(plan.DstIntf.ElementsAs(ctx, &body.DstIntf, false)...)
+	}
+	if !plan.Service.IsNull() {
+		resp.Diagnostics.Append(plan.Service.ElementsAs(ctx, &body.Service, false)...)
+	}
+	if !plan.Comment.IsNull() {
+		v := plan.Comment.ValueString()
+		body.Comment = &v
+	}
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	var apiResp firewallRuleAPI
+	path := fmt.Sprintf("/api/networking/domain/%s/rules/%s/", domain, policyid)
+	if err := r.client.Patch(ctx, path, body, &apiResp); err != nil {
+		resp.Diagnostics.AddError("Error updating firewall rule", err.Error())
+		return
+	}
+
+	mapFirewallRuleToState(ctx, &plan, domain, &apiResp, &resp.Diagnostics)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *FirewallRuleResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -277,16 +280,12 @@ func (r *FirewallRuleResource) Delete(ctx context.Context, req resource.DeleteRe
 }
 
 func mapFirewallRuleToState(ctx context.Context, model *FirewallRuleModel, domain string, api *firewallRuleAPI, diagnostics *diag.Diagnostics) {
-	model.Id = types.StringValue(api.Uuid)
+	model.Id = types.StringValue(strconv.Itoa(api.PolicyId))
 	model.Domain = types.StringValue(domain)
 	model.Enabled = types.BoolValue(api.Enabled)
 	model.Action = types.BoolValue(api.Action)
-	model.Used = types.BoolValue(api.Used)
-	model.Compliant = types.BoolValue(api.Compliant)
 	model.Uuid = types.StringValue(api.Uuid)
 	model.PolicyId = types.Int64Value(int64(api.PolicyId))
-	model.HitCount = types.Int64Value(int64(api.HitCount))
-	model.LastHit = types.StringValue(api.LastHit)
 	model.Group = types.StringValue(api.Group)
 
 	if api.Comment != nil {
@@ -309,5 +308,4 @@ func mapFirewallRuleToState(ctx context.Context, model *FirewallRuleModel, domai
 	model.SrcIntf = setStringList(api.SrcIntf)
 	model.DstIntf = setStringList(api.DstIntf)
 	model.Service = setStringList(api.Service)
-	model.CompliancyErrors = setStringList(api.CompliancyErrors)
 }

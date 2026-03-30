@@ -1,0 +1,35 @@
+---
+description: Enforce test creation and documentation updates for every code change
+alwaysApply: true
+---
+
+# Testing & Documentation Requirements
+
+Every code change to this Terraform provider MUST include corresponding test updates and documentation updates. Never consider a task complete until both are done.
+
+## Testing
+
+- **Every new resource or data source** must have a CRUD test in `internal/provider/resource_test.go` (or `datasource_test.go`).
+- **Every modification to an existing resource or data source** must update or extend its existing tests to cover the change.
+- Follow the project's established test pattern:
+  1. Create a `newMockAPIServer()` with `mock.On(...)` handlers for the relevant API endpoints.
+  2. Use `resource.UnitTest` with `testProtoV6ProviderFactories(mock.URL())`.
+  3. Include `TestStep` entries that verify all managed attributes via `resource.TestCheckResourceAttr`.
+- Test names follow the convention `TestAcc<ResourceName>Resource_CRUD`.
+- Test helper utilities live in `internal/provider/testutils_test.go`; reuse them.
+- After writing tests, run `go test ./internal/provider/ -run <TestName> -v` to verify they pass.
+
+## Documentation
+
+- All end-user documentation lives in `docs/index.md`.
+- **Every new resource or data source** must be added to the Table of Contents and have a full section with:
+  - A description of what it manages.
+  - An example HCL usage block.
+  - An attribute reference table listing all arguments and read-only attributes.
+- **Every modification** (new field, removed field, changed behavior) must update the relevant section in `docs/index.md` to reflect the change.
+
+## Checklist (apply after every change)
+
+1. Code change implemented.
+2. Tests added or updated — and passing.
+3. `docs/index.md` updated to reflect the change.

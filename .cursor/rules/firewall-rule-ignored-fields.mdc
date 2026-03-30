@@ -1,0 +1,16 @@
+---
+description: Fields to exclude from Firewall Rule resource and datasource implementations
+alwaysApply: true
+---
+
+# Firewall Rule — Ignored Fields
+
+When implementing or modifying the Firewall Rule resource or datasource, **never** include the following fields in schemas, data models, or CRUD logic:
+
+- `compliancy_errors`
+- `compliant`
+- `hit_count`
+- `last_hit`
+- `used`
+
+These fields are not relevant to the Terraform provider and including them can cause issues.

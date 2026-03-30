@@ -2546,6 +2546,48 @@ paths:
               schema:
                 $ref: '#/components/schemas/FirewallObjectGroup'
           description: ''
+    patch:
+      operationId: networking_domain_groups_partial_update
+      description: |-
+        API endpoint that allows the retrieval/creation and removal of Firewall ObjectGroups.
+        Parameters:
+            - Domain (Required): The name of the firewall domain (ie VDOM-XXX)
+      parameters:
+      - in: path
+        name: domain
+        schema:
+          type: string
+          pattern: ^.+$
+        required: true
+      - in: path
+        name: name
+        schema:
+          type: string
+        required: true
+      tags:
+      - networking
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallObjectGroup'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallObjectGroup'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallObjectGroup'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirewallObjectGroup'
+          description: ''
     delete:
       operationId: networking_domain_groups_destroy
       description: |-
@@ -2682,6 +2724,7 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/FirewallObject'
+        required: true
       security:
       - cookieAuth: []
       - basicAuth: []
@@ -2714,6 +2757,48 @@ paths:
         required: true
       tags:
       - networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirewallObject'
+          description: ''
+    patch:
+      operationId: networking_domain_objects_partial_update
+      description: |-
+        API endpoint that allows the retrieval/creation and removal of Firewall Objects.
+        Parameters:
+            - Domain (Required): The name of the firewall domain (ie VDOM-XXX)
+      parameters:
+      - in: path
+        name: domain
+        schema:
+          type: string
+          pattern: ^.+$
+        required: true
+      - in: path
+        name: name
+        schema:
+          type: string
+        required: true
+      tags:
+      - networking
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallObject'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallObject'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallObject'
       security:
       - cookieAuth: []
       - basicAuth: []
@@ -2862,6 +2947,48 @@ paths:
               schema:
                 $ref: '#/components/schemas/FirewallRule'
           description: ''
+    patch:
+      operationId: networking_domain_rules_partial_update
+      description: |-
+        API endpoint that allows the retrieval/creation and removal of Firewall Rules.
+        Parameters:
+            - Domain (Required): The name of the firewall domain (ie VDOM-XXX)
+      parameters:
+      - in: path
+        name: domain
+        schema:
+          type: string
+          pattern: ^.+$
+        required: true
+      - in: path
+        name: policyid
+        schema:
+          type: string
+        required: true
+      tags:
+      - networking
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallRule'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallRule'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallRule'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirewallRule'
+          description: ''
     delete:
       operationId: networking_domain_rules_destroy
       description: |-
@@ -2955,6 +3082,7 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/FirewallServiceGroup'
+        required: true
       security:
       - cookieAuth: []
       - basicAuth: []
@@ -2987,6 +3115,48 @@ paths:
         required: true
       tags:
       - networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirewallServiceGroup'
+          description: ''
+    patch:
+      operationId: networking_domain_servicegroups_partial_update
+      description: |-
+        API endpoint that allows the retrieval of Firewall ServiceGroups.
+        Parameters:
+            - Domain (Required): The name of the firewall domain (ie VDOM-XXX)
+      parameters:
+      - in: path
+        name: domain
+        schema:
+          type: string
+          pattern: ^.+$
+        required: true
+      - in: path
+        name: name
+        schema:
+          type: string
+        required: true
+      tags:
+      - networking
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallServiceGroup'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallServiceGroup'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallServiceGroup'
       security:
       - cookieAuth: []
       - basicAuth: []
@@ -3091,6 +3261,7 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/FirewallService'
+        required: true
       security:
       - cookieAuth: []
       - basicAuth: []
@@ -3123,6 +3294,48 @@ paths:
         required: true
       tags:
       - networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirewallService'
+          description: ''
+    patch:
+      operationId: networking_domain_services_partial_update
+      description: |-
+        API endpoint that allows the retrieval of Firewall Services.
+        Parameters:
+            - Domain (Required): The name of the firewall domain (ie VDOM-XXX)
+      parameters:
+      - in: path
+        name: domain
+        schema:
+          type: string
+          pattern: ^.+$
+        required: true
+      - in: path
+        name: name
+        schema:
+          type: string
+        required: true
+      tags:
+      - networking
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallService'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallService'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedFirewallService'
       security:
       - cookieAuth: []
       - basicAuth: []
@@ -5481,13 +5694,13 @@ components:
     FirewallObject:
       type: object
       properties:
-        name:
-          type: string
-          maxLength: 100
         uuid:
           type: string
           readOnly: true
           maxLength: 255
+        name:
+          type: string
+          maxLength: 100
         address:
           type: string
           maxLength: 2048
@@ -5501,6 +5714,9 @@ components:
           type: boolean
           readOnly: true
       required:
+      - address
+      - name
+      - subnet
       - used
       - uuid
     FirewallObjectGroup:
@@ -5661,13 +5877,13 @@ components:
     FirewallService:
       type: object
       properties:
-        name:
-          type: string
-          maxLength: 100
         uuid:
           type: string
           readOnly: true
           maxLength: 255
+        name:
+          type: string
+          maxLength: 100
         protocol:
           type: string
           maxLength: 255
@@ -5686,18 +5902,20 @@ components:
           type: boolean
           readOnly: true
       required:
+      - name
+      - protocol
       - used
       - uuid
     FirewallServiceGroup:
       type: object
       properties:
-        name:
-          type: string
-          maxLength: 100
         uuid:
           type: string
           readOnly: true
           maxLength: 255
+        name:
+          type: string
+          maxLength: 100
         comment:
           type: string
           maxLength: 255
@@ -5709,6 +5927,7 @@ components:
           type: boolean
           readOnly: true
       required:
+      - name
       - used
       - uuid
     FirewallTypeEnum:
@@ -7237,6 +7456,156 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Label'
+    PatchedFirewallObject:
+      type: object
+      properties:
+        uuid:
+          type: string
+          readOnly: true
+          maxLength: 255
+        name:
+          type: string
+          maxLength: 100
+        address:
+          type: string
+          maxLength: 2048
+        subnet:
+          type: string
+          maxLength: 2048
+        comment:
+          type: string
+          maxLength: 2048
+        used:
+          type: boolean
+          readOnly: true
+    PatchedFirewallObjectGroup:
+      type: object
+      properties:
+        uuid:
+          type: string
+          readOnly: true
+          maxLength: 255
+        name:
+          type: string
+          maxLength: 100
+        comment:
+          type: string
+          maxLength: 2048
+        member:
+          type: array
+          items:
+            type: string
+        used:
+          type: boolean
+          readOnly: true
+    PatchedFirewallRule:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        src:
+          type: array
+          items:
+            type: string
+        dst:
+          type: array
+          items:
+            type: string
+        src_intf:
+          type: array
+          items:
+            type: string
+        dst_intf:
+          type: array
+          items:
+            type: string
+        service:
+          type: array
+          items:
+            type: string
+        action:
+          type: boolean
+        used:
+          type: boolean
+          readOnly: true
+        compliant:
+          type: boolean
+          readOnly: true
+        uuid:
+          type: string
+          readOnly: true
+          maxLength: 2048
+        policyid:
+          type: integer
+          maximum: 1071741824
+          minimum: 1
+          readOnly: true
+        hit_count:
+          type: integer
+          readOnly: true
+        last_hit:
+          type: string
+          readOnly: true
+          maxLength: 2048
+        group:
+          type: string
+          readOnly: true
+          maxLength: 2048
+        comment:
+          type: string
+          maxLength: 2048
+        compliancy_errors:
+          type: array
+          items:
+            type: string
+          readOnly: true
+    PatchedFirewallService:
+      type: object
+      properties:
+        uuid:
+          type: string
+          readOnly: true
+          maxLength: 255
+        name:
+          type: string
+          maxLength: 100
+        protocol:
+          type: string
+          maxLength: 255
+        comment:
+          type: string
+          maxLength: 255
+        tcp_portrange:
+          type: array
+          items:
+            type: string
+        udp_portrange:
+          type: array
+          items:
+            type: string
+        used:
+          type: boolean
+          readOnly: true
+    PatchedFirewallServiceGroup:
+      type: object
+      properties:
+        uuid:
+          type: string
+          readOnly: true
+          maxLength: 255
+        name:
+          type: string
+          maxLength: 100
+        comment:
+          type: string
+          maxLength: 255
+        member:
+          type: array
+          items:
+            type: string
+        used:
+          type: boolean
+          readOnly: true
     PatchedLbServicegroup:
       type: object
       properties:

@@ -1218,8 +1218,6 @@ resource "mcs_site_to_site_vpn" "office" {
 
 ### Firewall
 
-> **Important:** Firewall resources (`mcs_firewall_object`, `mcs_firewall_object_group`, `mcs_firewall_rule`, `mcs_firewall_service`, `mcs_firewall_service_group`) support **create and delete only**. Updates require destroying and recreating the resource. Use `lifecycle { create_before_destroy = true }` if you need zero-downtime changes.
-
 #### mcs_firewall_object
 
 Manages a firewall address object.
@@ -1242,8 +1240,8 @@ resource "mcs_firewall_object" "web_server" {
 |----------|--------|----------|-------------|
 | `domain` | String | **Yes**  | Firewall domain (VDOM). |
 | `name`   | String | **Yes**  | Object name. |
-| `address` | String | No      | IP address. |
-| `subnet` | String | No       | Subnet mask. |
+| `address` | String | **Yes** | IP address. |
+| `subnet` | String | **Yes**  | Subnet mask. |
 | `comment` | String | No      | Comment / description. |
 
 **Read-only attributes:** `id` (String), `uuid` (String — firewall UUID), `used` (Bool — whether the object is in use by a policy).
@@ -1318,15 +1316,10 @@ resource "mcs_firewall_rule" "allow_https" {
 
 | Attribute           | Type         | Description |
 |--------------------|-------------|-------------|
-| `id`               | String       | Rule ID. |
+| `id`               | String       | Rule ID (same as `policyid`). |
 | `uuid`             | String       | Firewall UUID. |
 | `policyid`         | Number       | Policy ID (used internally for API operations). |
-| `used`             | Bool         | Whether the rule is in use. |
-| `compliant`        | Bool         | Whether the rule is compliant. |
-| `hit_count`        | Number       | Number of times the rule has been matched. |
-| `last_hit`         | String       | Timestamp of the last hit. |
 | `group`            | String       | Rule group. |
-| `compliancy_errors` | List(String) | List of compliancy error messages. |
 
 ---
 
@@ -1352,7 +1345,7 @@ resource "mcs_firewall_service" "custom_app" {
 |----------------|-------------|----------|-------------|
 | `domain`       | String       | **Yes**  | Firewall domain (VDOM). |
 | `name`         | String       | **Yes**  | Service name. |
-| `protocol`     | String       | No       | Protocol type (e.g. `TCP/UDP/SCTP`). |
+| `protocol`     | String       | **Yes**  | Protocol type (e.g. `TCP/UDP/SCTP`). |
 | `tcp_portrange` | List(String) | No      | TCP port ranges (e.g. `["80", "443", "8000-8999"]`). |
 | `udp_portrange` | List(String) | No      | UDP port ranges. |
 | `comment`      | String       | No       | Comment / description. |

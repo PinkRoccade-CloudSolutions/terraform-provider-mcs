@@ -36,7 +36,7 @@ type FirewallServiceModel struct {
 type firewallServiceAPI struct {
 	Name         string   `json:"name,omitempty"`
 	Uuid         string   `json:"uuid,omitempty"`
-	Protocol     *string  `json:"protocol,omitempty"`
+	Protocol     string   `json:"protocol"`
 	Comment      *string  `json:"comment,omitempty"`
 	TcpPortrange []string `json:"tcp_portrange,omitempty"`
 	UdpPortrange []string `json:"udp_portrange,omitempty"`
@@ -73,8 +73,8 @@ func (r *FirewallServiceResource) Schema(_ context.Context, _ resource.SchemaReq
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"protocol": schema.StringAttribute{
-				Optional:    true,
-				Description: "Protocol type for the service.",
+				Required:    true,
+				Description: "Protocol type for the service (e.g. TCP/UDP/SCTP).",
 			},
 			"comment": schema.StringAttribute{
 				Optional:    true,
@@ -121,11 +121,8 @@ func (r *FirewallServiceResource) Create(ctx context.Context, req resource.Creat
 	domain := plan.Domain.ValueString()
 
 	body := firewallServiceAPI{
-		Name: plan.Name.ValueString(),
-	}
-	if !plan.Protocol.IsNull() {
-		v := plan.Protocol.ValueString()
-		body.Protocol = &v
+		Name:     plan.Name.ValueString(),
+		Protocol: plan.Protocol.ValueString(),
 	}
 	if !plan.Comment.IsNull() {
 		v := plan.Comment.ValueString()
@@ -177,11 +174,43 @@ func (r *FirewallServiceResource) Read(ctx context.Context, req resource.ReadReq
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-func (r *FirewallServiceResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
-	resp.Diagnostics.AddError(
-		"Update not supported",
-		"mcs_firewall_service does not support updates, destroy and recreate the resource.",
-	)
+func (r *FirewallServiceResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan FirewallServiceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	domain := plan.Domain.ValueString()
+	name := plan.Name.ValueString()
+
+	body := firewallServiceAPI{
+		Name:     name,
+		Protocol: plan.Protocol.ValueString(),
+	}
+	if !plan.Comment.IsNull() {
+		v := plan.Comment.ValueString()
+		body.Comment = &v
+	}
+	if !plan.TcpPortrange.IsNull() {
+		resp.Diagnostics.Append(plan.TcpPortrange.ElementsAs(ctx, &body.TcpPortrange, false)...)
+	}
+	if !plan.UdpPortrange.IsNull() {
+		resp.Diagnostics.Append(plan.UdpPortrange.ElementsAs(ctx, &body.UdpPortrange, false)...)
+	}
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	var apiResp firewallServiceAPI
+	path := fmt.Sprintf("/api/networking/domain/%s/services/%s/", domain, name)
+	if err := r.client.Patch(ctx, path, body, &apiResp); err != nil {
+		resp.Diagnostics.AddError("Error updating firewall service", err.Error())
+		return
+	}
+
+	mapFirewallServiceToState(ctx, &plan, domain, &apiResp, &resp.Diagnostics)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *FirewallServiceResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -210,11 +239,7 @@ func mapFirewallServiceToState(ctx context.Context, model *FirewallServiceModel,
 	model.Uuid = types.StringValue(api.Uuid)
 	model.Used = types.BoolValue(api.Used)
 
-	if api.Protocol != nil {
-		model.Protocol = types.StringValue(*api.Protocol)
-	} else {
-		model.Protocol = types.StringNull()
-	}
+	model.Protocol = types.StringValue(api.Protocol)
 	if api.Comment != nil {
 		model.Comment = types.StringValue(*api.Comment)
 	} else {

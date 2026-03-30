@@ -33,8 +33,8 @@ type FirewallObjectModel struct {
 type firewallObjectAPI struct {
 	Name    string  `json:"name,omitempty"`
 	Uuid    string  `json:"uuid,omitempty"`
-	Address *string `json:"address,omitempty"`
-	Subnet  *string `json:"subnet,omitempty"`
+	Address string  `json:"address"`
+	Subnet  string  `json:"subnet"`
 	Comment *string `json:"comment,omitempty"`
 	Used    bool    `json:"used"`
 }
@@ -69,12 +69,12 @@ func (r *FirewallObjectResource) Schema(_ context.Context, _ resource.SchemaRequ
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"address": schema.StringAttribute{
-				Optional:    true,
+				Required:    true,
 				Description: "IP address of the object.",
 			},
 			"subnet": schema.StringAttribute{
-				Optional:    true,
-				Description: "Subnet of the object.",
+				Required:    true,
+				Description: "Subnet mask of the object.",
 			},
 			"comment": schema.StringAttribute{
 				Optional:    true,
@@ -111,15 +111,9 @@ func (r *FirewallObjectResource) Create(ctx context.Context, req resource.Create
 	domain := plan.Domain.ValueString()
 
 	body := firewallObjectAPI{
-		Name: plan.Name.ValueString(),
-	}
-	if !plan.Address.IsNull() {
-		v := plan.Address.ValueString()
-		body.Address = &v
-	}
-	if !plan.Subnet.IsNull() {
-		v := plan.Subnet.ValueString()
-		body.Subnet = &v
+		Name:    plan.Name.ValueString(),
+		Address: plan.Address.ValueString(),
+		Subnet:  plan.Subnet.ValueString(),
 	}
 	if !plan.Comment.IsNull() {
 		v := plan.Comment.ValueString()
@@ -137,12 +131,8 @@ func (r *FirewallObjectResource) Create(ctx context.Context, req resource.Create
 	plan.Name = types.StringValue(apiResp.Name)
 	plan.Uuid = types.StringValue(apiResp.Uuid)
 	plan.Used = types.BoolValue(apiResp.Used)
-	if apiResp.Address != nil {
-		plan.Address = types.StringValue(*apiResp.Address)
-	}
-	if apiResp.Subnet != nil {
-		plan.Subnet = types.StringValue(*apiResp.Subnet)
-	}
+	plan.Address = types.StringValue(apiResp.Address)
+	plan.Subnet = types.StringValue(apiResp.Subnet)
 	if apiResp.Comment != nil {
 		plan.Comment = types.StringValue(*apiResp.Comment)
 	}
@@ -175,16 +165,8 @@ func (r *FirewallObjectResource) Read(ctx context.Context, req resource.ReadRequ
 	state.Name = types.StringValue(apiResp.Name)
 	state.Uuid = types.StringValue(apiResp.Uuid)
 	state.Used = types.BoolValue(apiResp.Used)
-	if apiResp.Address != nil {
-		state.Address = types.StringValue(*apiResp.Address)
-	} else {
-		state.Address = types.StringNull()
-	}
-	if apiResp.Subnet != nil {
-		state.Subnet = types.StringValue(*apiResp.Subnet)
-	} else {
-		state.Subnet = types.StringNull()
-	}
+	state.Address = types.StringValue(apiResp.Address)
+	state.Subnet = types.StringValue(apiResp.Subnet)
 	if apiResp.Comment != nil {
 		state.Comment = types.StringValue(*apiResp.Comment)
 	} else {
@@ -194,11 +176,46 @@ func (r *FirewallObjectResource) Read(ctx context.Context, req resource.ReadRequ
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-func (r *FirewallObjectResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
-	resp.Diagnostics.AddError(
-		"Update not supported",
-		"mcs_firewall_object does not support updates, destroy and recreate the resource.",
-	)
+func (r *FirewallObjectResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan FirewallObjectModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	domain := plan.Domain.ValueString()
+	name := plan.Name.ValueString()
+
+	body := firewallObjectAPI{
+		Name:    name,
+		Address: plan.Address.ValueString(),
+		Subnet:  plan.Subnet.ValueString(),
+	}
+	if !plan.Comment.IsNull() {
+		v := plan.Comment.ValueString()
+		body.Comment = &v
+	}
+
+	var apiResp firewallObjectAPI
+	path := fmt.Sprintf("/api/networking/domain/%s/objects/%s/", domain, name)
+	if err := r.client.Patch(ctx, path, body, &apiResp); err != nil {
+		resp.Diagnostics.AddError("Error updating firewall object", err.Error())
+		return
+	}
+
+	plan.Id = types.StringValue(apiResp.Uuid)
+	plan.Name = types.StringValue(apiResp.Name)
+	plan.Uuid = types.StringValue(apiResp.Uuid)
+	plan.Used = types.BoolValue(apiResp.Used)
+	plan.Address = types.StringValue(apiResp.Address)
+	plan.Subnet = types.StringValue(apiResp.Subnet)
+	if apiResp.Comment != nil {
+		plan.Comment = types.StringValue(*apiResp.Comment)
+	} else {
+		plan.Comment = types.StringNull()
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *FirewallObjectResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
