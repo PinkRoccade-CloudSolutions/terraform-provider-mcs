@@ -1274,7 +1274,7 @@ func TestAccCsvServerDataSource_ByName(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
-				{"id": "csv-001", "name": "web-frontend", "ufname": "web-uf", "type": "ssl", "port": 443, "policies": []string{"pol-1"}, "certificate": []string{"cert-1"}},
+				{"id": "csv-001", "name": "web-frontend", "ufname": "web-uf", "type": "ssl", "port": 443, "ipaddress": "pip-uuid-1", "policies": []string{"pol-1"}, "certificate": []string{"cert-1"}},
 			},
 		})
 	})
@@ -1291,6 +1291,7 @@ data "mcs_csv_server" "test" {
 					resource.TestCheckResourceAttr("data.mcs_csv_server.test", "id", "csv-001"),
 					resource.TestCheckResourceAttr("data.mcs_csv_server.test", "name", "web-frontend"),
 					resource.TestCheckResourceAttr("data.mcs_csv_server.test", "type", "ssl"),
+					resource.TestCheckResourceAttr("data.mcs_csv_server.test", "ipaddress", "pip-uuid-1"),
 				),
 			},
 		},
@@ -1305,8 +1306,8 @@ func TestAccCsvServerDataSource_ListAll(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
-				{"id": "csv-001", "name": "web-frontend", "ufname": "web-uf", "type": "ssl", "port": 443, "policies": []string{}, "certificate": []string{}},
-				{"id": "csv-002", "name": "api-frontend", "ufname": "api-uf", "type": "http", "port": 80, "policies": []string{}, "certificate": []string{}},
+				{"id": "csv-001", "name": "web-frontend", "ufname": "web-uf", "type": "ssl", "port": 443, "ipaddress": "pip-uuid-1", "policies": []string{}, "certificate": []string{}},
+				{"id": "csv-002", "name": "api-frontend", "ufname": "api-uf", "type": "http", "port": 80, "ipaddress": "pip-uuid-2", "policies": []string{}, "certificate": []string{}},
 			},
 		})
 	})
@@ -1320,6 +1321,7 @@ data "mcs_csv_server" "all" {}`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.mcs_csv_server.all", "csv_servers.#", "2"),
 					resource.TestCheckResourceAttr("data.mcs_csv_server.all", "csv_servers.0.name", "web-frontend"),
+					resource.TestCheckResourceAttr("data.mcs_csv_server.all", "csv_servers.0.ipaddress", "pip-uuid-1"),
 				),
 			},
 		},
@@ -1435,7 +1437,7 @@ func TestAccLbvServerDataSource_ByName(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
-				{"id": "lbv-001", "name": "web-lb", "type": "ssl", "port": 443, "servicegroup": []string{"sg-1"}, "certificate": []string{"cert-1"}},
+				{"id": "lbv-001", "name": "web-lb", "type": "ssl", "port": 443, "ipaddress": "pip-uuid-2", "servicegroup": []string{"sg-1"}, "certificate": []string{"cert-1"}},
 			},
 		})
 	})
@@ -1452,6 +1454,7 @@ data "mcs_lbv_server" "test" {
 					resource.TestCheckResourceAttr("data.mcs_lbv_server.test", "id", "lbv-001"),
 					resource.TestCheckResourceAttr("data.mcs_lbv_server.test", "name", "web-lb"),
 					resource.TestCheckResourceAttr("data.mcs_lbv_server.test", "type", "ssl"),
+					resource.TestCheckResourceAttr("data.mcs_lbv_server.test", "ipaddress", "pip-uuid-2"),
 				),
 			},
 		},
@@ -1466,8 +1469,8 @@ func TestAccLbvServerDataSource_ListAll(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
-				{"id": "lbv-001", "name": "web-lb", "type": "ssl", "port": 443, "servicegroup": []string{}, "certificate": []string{}},
-				{"id": "lbv-002", "name": "api-lb", "type": "http", "port": 80, "servicegroup": []string{}, "certificate": []string{}},
+				{"id": "lbv-001", "name": "web-lb", "type": "ssl", "port": 443, "ipaddress": "pip-uuid-2", "servicegroup": []string{}, "certificate": []string{}},
+				{"id": "lbv-002", "name": "api-lb", "type": "http", "port": 80, "ipaddress": "pip-uuid-3", "servicegroup": []string{}, "certificate": []string{}},
 			},
 		})
 	})
@@ -1481,6 +1484,7 @@ data "mcs_lbv_server" "all" {}`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.mcs_lbv_server.all", "lbv_servers.#", "2"),
 					resource.TestCheckResourceAttr("data.mcs_lbv_server.all", "lbv_servers.0.name", "web-lb"),
+					resource.TestCheckResourceAttr("data.mcs_lbv_server.all", "lbv_servers.0.ipaddress", "pip-uuid-2"),
 				),
 			},
 		},

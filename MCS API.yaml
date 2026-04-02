@@ -679,6 +679,185 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/dbl/label/:
+    get:
+      operationId: dbl_label_list
+      description: API endpoint that allows labels to be viewed or edited.
+      parameters:
+      - in: query
+        name: name__icontains
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Search
+      tags:
+      - dbl
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedLabelList'
+          description: ''
+    post:
+      operationId: dbl_label_create
+      description: API endpoint that allows labels to be viewed or edited.
+      tags:
+      - dbl
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Label'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Label'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Label'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Label'
+          description: ''
+  /api/dbl/label/{id}/:
+    get:
+      operationId: dbl_label_retrieve
+      description: API endpoint that allows labels to be viewed or edited.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this label.
+        required: true
+      tags:
+      - dbl
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Label'
+          description: ''
+    put:
+      operationId: dbl_label_update
+      description: API endpoint that allows labels to be viewed or edited.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this label.
+        required: true
+      tags:
+      - dbl
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Label'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Label'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Label'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Label'
+          description: ''
+    patch:
+      operationId: dbl_label_partial_update
+      description: API endpoint that allows labels to be viewed or edited.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this label.
+        required: true
+      tags:
+      - dbl
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedLabel'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedLabel'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedLabel'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Label'
+          description: ''
+    delete:
+      operationId: dbl_label_destroy
+      description: API endpoint that allows labels to be viewed or edited.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this label.
+        required: true
+      tags:
+      - dbl
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/dbl/monitorip/:
     get:
       operationId: dbl_monitorip_list
@@ -3812,9 +3991,9 @@ paths:
         schema:
           type: boolean
       - in: query
-        name: domain
+        name: domain__vdom_id
         schema:
-          type: integer
+          type: string
       - in: query
         name: ipv4_prefix__icontains
         schema:
@@ -5391,8 +5570,10 @@ components:
         ufname:
           type: string
           maxLength: 255
-        ipv46:
-          $ref: '#/components/schemas/Ipv46Enum'
+        ipaddress:
+          type: string
+          format: uuid
+          nullable: true
         port:
           type: integer
         type:
@@ -6000,14 +6181,6 @@ components:
       - macAddress
       - name
       - vm_name
-    Ipv46Enum:
-      enum:
-      - request-public
-      - request-private
-      type: string
-      description: |-
-        * `request-public` - REQUEST-PUBLIC
-        * `request-private` - REQUEST-PRIVATE
     Job:
       type: object
       properties:
@@ -6234,10 +6407,11 @@ components:
         name:
           type: string
           maxLength: 255
-        ipv46:
+        ipaddress:
           type: string
-          description: Leave default if used as non routed loadbalancer.
-          maxLength: 255
+          format: uuid
+          nullable: true
+          description: Leave empty if used as non routed loadbalancer.
         port:
           type: integer
           description: Leave default if used as non routed loadbalancer.
@@ -6279,6 +6453,18 @@ components:
         * `ssl_bridge` - SSL_BRIDGE
         * `tcp` - TCP
         * `udp` - UDP
+    MinimalDevice:
+      type: object
+      properties:
+        id:
+          type: string
+          maxLength: 36
+        name:
+          type: string
+          description: Administratieve naam van het apparaat.
+          maxLength: 255
+      required:
+      - name
     Monitor:
       type: object
       properties:
@@ -6869,6 +7055,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Job'
+    PaginatedLabelList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Label'
     PaginatedLbServicegroupList:
       type: object
       required:
@@ -7337,8 +7546,10 @@ components:
         ufname:
           type: string
           maxLength: 255
-        ipv46:
-          $ref: '#/components/schemas/Ipv46Enum'
+        ipaddress:
+          type: string
+          format: uuid
+          nullable: true
         port:
           type: integer
         type:
@@ -7606,6 +7817,51 @@ components:
         used:
           type: boolean
           readOnly: true
+    PatchedLabel:
+      type: object
+      description: |-
+        Moves `UniqueValidator`'s from the validation stage to the save stage.
+        It solves the problem with nested validation for unique fields on update.
+
+        If you want more details, you can read related issues and articles:
+        https://github.com/beda-software/drf-writable-nested/issues/1
+        http://www.django-rest-framework.org/api-guide/validators/#updating-nested-serializers
+
+        Example of usage:
+        ```
+            class Child(models.Model):
+            field = models.CharField(unique=True)
+
+
+        class Parent(models.Model):
+            child = models.ForeignKey('Child')
+
+
+        class ChildSerializer(UniqueFieldsMixin, serializers.ModelSerializer):
+            class Meta:
+                model = Child
+
+
+        class ParentSerializer(NestedUpdateMixin, serializers.ModelSerializer):
+            child = ChildSerializer()
+
+            class Meta:
+                model = Parent
+        ```
+
+        Note: `UniqueFieldsMixin` must be applied only on the serializer
+        which has unique fields.
+
+        Note: When you are using both mixins
+        (`UniqueFieldsMixin` and `NestedCreateMixin` or `NestedUpdateMixin`)
+        you should put `UniqueFieldsMixin` ahead.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
     PatchedLbServicegroup:
       type: object
       properties:
@@ -7676,10 +7932,11 @@ components:
         name:
           type: string
           maxLength: 255
-        ipv46:
+        ipaddress:
           type: string
-          description: Leave default if used as non routed loadbalancer.
-          maxLength: 255
+          format: uuid
+          nullable: true
+          description: Leave empty if used as non routed loadbalancer.
         port:
           type: integer
           description: Leave default if used as non routed loadbalancer.
@@ -8202,6 +8459,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Disk'
+        state:
+          type: string
+          maxLength: 1024
         interfaces:
           type: array
           items:
@@ -8247,7 +8507,12 @@ components:
         transit_vrf:
           type: string
           maxLength: 255
+        loadbalancers:
+          type: array
+          items:
+            $ref: '#/components/schemas/MinimalDevice'
       required:
+      - loadbalancers
       - uuid
   securitySchemes:
     basicAuth:

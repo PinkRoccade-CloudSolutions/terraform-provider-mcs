@@ -21,7 +21,7 @@ type LbvServerDataSource struct {
 type LbvServerDataSourceModel struct {
 	Name         types.String       `tfsdk:"name"`
 	Id           types.String       `tfsdk:"id"`
-	Ipv46        types.String       `tfsdk:"ipv46"`
+	Ipaddress    types.String       `tfsdk:"ipaddress"`
 	Port         types.Int64        `tfsdk:"port"`
 	Type         types.String       `tfsdk:"type"`
 	Servicegroup types.List         `tfsdk:"servicegroup"`
@@ -34,7 +34,7 @@ type LbvServerDataSourceModel struct {
 type LbvServerListModel struct {
 	Id           types.String `tfsdk:"id"`
 	Name         types.String `tfsdk:"name"`
-	Ipv46        types.String `tfsdk:"ipv46"`
+	Ipaddress    types.String `tfsdk:"ipaddress"`
 	Port         types.Int64  `tfsdk:"port"`
 	Type         types.String `tfsdk:"type"`
 	Servicegroup types.List   `tfsdk:"servicegroup"`
@@ -46,7 +46,7 @@ type LbvServerListModel struct {
 type lbvServerDSAPIModel struct {
 	Id           string   `json:"id"`
 	Name         string   `json:"name"`
-	Ipv46        *string  `json:"ipv46,omitempty"`
+	Ipaddress    *string  `json:"ipaddress,omitempty"`
 	Port         *int64   `json:"port,omitempty"`
 	Type         *string  `json:"type,omitempty"`
 	Servicegroup []string `json:"servicegroup"`
@@ -69,7 +69,7 @@ func (d *LbvServerDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 		"name": schema.StringAttribute{
 			Computed: true,
 		},
-		"ipv46": schema.StringAttribute{Computed: true},
+		"ipaddress": schema.StringAttribute{Computed: true},
 		"port": schema.Int64Attribute{
 			Computed: true,
 		},
@@ -98,7 +98,7 @@ func (d *LbvServerDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 				Computed:    true,
 				Description: "UUID of a specific lbv_server to look up.",
 			},
-			"ipv46": schema.StringAttribute{Computed: true},
+			"ipaddress": schema.StringAttribute{Computed: true},
 			"port": schema.Int64Attribute{
 				Computed: true,
 			},
@@ -188,7 +188,7 @@ func (d *LbvServerDataSource) Read(ctx context.Context, req datasource.ReadReque
 	state := LbvServerDataSourceModel{
 		Name:         types.StringNull(),
 		Id:           types.StringNull(),
-		Ipv46:        types.StringNull(),
+		Ipaddress:    types.StringNull(),
 		Port:         types.Int64Null(),
 		Type:         types.StringNull(),
 		Servicegroup: types.ListNull(types.StringType),
@@ -211,7 +211,7 @@ func (d *LbvServerDataSource) Read(ctx context.Context, req datasource.ReadReque
 func setSingleLbvServer(ctx context.Context, state *LbvServerDataSourceModel, s *lbvServerDSAPIModel, diags *diag.Diagnostics) {
 	state.Id = types.StringValue(s.Id)
 	state.Name = types.StringValue(s.Name)
-	state.Ipv46 = types.StringPointerValue(s.Ipv46)
+	state.Ipaddress = types.StringPointerValue(s.Ipaddress)
 	if s.Port != nil {
 		state.Port = types.Int64Value(*s.Port)
 	} else {
@@ -258,7 +258,7 @@ func toLbvServerListModel(ctx context.Context, s *lbvServerDSAPIModel) (LbvServe
 	return LbvServerListModel{
 		Id:           types.StringValue(s.Id),
 		Name:         types.StringValue(s.Name),
-		Ipv46:        types.StringPointerValue(s.Ipv46),
+		Ipaddress:    types.StringPointerValue(s.Ipaddress),
 		Port:         port,
 		Type:         types.StringPointerValue(s.Type),
 		Servicegroup: sgList,

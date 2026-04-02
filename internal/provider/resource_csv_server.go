@@ -22,7 +22,7 @@ type CsvServerResourceModel struct {
 	Id           types.String `tfsdk:"id"`
 	Name         types.String `tfsdk:"name"`
 	Ufname       types.String `tfsdk:"ufname"`
-	Ipv46        types.String `tfsdk:"ipv46"`
+	Ipaddress    types.String `tfsdk:"ipaddress"`
 	Port         types.Int64  `tfsdk:"port"`
 	Type         types.String `tfsdk:"type"`
 	Policies     types.List   `tfsdk:"policies"`
@@ -35,7 +35,7 @@ type csvServerAPIModel struct {
 	Id           string   `json:"id,omitempty"`
 	Name         string   `json:"name"`
 	Ufname       string   `json:"ufname"`
-	Ipv46        *string  `json:"ipv46,omitempty"`
+	Ipaddress    *string  `json:"ipaddress,omitempty"`
 	Port         *int64   `json:"port,omitempty"`
 	Type         string   `json:"type"`
 	Policies     []string `json:"policies,omitempty"`
@@ -65,8 +65,9 @@ func (r *CsvServerResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			"ufname": schema.StringAttribute{
 				Required: true,
 			},
-			"ipv46": schema.StringAttribute{
-				Optional: true,
+			"ipaddress": schema.StringAttribute{
+				Optional:    true,
+				Description: "UUID of the associated PublicIPAddress.",
 			},
 			"port": schema.Int64Attribute{
 				Optional: true,
@@ -119,9 +120,9 @@ func (r *CsvServerResource) Create(ctx context.Context, req resource.CreateReque
 		Ufname: plan.Ufname.ValueString(),
 		Type:   plan.Type.ValueString(),
 	}
-	if !plan.Ipv46.IsNull() {
-		v := plan.Ipv46.ValueString()
-		apiModel.Ipv46 = &v
+	if !plan.Ipaddress.IsNull() {
+		v := plan.Ipaddress.ValueString()
+		apiModel.Ipaddress = &v
 	}
 	if !plan.Port.IsNull() {
 		v := plan.Port.ValueInt64()
@@ -156,7 +157,7 @@ func (r *CsvServerResource) Create(ctx context.Context, req resource.CreateReque
 	plan.Id = types.StringValue(apiResp.Id)
 	plan.Name = types.StringValue(apiResp.Name)
 	plan.Ufname = types.StringValue(apiResp.Ufname)
-	plan.Ipv46 = types.StringPointerValue(apiResp.Ipv46)
+	plan.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
 	plan.Port = types.Int64PointerValue(apiResp.Port)
 	plan.Type = types.StringValue(apiResp.Type)
 
@@ -196,7 +197,7 @@ func (r *CsvServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 	state.Id = types.StringValue(apiResp.Id)
 	state.Name = types.StringValue(apiResp.Name)
 	state.Ufname = types.StringValue(apiResp.Ufname)
-	state.Ipv46 = types.StringPointerValue(apiResp.Ipv46)
+	state.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
 	state.Port = types.Int64PointerValue(apiResp.Port)
 	state.Type = types.StringValue(apiResp.Type)
 
@@ -233,9 +234,9 @@ func (r *CsvServerResource) Update(ctx context.Context, req resource.UpdateReque
 		Ufname: plan.Ufname.ValueString(),
 		Type:   plan.Type.ValueString(),
 	}
-	if !plan.Ipv46.IsNull() {
-		v := plan.Ipv46.ValueString()
-		apiModel.Ipv46 = &v
+	if !plan.Ipaddress.IsNull() {
+		v := plan.Ipaddress.ValueString()
+		apiModel.Ipaddress = &v
 	}
 	if !plan.Port.IsNull() {
 		v := plan.Port.ValueInt64()
@@ -270,7 +271,7 @@ func (r *CsvServerResource) Update(ctx context.Context, req resource.UpdateReque
 	plan.Id = types.StringValue(apiResp.Id)
 	plan.Name = types.StringValue(apiResp.Name)
 	plan.Ufname = types.StringValue(apiResp.Ufname)
-	plan.Ipv46 = types.StringPointerValue(apiResp.Ipv46)
+	plan.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
 	plan.Port = types.Int64PointerValue(apiResp.Port)
 	plan.Type = types.StringValue(apiResp.Type)
 

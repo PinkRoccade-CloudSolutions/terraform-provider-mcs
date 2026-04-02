@@ -22,7 +22,7 @@ type CsvServerDataSourceModel struct {
 	Name         types.String `tfsdk:"name"`
 	Id           types.String `tfsdk:"id"`
 	Ufname       types.String `tfsdk:"ufname"`
-	Ipv46        types.String `tfsdk:"ipv46"`
+	Ipaddress    types.String `tfsdk:"ipaddress"`
 	Port         types.Int64  `tfsdk:"port"`
 	Type         types.String `tfsdk:"type"`
 	Policies     types.List   `tfsdk:"policies"`
@@ -36,7 +36,7 @@ type CsvServerModel struct {
 	Id           types.String `tfsdk:"id"`
 	Name         types.String `tfsdk:"name"`
 	Ufname       types.String `tfsdk:"ufname"`
-	Ipv46        types.String `tfsdk:"ipv46"`
+	Ipaddress    types.String `tfsdk:"ipaddress"`
 	Port         types.Int64  `tfsdk:"port"`
 	Type         types.String `tfsdk:"type"`
 	Policies     types.List   `tfsdk:"policies"`
@@ -49,7 +49,7 @@ type csvServerDSAPIModel struct {
 	Id           string   `json:"id"`
 	Name         string   `json:"name"`
 	Ufname       string   `json:"ufname"`
-	Ipv46        *string  `json:"ipv46,omitempty"`
+	Ipaddress    *string  `json:"ipaddress,omitempty"`
 	Port         *int64   `json:"port,omitempty"`
 	Type         string   `json:"type"`
 	Policies     []string `json:"policies,omitempty"`
@@ -71,7 +71,7 @@ func (d *CsvServerDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 		"id": schema.StringAttribute{Computed: true},
 		"name": schema.StringAttribute{Computed: true},
 		"ufname": schema.StringAttribute{Computed: true},
-		"ipv46": schema.StringAttribute{Computed: true},
+		"ipaddress": schema.StringAttribute{Computed: true},
 		"port": schema.Int64Attribute{Computed: true},
 		"type": schema.StringAttribute{Computed: true},
 		"policies": schema.ListAttribute{
@@ -102,9 +102,9 @@ func (d *CsvServerDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 				Computed:    true,
 				Description: "UF name.",
 			},
-			"ipv46": schema.StringAttribute{
+			"ipaddress": schema.StringAttribute{
 				Computed:    true,
-				Description: "IPv4 or IPv6 address.",
+				Description: "UUID of the associated PublicIPAddress.",
 			},
 			"port": schema.Int64Attribute{
 				Computed:    true,
@@ -222,7 +222,7 @@ func (d *CsvServerDataSource) Read(ctx context.Context, req datasource.ReadReque
 		Name:         types.StringNull(),
 		Id:           types.StringNull(),
 		Ufname:       types.StringNull(),
-		Ipv46:        types.StringNull(),
+		Ipaddress:    types.StringNull(),
 		Port:         types.Int64Null(),
 		Type:         types.StringNull(),
 		Policies:     emptyPolicies,
@@ -246,10 +246,10 @@ func setSingleCsvServer(ctx context.Context, state *CsvServerDataSourceModel, it
 	state.Id = types.StringValue(item.Id)
 	state.Name = types.StringValue(item.Name)
 	state.Ufname = types.StringValue(item.Ufname)
-	if item.Ipv46 != nil {
-		state.Ipv46 = types.StringValue(*item.Ipv46)
+	if item.Ipaddress != nil {
+		state.Ipaddress = types.StringValue(*item.Ipaddress)
 	} else {
-		state.Ipv46 = types.StringNull()
+		state.Ipaddress = types.StringNull()
 	}
 	if item.Port != nil {
 		state.Port = types.Int64Value(*item.Port)
@@ -292,10 +292,10 @@ func csvServerItemToModel(ctx context.Context, item *csvServerDSAPIModel) (CsvSe
 		Ufname: types.StringValue(item.Ufname),
 		Type:   types.StringValue(item.Type),
 	}
-	if item.Ipv46 != nil {
-		m.Ipv46 = types.StringValue(*item.Ipv46)
+	if item.Ipaddress != nil {
+		m.Ipaddress = types.StringValue(*item.Ipaddress)
 	} else {
-		m.Ipv46 = types.StringNull()
+		m.Ipaddress = types.StringNull()
 	}
 	if item.Port != nil {
 		m.Port = types.Int64Value(*item.Port)

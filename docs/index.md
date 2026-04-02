@@ -724,7 +724,7 @@ data "mcs_csv_server" "frontend" {
 | `name`        | String       | Optional | Exact CS vServer name. |
 | `id`          | String       | Optional/Computed | CS vServer UUID. |
 | `ufname`      | String       | Computed | User-friendly name. |
-| `ipv46`       | String       | Computed | IP address. |
+| `ipaddress`   | String       | Computed | UUID of the associated PublicIPAddress. |
 | `port`        | Number       | Computed | Listening port. |
 | `type`        | String       | Computed | Protocol type. |
 | `policies`    | List(String) | Computed | CS policy IDs. |
@@ -807,7 +807,7 @@ data "mcs_lbv_server" "web_lb" {
 |---------------|-------------|----------|-------------|
 | `name`        | String       | Optional | Exact LB vServer name. |
 | `id`          | String       | Optional/Computed | LB vServer UUID. |
-| `ipv46`       | String       | Computed | IP address. |
+| `ipaddress`   | String       | Computed | UUID of the associated PublicIPAddress. |
 | `port`        | Number       | Computed | Listening port. |
 | `type`        | String       | Computed | Protocol type. |
 | `servicegroup` | List(String) | Computed | Service group IDs. |
@@ -1538,7 +1538,7 @@ Manages a load balancer virtual server (LB vServer).
 ```hcl
 resource "mcs_lbv_server" "web_lb" {
   name         = "web-lbvserver"
-  ipv46        = "10.0.0.100"
+  ipaddress    = mcs_public_ip_address.web.id
   port         = 443
   type         = "ssl"
   servicegroup = [mcs_lb_servicegroup.web_backend.id]
@@ -1553,7 +1553,7 @@ resource "mcs_lbv_server" "web_lb" {
 |---------------|-------------|----------|-------------|
 | `name`        | String       | **Yes**  | Virtual server name. |
 | `servicegroup` | List(String) | **Yes** | List of service group IDs to bind. |
-| `ipv46`       | String       | No       | IP address (v4 or v6). |
+| `ipaddress`   | String       | No       | UUID of the associated PublicIPAddress. Leave empty if used as non routed loadbalancer. |
 | `port`        | Number       | No       | Listening port. |
 | `type`        | String       | No       | Protocol type (e.g. `ssl`, `http`, `tcp`). |
 | `certificate` | List(String) | No       | List of SSL certificate IDs. |
@@ -1576,7 +1576,7 @@ resource "mcs_csv_server" "web_frontend" {
   ufname       = "web-frontend"
   type         = "ssl"
   port         = 443
-  ipv46        = "10.0.0.200"
+  ipaddress    = mcs_public_ip_address.web.id
   policies     = [mcs_cs_policy.routing.id]
   certificate  = [mcs_certificate.web_cert.id]
   customer     = mcs_customer.example.id
@@ -1591,7 +1591,7 @@ resource "mcs_csv_server" "web_frontend" {
 | `name`        | String       | **Yes**  | CS vServer name. |
 | `ufname`      | String       | **Yes**  | User-friendly name. |
 | `type`        | String       | **Yes**  | Protocol type (e.g. `ssl`, `http`). |
-| `ipv46`       | String       | No       | IP address (v4 or v6). |
+| `ipaddress`   | String       | No       | UUID of the associated PublicIPAddress. |
 | `port`        | Number       | No       | Listening port. |
 | `policies`    | List(String) | No       | List of CS policy IDs. |
 | `certificate` | List(String) | No       | List of SSL certificate IDs. |

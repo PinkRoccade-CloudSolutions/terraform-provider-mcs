@@ -416,6 +416,9 @@ func TestAccCsvServerResource_CRUD(t *testing.T) {
 				"id": "csv-001", "name": req["name"], "ufname": req["ufname"],
 				"type": req["type"],
 			}
+			if v, ok := req["ipaddress"]; ok {
+				resp["ipaddress"] = v
+			}
 			if v, ok := req["policies"]; ok {
 				resp["policies"] = v
 			}
@@ -427,7 +430,7 @@ func TestAccCsvServerResource_CRUD(t *testing.T) {
 		case http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"id": "csv-001", "name": "my-csv", "ufname": "my-csv-uf",
-				"type": "HTTP",
+				"type": "HTTP", "ipaddress": "pip-uuid-1",
 				"policies": []string{"pol-1"}, "certificate": []string{"cert-1"},
 			})
 		case http.MethodPut:
@@ -436,6 +439,9 @@ func TestAccCsvServerResource_CRUD(t *testing.T) {
 			resp := map[string]interface{}{
 				"id": "csv-001", "name": req["name"], "ufname": req["ufname"],
 				"type": req["type"],
+			}
+			if v, ok := req["ipaddress"]; ok {
+				resp["ipaddress"] = v
 			}
 			if v, ok := req["policies"]; ok {
 				resp["policies"] = v
@@ -458,12 +464,14 @@ resource "mcs_csv_server" "test" {
   name        = "my-csv"
   ufname      = "my-csv-uf"
   type        = "HTTP"
+  ipaddress   = "pip-uuid-1"
   policies    = ["pol-1"]
   certificate = ["cert-1"]
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_csv_server.test", "id", "csv-001"),
 					resource.TestCheckResourceAttr("mcs_csv_server.test", "name", "my-csv"),
+					resource.TestCheckResourceAttr("mcs_csv_server.test", "ipaddress", "pip-uuid-1"),
 				),
 			},
 		},
@@ -1076,6 +1084,9 @@ func TestAccLbvServerResource_CRUD(t *testing.T) {
 				"id": "lbv-001", "name": req["name"],
 				"servicegroup": req["servicegroup"],
 			}
+			if v, ok := req["ipaddress"]; ok {
+				resp["ipaddress"] = v
+			}
 			if v, ok := req["certificate"]; ok {
 				resp["certificate"] = v
 			}
@@ -1083,16 +1094,20 @@ func TestAccLbvServerResource_CRUD(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(resp)
 		case http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"id": "lbv-001", "name": "my-lbv",
+				"id": "lbv-001", "name": "my-lbv", "ipaddress": "pip-uuid-2",
 				"servicegroup": []string{"sg-1"}, "certificate": []string{"cert-1"},
 			})
 		case http.MethodPut:
 			var req map[string]interface{}
 			_ = json.Unmarshal(body, &req)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			resp := map[string]interface{}{
 				"id": "lbv-001", "name": req["name"],
 				"servicegroup": req["servicegroup"],
-			})
+			}
+			if v, ok := req["ipaddress"]; ok {
+				resp["ipaddress"] = v
+			}
+			_ = json.NewEncoder(w).Encode(resp)
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -1105,12 +1120,14 @@ func TestAccLbvServerResource_CRUD(t *testing.T) {
 				Config: providerConfigBlock(mock.URL()) + `
 resource "mcs_lbv_server" "test" {
   name         = "my-lbv"
+  ipaddress    = "pip-uuid-2"
   servicegroup = ["sg-1"]
   certificate  = ["cert-1"]
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_lbv_server.test", "id", "lbv-001"),
 					resource.TestCheckResourceAttr("mcs_lbv_server.test", "name", "my-lbv"),
+					resource.TestCheckResourceAttr("mcs_lbv_server.test", "ipaddress", "pip-uuid-2"),
 				),
 			},
 		},

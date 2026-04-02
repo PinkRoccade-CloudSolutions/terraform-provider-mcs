@@ -21,7 +21,7 @@ type LbvServerResource struct {
 type LbvServerResourceModel struct {
 	Id           types.String `tfsdk:"id"`
 	Name         types.String `tfsdk:"name"`
-	Ipv46        types.String `tfsdk:"ipv46"`
+	Ipaddress    types.String `tfsdk:"ipaddress"`
 	Port         types.Int64  `tfsdk:"port"`
 	Type         types.String `tfsdk:"type"`
 	Servicegroup types.List   `tfsdk:"servicegroup"`
@@ -33,7 +33,7 @@ type LbvServerResourceModel struct {
 type lbvServerAPIModel struct {
 	Id           string   `json:"id,omitempty"`
 	Name         string   `json:"name"`
-	Ipv46        *string  `json:"ipv46,omitempty"`
+	Ipaddress    *string  `json:"ipaddress,omitempty"`
 	Port         *int64   `json:"port,omitempty"`
 	Type         *string  `json:"type,omitempty"`
 	Servicegroup []string `json:"servicegroup"`
@@ -60,8 +60,9 @@ func (r *LbvServerResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			"name": schema.StringAttribute{
 				Required: true,
 			},
-			"ipv46": schema.StringAttribute{
-				Optional: true,
+			"ipaddress": schema.StringAttribute{
+				Optional:    true,
+				Description: "UUID of the associated PublicIPAddress. Leave empty if used as non routed loadbalancer.",
 			},
 			"port": schema.Int64Attribute{
 				Optional: true,
@@ -117,9 +118,9 @@ func (r *LbvServerResource) Create(ctx context.Context, req resource.CreateReque
 	resp.Diagnostics.Append(plan.Servicegroup.ElementsAs(ctx, &servicegroup, false)...)
 	apiModel.Servicegroup = servicegroup
 
-	if !plan.Ipv46.IsNull() {
-		v := plan.Ipv46.ValueString()
-		apiModel.Ipv46 = &v
+	if !plan.Ipaddress.IsNull() {
+		v := plan.Ipaddress.ValueString()
+		apiModel.Ipaddress = &v
 	}
 	if !plan.Port.IsNull() {
 		v := plan.Port.ValueInt64()
@@ -152,7 +153,7 @@ func (r *LbvServerResource) Create(ctx context.Context, req resource.CreateReque
 
 	plan.Id = types.StringValue(apiResp.Id)
 	plan.Name = types.StringValue(apiResp.Name)
-	plan.Ipv46 = types.StringPointerValue(apiResp.Ipv46)
+	plan.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
 	plan.Port = types.Int64PointerValue(apiResp.Port)
 	plan.Type = types.StringPointerValue(apiResp.Type)
 
@@ -190,7 +191,7 @@ func (r *LbvServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 
 	state.Id = types.StringValue(apiResp.Id)
 	state.Name = types.StringValue(apiResp.Name)
-	state.Ipv46 = types.StringPointerValue(apiResp.Ipv46)
+	state.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
 	state.Port = types.Int64PointerValue(apiResp.Port)
 	state.Type = types.StringPointerValue(apiResp.Type)
 
@@ -229,9 +230,9 @@ func (r *LbvServerResource) Update(ctx context.Context, req resource.UpdateReque
 	resp.Diagnostics.Append(plan.Servicegroup.ElementsAs(ctx, &servicegroup, false)...)
 	apiModel.Servicegroup = servicegroup
 
-	if !plan.Ipv46.IsNull() {
-		v := plan.Ipv46.ValueString()
-		apiModel.Ipv46 = &v
+	if !plan.Ipaddress.IsNull() {
+		v := plan.Ipaddress.ValueString()
+		apiModel.Ipaddress = &v
 	}
 	if !plan.Port.IsNull() {
 		v := plan.Port.ValueInt64()
@@ -264,7 +265,7 @@ func (r *LbvServerResource) Update(ctx context.Context, req resource.UpdateReque
 
 	plan.Id = types.StringValue(apiResp.Id)
 	plan.Name = types.StringValue(apiResp.Name)
-	plan.Ipv46 = types.StringPointerValue(apiResp.Ipv46)
+	plan.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
 	plan.Port = types.Int64PointerValue(apiResp.Port)
 	plan.Type = types.StringPointerValue(apiResp.Type)
 
