@@ -2036,3 +2036,105 @@ data "mcs_disk" "all" {}`,
 		},
 	})
 }
+
+// ---------------------------------------------------------------------------
+// mcs_dns_domain data source
+// ---------------------------------------------------------------------------
+
+func TestAccDnsDomainDataSource_ListAll(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	mock.On("/api/dns/domains", func(w http.ResponseWriter, r *http.Request, _ []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"count": 2,
+			"next":  nil,
+			"results": []map[string]interface{}{
+				{
+					"uuid": "dns-uuid-1", "name": "example.com", "comment": "Production", "enddate": "2027-01-01",
+					"customer": "acme", "provider": map[string]interface{}{"id": 1, "name": "CloudDNS"}, "type": "external",
+				},
+				{
+					"uuid": "dns-uuid-2", "name": "internal.local", "comment": "Internal", "enddate": nil,
+					"customer": nil, "provider": map[string]interface{}{"id": 2, "name": "LocalDNS"}, "type": "internal",
+				},
+			},
+		})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_dns_domain" "all" {}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.all", "domains.#", "2"),
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.all", "domains.0.uuid", "dns-uuid-1"),
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.all", "domains.0.name", "example.com"),
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.all", "domains.0.comment", "Production"),
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.all", "domains.0.enddate", "2027-01-01"),
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.all", "domains.0.customer", "acme"),
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.all", "domains.0.provider_name", "CloudDNS"),
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.all", "domains.0.type", "external"),
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.all", "domains.1.uuid", "dns-uuid-2"),
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.all", "domains.1.name", "internal.local"),
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.all", "domains.1.type", "internal"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccDnsDomainDataSource_FilterByType(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	mock.On("/api/dns/domains", func(w http.ResponseWriter, r *http.Request, _ []byte) {
+		w.Header().Set("Content-Type", "application/json")
+
+		typeFilter := r.URL.Query().Get("type")
+		domains := []map[string]interface{}{
+			{
+				"uuid": "dns-uuid-1", "name": "example.com", "comment": "Production", "enddate": "2027-01-01",
+				"customer": "acme", "provider": map[string]interface{}{"id": 1, "name": "CloudDNS"}, "type": "external",
+			},
+			{
+				"uuid": "dns-uuid-2", "name": "internal.local", "comment": "Internal", "enddate": nil,
+				"customer": nil, "provider": map[string]interface{}{"id": 2, "name": "LocalDNS"}, "type": "internal",
+			},
+		}
+
+		var filtered []map[string]interface{}
+		for _, d := range domains {
+			if typeFilter == "" || d["type"] == typeFilter {
+				filtered = append(filtered, d)
+			}
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"count":   len(filtered),
+			"next":    nil,
+			"results": filtered,
+		})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_dns_domain" "ext" {
+  type = "external"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.ext", "domains.#", "1"),
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.ext", "domains.0.uuid", "dns-uuid-1"),
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.ext", "domains.0.name", "example.com"),
+					resource.TestCheckResourceAttr("data.mcs_dns_domain.ext", "domains.0.type", "external"),
+				),
+			},
+		},
+	})
+}

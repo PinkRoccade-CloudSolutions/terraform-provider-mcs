@@ -72,6 +72,10 @@ func (c *Client) Delete(ctx context.Context, path string) error {
 	return c.doRequest(ctx, http.MethodDelete, path, nil, nil)
 }
 
+func (c *Client) DeleteWithBody(ctx context.Context, path string, body interface{}) error {
+	return c.doRequest(ctx, http.MethodDelete, path, body, nil)
+}
+
 // PaginatedResponse represents the envelope returned by paginated list endpoints.
 type PaginatedResponse struct {
 	Count    int             `json:"count"`

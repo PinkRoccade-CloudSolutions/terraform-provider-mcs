@@ -2,6 +2,7 @@ package provider
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -1485,6 +1486,74 @@ resource "mcs_public_ip_address" "test" {
 					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "ip_address", "203.0.113.10"),
 					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "pool", "pool-uuid-1"),
 					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "type", "nat"),
+				),
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// mcs_dns_entry
+// ---------------------------------------------------------------------------
+
+func TestAccDnsEntryResource_CRUD(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	const domainUUID = "dns-domain-uuid-1"
+
+	createdEntry := dnsEntryAPIModel{
+		Name: "www", Type: "A", Content: "192.0.2.1", Expire: 300,
+	}
+
+	mock.On("/api/dns/domains/"+domainUUID+"/entries/"+createdEntry.Name, func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+
+	mock.On("/api/dns/domains/"+domainUUID+"/entries", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodPost:
+			var req dnsEntryAPIModel
+			_ = json.Unmarshal(body, &req)
+			createdEntry = req
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(createdEntry)
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"count":   1,
+				"next":    nil,
+				"results": []dnsEntryAPIModel{createdEntry},
+			})
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + fmt.Sprintf(`
+resource "mcs_dns_entry" "test" {
+  domain_uuid = %q
+  name        = "www"
+  type        = "A"
+  content     = "192.0.2.1"
+  expire      = 300
+}`, domainUUID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_dns_entry.test", "id", domainUUID+"/www/A/192.0.2.1"),
+					resource.TestCheckResourceAttr("mcs_dns_entry.test", "domain_uuid", domainUUID),
+					resource.TestCheckResourceAttr("mcs_dns_entry.test", "name", "www"),
+					resource.TestCheckResourceAttr("mcs_dns_entry.test", "type", "A"),
+					resource.TestCheckResourceAttr("mcs_dns_entry.test", "content", "192.0.2.1"),
+					resource.TestCheckResourceAttr("mcs_dns_entry.test", "expire", "300"),
 				),
 			},
 		},

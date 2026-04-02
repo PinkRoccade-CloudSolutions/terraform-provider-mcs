@@ -33,6 +33,7 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
   - [mcs_lbv_server](#mcs_lbv_server-data-source)
   - [mcs_lb_monitor](#mcs_lb_monitor-data-source)
   - [mcs_dbl](#mcs_dbl-data-source)
+  - [mcs_dns_domain](#mcs_dns_domain-data-source)
   - [mcs_domain_dbl](#mcs_domain_dbl-data-source)
   - [mcs_monitor_ip](#mcs_monitor_ip-data-source)
   - [mcs_contact](#mcs_contact-data-source)
@@ -66,6 +67,8 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
     - [mcs_virtual_datacenter](#mcs_virtual_datacenter)
   - [Monitoring](#monitoring)
     - [mcs_monitor_ip](#mcs_monitor_ip)
+  - [DNS](#dns)
+    - [mcs_dns_entry](#mcs_dns_entry)
   - [Deny/Block Lists](#denyblock-lists)
     - [mcs_dbl](#mcs_dbl)
     - [mcs_domain_dbl](#mcs_domain_dbl)
@@ -873,6 +876,46 @@ data "mcs_dbl" "blocked" {
 | `persistent` | Bool  | Computed | Whether the entry persists. |
 | `hostname`  | String | Computed | Resolved hostname. |
 | `dbls`      | List   | Computed | All DBL entries (populated when `ipaddress` is not set). |
+
+---
+
+### mcs_dns_domain (Data Source)
+
+Look up DNS domains managed by MCS. Optionally filter by name or type, or omit filters to list all.
+
+#### Example
+
+```hcl
+data "mcs_dns_domain" "all" {}
+
+data "mcs_dns_domain" "external" {
+  type = "external"
+}
+
+data "mcs_dns_domain" "search" {
+  name = "example"
+}
+```
+
+#### Attributes
+
+| Attribute | Type   | Mode     | Description |
+|-----------|--------|----------|-------------|
+| `name`    | String | Optional | Filter by domain name (case-insensitive contains match). |
+| `type`    | String | Optional | Filter by domain type: `external` or `internal`. |
+| `domains` | List   | Computed | List of matching DNS domains. |
+
+Each item in `domains` has the following attributes:
+
+| Attribute       | Type   | Description |
+|----------------|--------|-------------|
+| `uuid`         | String | UUID of the DNS domain. |
+| `name`         | String | Full zone name (e.g. example.com). |
+| `comment`      | String | Comment for the domain. |
+| `enddate`      | String | End date for the domain (if known). |
+| `customer`     | String | Customer associated with the domain. |
+| `provider_name` | String | Name of the DNS provider integration. |
+| `type`         | String | Domain type: `external` or `internal`. |
 
 ---
 
@@ -1721,6 +1764,56 @@ resource "mcs_monitor_ip" "web_check" {
 | `id`                  | String | Monitor entry ID. |
 | `timestamp`           | String | Creation timestamp. |
 | `last_check_timestamp` | String | Timestamp of the last check. |
+
+---
+
+### DNS
+
+#### mcs_dns_entry
+
+Manages a DNS entry within an MCS DNS domain. Use the `mcs_dns_domain` data source to look up available domains and their UUIDs.
+
+DNS entries cannot be updated in-place. Changing any attribute will cause Terraform to destroy the existing entry and create a new one.
+
+##### Example
+
+```hcl
+data "mcs_dns_domain" "main" {
+  name = "example.com"
+}
+
+resource "mcs_dns_entry" "www" {
+  domain_uuid = data.mcs_dns_domain.main.domains[0].uuid
+  name        = "www"
+  type        = "A"
+  content     = "192.0.2.1"
+  expire      = 300
+}
+
+resource "mcs_dns_entry" "mail" {
+  domain_uuid = data.mcs_dns_domain.main.domains[0].uuid
+  name        = "mail"
+  type        = "CNAME"
+  content     = "mail.example.com"
+  expire      = 3600
+}
+```
+
+##### Attributes
+
+| Attribute     | Type   | Required | Description |
+|--------------|--------|----------|-------------|
+| `domain_uuid` | String | **Yes** | UUID of the DNS domain (from `mcs_dns_domain` data source). Changing this forces a new resource. |
+| `name`       | String | **Yes**  | DNS record name (e.g. www, mail). Changing this forces a new resource. |
+| `type`       | String | **Yes**  | DNS record type (e.g. A, AAAA, CNAME, MX, TXT). Changing this forces a new resource. |
+| `content`    | String | **Yes**  | DNS record content (e.g. IP address, hostname). Changing this forces a new resource. |
+| `expire`     | Number | **Yes**  | TTL in seconds (minimum 60, maximum 604800). Changing this forces a new resource. |
+
+**Read-only attributes:**
+
+| Attribute | Type   | Description |
+|-----------|--------|-------------|
+| `id`      | String | Composite identifier: `domain_uuid/name/type/content`. |
 
 ---
 
