@@ -153,7 +153,9 @@ func (r *LbvServerResource) Create(ctx context.Context, req resource.CreateReque
 
 	plan.Id = types.StringValue(apiResp.Id)
 	plan.Name = types.StringValue(apiResp.Name)
-	plan.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
+	if apiResp.Ipaddress != nil {
+		plan.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
+	}
 	plan.Port = types.Int64PointerValue(apiResp.Port)
 	plan.Type = types.StringPointerValue(apiResp.Type)
 
@@ -161,9 +163,13 @@ func (r *LbvServerResource) Create(ctx context.Context, req resource.CreateReque
 	resp.Diagnostics.Append(diags...)
 	plan.Servicegroup = listVal
 
-	listVal, diags = types.ListValueFrom(ctx, types.StringType, apiResp.Certificate)
-	resp.Diagnostics.Append(diags...)
-	plan.Certificate = listVal
+	if plan.Certificate.IsNull() && len(apiResp.Certificate) == 0 {
+		plan.Certificate = types.ListNull(types.StringType)
+	} else {
+		listVal, diags = types.ListValueFrom(ctx, types.StringType, apiResp.Certificate)
+		resp.Diagnostics.Append(diags...)
+		plan.Certificate = listVal
+	}
 
 	plan.Customer = types.StringPointerValue(apiResp.Customer)
 	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
@@ -191,7 +197,9 @@ func (r *LbvServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 
 	state.Id = types.StringValue(apiResp.Id)
 	state.Name = types.StringValue(apiResp.Name)
-	state.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
+	if apiResp.Ipaddress != nil {
+		state.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
+	}
 	state.Port = types.Int64PointerValue(apiResp.Port)
 	state.Type = types.StringPointerValue(apiResp.Type)
 
@@ -199,9 +207,13 @@ func (r *LbvServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 	resp.Diagnostics.Append(diags...)
 	state.Servicegroup = listVal
 
-	listVal, diags = types.ListValueFrom(ctx, types.StringType, apiResp.Certificate)
-	resp.Diagnostics.Append(diags...)
-	state.Certificate = listVal
+	if state.Certificate.IsNull() && len(apiResp.Certificate) == 0 {
+		state.Certificate = types.ListNull(types.StringType)
+	} else {
+		listVal, diags = types.ListValueFrom(ctx, types.StringType, apiResp.Certificate)
+		resp.Diagnostics.Append(diags...)
+		state.Certificate = listVal
+	}
 
 	state.Customer = types.StringPointerValue(apiResp.Customer)
 	state.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
@@ -265,7 +277,9 @@ func (r *LbvServerResource) Update(ctx context.Context, req resource.UpdateReque
 
 	plan.Id = types.StringValue(apiResp.Id)
 	plan.Name = types.StringValue(apiResp.Name)
-	plan.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
+	if apiResp.Ipaddress != nil {
+		plan.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
+	}
 	plan.Port = types.Int64PointerValue(apiResp.Port)
 	plan.Type = types.StringPointerValue(apiResp.Type)
 
@@ -273,9 +287,13 @@ func (r *LbvServerResource) Update(ctx context.Context, req resource.UpdateReque
 	resp.Diagnostics.Append(diags...)
 	plan.Servicegroup = listVal
 
-	listVal, diags = types.ListValueFrom(ctx, types.StringType, apiResp.Certificate)
-	resp.Diagnostics.Append(diags...)
-	plan.Certificate = listVal
+	if plan.Certificate.IsNull() && len(apiResp.Certificate) == 0 {
+		plan.Certificate = types.ListNull(types.StringType)
+	} else {
+		listVal, diags = types.ListValueFrom(ctx, types.StringType, apiResp.Certificate)
+		resp.Diagnostics.Append(diags...)
+		plan.Certificate = listVal
+	}
 
 	plan.Customer = types.StringPointerValue(apiResp.Customer)
 	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)

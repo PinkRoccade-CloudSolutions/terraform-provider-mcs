@@ -1466,6 +1466,8 @@ resource "mcs_lb_monitor" "http_monitor" {
 
 Manages a load balancer service group.
 
+> **Note:** The API requires service groups to be created before members can be assigned. When `members` is specified, the provider first creates the service group and then sets its members in a separate update call. This is handled transparently.
+
 ##### Example
 
 ```hcl
@@ -1473,6 +1475,7 @@ resource "mcs_lb_servicegroup" "web_backend" {
   name          = "web-backend-sg"
   type          = "HTTP"
   state         = "enable"
+  members       = [mcs_lb_servicegroup_member.web1.id, mcs_lb_servicegroup_member.web2.id]
   healthmonitor = "YES"
   customer      = mcs_customer.example.id
   loadbalancer  = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
@@ -1486,7 +1489,7 @@ resource "mcs_lb_servicegroup" "web_backend" {
 | `name`         | String       | **Yes**  | Service group name. |
 | `type`         | String       | **Yes**  | Service type (e.g. `HTTP`, `SSL`, `TCP`). |
 | `state`        | String       | No       | State (e.g. `enable`, `disable`). |
-| `members`      | List(String) | No       | List of member IDs. |
+| `members`      | List(String) | No       | List of member IDs. Set after creation via a separate API call. |
 | `healthmonitor` | String      | No       | Health monitor setting. |
 | `customer`     | String       | No       | Customer identifier. |
 | `loadbalancer` | String       | No       | UUID of the load balancer. |

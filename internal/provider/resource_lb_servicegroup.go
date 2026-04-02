@@ -103,6 +103,7 @@ func (r *LbServicegroupResource) Create(ctx context.Context, req resource.Create
 		return
 	}
 
+	// Stage 1: create the service group without members
 	apiModel := lbServicegroupAPIModel{
 		Name: plan.Name.ValueString(),
 		Type: plan.Type.ValueString(),
@@ -110,11 +111,6 @@ func (r *LbServicegroupResource) Create(ctx context.Context, req resource.Create
 	if !plan.State.IsNull() {
 		v := plan.State.ValueString()
 		apiModel.State = &v
-	}
-	if !plan.Members.IsNull() {
-		var members []string
-		resp.Diagnostics.Append(plan.Members.ElementsAs(ctx, &members, false)...)
-		apiModel.Members = members
 	}
 	if !plan.Healthmonitor.IsNull() {
 		v := plan.Healthmonitor.ValueString()
@@ -129,25 +125,48 @@ func (r *LbServicegroupResource) Create(ctx context.Context, req resource.Create
 		apiModel.Loadbalancer = &v
 	}
 
-	var apiResp lbServicegroupAPIModel
-	err := r.client.Post(ctx, "/api/loadbalancing/lbservicegroup/", apiModel, &apiResp)
+	var createResp lbServicegroupAPIModel
+	err := r.client.Post(ctx, "/api/loadbalancing/lbservicegroup/", apiModel, &createResp)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating lb_servicegroup", err.Error())
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringValue(apiResp.Name)
-	plan.Type = types.StringValue(apiResp.Type)
-	plan.State = types.StringPointerValue(apiResp.State)
+	// Stage 2: set members via PUT once the service group exists
+	finalResp := createResp
+	if !plan.Members.IsNull() && len(plan.Members.Elements()) > 0 {
+		var members []string
+		resp.Diagnostics.Append(plan.Members.ElementsAs(ctx, &members, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		apiModel.Members = members
 
-	listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Members)
-	resp.Diagnostics.Append(diags...)
-	plan.Members = listVal
+		var updateResp lbServicegroupAPIModel
+		err := r.client.Put(ctx, fmt.Sprintf("/api/loadbalancing/lbservicegroup/%s/", createResp.Id), apiModel, &updateResp)
+		if err != nil {
+			resp.Diagnostics.AddError("Error setting lb_servicegroup members", err.Error())
+			return
+		}
+		finalResp = updateResp
+	}
 
-	plan.Healthmonitor = types.StringPointerValue(apiResp.Healthmonitor)
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
+	plan.Id = types.StringValue(finalResp.Id)
+	plan.Name = types.StringValue(finalResp.Name)
+	plan.Type = types.StringValue(finalResp.Type)
+	plan.State = types.StringPointerValue(finalResp.State)
+
+	if plan.Members.IsNull() && len(finalResp.Members) == 0 {
+		plan.Members = types.ListNull(types.StringType)
+	} else {
+		listVal, diags := types.ListValueFrom(ctx, types.StringType, finalResp.Members)
+		resp.Diagnostics.Append(diags...)
+		plan.Members = listVal
+	}
+
+	plan.Healthmonitor = types.StringPointerValue(finalResp.Healthmonitor)
+	plan.Customer = types.StringPointerValue(finalResp.Customer)
+	plan.Loadbalancer = types.StringPointerValue(finalResp.Loadbalancer)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -175,9 +194,13 @@ func (r *LbServicegroupResource) Read(ctx context.Context, req resource.ReadRequ
 	state.Type = types.StringValue(apiResp.Type)
 	state.State = types.StringPointerValue(apiResp.State)
 
-	listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Members)
-	resp.Diagnostics.Append(diags...)
-	state.Members = listVal
+	if state.Members.IsNull() && len(apiResp.Members) == 0 {
+		state.Members = types.ListNull(types.StringType)
+	} else {
+		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Members)
+		resp.Diagnostics.Append(diags...)
+		state.Members = listVal
+	}
 
 	state.Healthmonitor = types.StringPointerValue(apiResp.Healthmonitor)
 	state.Customer = types.StringPointerValue(apiResp.Customer)
@@ -237,9 +260,13 @@ func (r *LbServicegroupResource) Update(ctx context.Context, req resource.Update
 	plan.Type = types.StringValue(apiResp.Type)
 	plan.State = types.StringPointerValue(apiResp.State)
 
-	listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Members)
-	resp.Diagnostics.Append(diags...)
-	plan.Members = listVal
+	if plan.Members.IsNull() && len(apiResp.Members) == 0 {
+		plan.Members = types.ListNull(types.StringType)
+	} else {
+		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Members)
+		resp.Diagnostics.Append(diags...)
+		plan.Members = listVal
+	}
 
 	plan.Healthmonitor = types.StringPointerValue(apiResp.Healthmonitor)
 	plan.Customer = types.StringPointerValue(apiResp.Customer)
