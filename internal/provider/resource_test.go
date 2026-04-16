@@ -400,6 +400,210 @@ resource "mcs_cs_policy" "test" {
 }
 
 // ---------------------------------------------------------------------------
+// mcs_rewrite_action
+// ---------------------------------------------------------------------------
+
+func TestAccRewriteActionResource_CRUD(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	rewriteAction := map[string]interface{}{
+		"id":                "rw-act-001",
+		"name":              "replace-host",
+		"type":              "replace",
+		"target":            "HTTP.REQ.HOSTNAME",
+		"stringbuilderexpr": "\"example.org\"",
+		"search":            "example.com",
+		"comment":           "Replace host header",
+		"customer":          "cust-001",
+		"loadbalancer":      "lb-001",
+	}
+
+	mock.On("/api/loadbalancing/rewriteaction", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodPost, http.MethodPut:
+			var req map[string]interface{}
+			_ = json.Unmarshal(body, &req)
+			for k, v := range req {
+				rewriteAction[k] = v
+			}
+			if _, ok := rewriteAction["id"]; !ok {
+				rewriteAction["id"] = "rw-act-001"
+			}
+			if r.Method == http.MethodPost {
+				w.WriteHeader(http.StatusCreated)
+			}
+			_ = json.NewEncoder(w).Encode(rewriteAction)
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode(rewriteAction)
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_rewrite_action" "test" {
+  name              = "replace-host"
+  type              = "replace"
+  target            = "HTTP.REQ.HOSTNAME"
+  stringbuilderexpr = "\"example.org\""
+  search            = "example.com"
+  comment           = "Replace host header"
+  customer          = "cust-001"
+  loadbalancer      = "lb-001"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "id", "rw-act-001"),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "name", "replace-host"),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "type", "replace"),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "target", "HTTP.REQ.HOSTNAME"),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "stringbuilderexpr", "\"example.org\""),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "search", "example.com"),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "comment", "Replace host header"),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "customer", "cust-001"),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "loadbalancer", "lb-001"),
+				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_rewrite_action" "test" {
+  name              = "replace-path"
+  type              = "replace_all"
+  target            = "HTTP.REQ.URL.PATH"
+  stringbuilderexpr = "\"/new\""
+  search            = "/old"
+  comment           = "Replace request path"
+  customer          = "cust-001"
+  loadbalancer      = "lb-002"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "id", "rw-act-001"),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "name", "replace-path"),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "type", "replace_all"),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "target", "HTTP.REQ.URL.PATH"),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "stringbuilderexpr", "\"/new\""),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "search", "/old"),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "comment", "Replace request path"),
+					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "loadbalancer", "lb-002"),
+				),
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// mcs_rewrite_policy
+// ---------------------------------------------------------------------------
+
+func TestAccRewritePolicyResource_CRUD(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	rewritePolicy := map[string]interface{}{
+		"id":                     "rw-pol-001",
+		"name":                   "rewrite-requests",
+		"rule":                   "HTTP.REQ.URL.CONTAINS(\"/old\")",
+		"action":                 "rw-act-001",
+		"undefaction":            "NOREWRITE",
+		"comment":                "Rewrite incoming requests",
+		"priority":               100,
+		"bindpoint":              "REQUEST",
+		"gotopriorityexpression": "NEXT",
+		"customer":               "cust-001",
+		"loadbalancer":           "lb-001",
+	}
+
+	mock.On("/api/loadbalancing/rewritepolicy", func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodPost, http.MethodPut:
+			var req map[string]interface{}
+			_ = json.Unmarshal(body, &req)
+			for k, v := range req {
+				rewritePolicy[k] = v
+			}
+			if _, ok := rewritePolicy["id"]; !ok {
+				rewritePolicy["id"] = "rw-pol-001"
+			}
+			if r.Method == http.MethodPost {
+				w.WriteHeader(http.StatusCreated)
+			}
+			_ = json.NewEncoder(w).Encode(rewritePolicy)
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode(rewritePolicy)
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_rewrite_policy" "test" {
+  name                   = "rewrite-requests"
+  rule                   = "HTTP.REQ.URL.CONTAINS(\"/old\")"
+  action                 = "rw-act-001"
+  undefaction            = "NOREWRITE"
+  comment                = "Rewrite incoming requests"
+  priority               = 100
+  bindpoint              = "REQUEST"
+  gotopriorityexpression = "NEXT"
+  customer               = "cust-001"
+  loadbalancer           = "lb-001"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "id", "rw-pol-001"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "name", "rewrite-requests"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "rule", "HTTP.REQ.URL.CONTAINS(\"/old\")"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "action", "rw-act-001"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "undefaction", "NOREWRITE"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "comment", "Rewrite incoming requests"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "priority", "100"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "bindpoint", "REQUEST"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "gotopriorityexpression", "NEXT"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "customer", "cust-001"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "loadbalancer", "lb-001"),
+				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_rewrite_policy" "test" {
+  name                   = "rewrite-responses"
+  rule                   = "HTTP.RES.STATUS.EQ(404)"
+  action                 = "rw-act-002"
+  undefaction            = "RESET"
+  comment                = "Rewrite missing responses"
+  priority               = 200
+  bindpoint              = "RESPONSE"
+  gotopriorityexpression = "END"
+  customer               = "cust-001"
+  loadbalancer           = "lb-002"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "id", "rw-pol-001"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "name", "rewrite-responses"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "rule", "HTTP.RES.STATUS.EQ(404)"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "action", "rw-act-002"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "undefaction", "RESET"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "comment", "Rewrite missing responses"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "priority", "200"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "bindpoint", "RESPONSE"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "gotopriorityexpression", "END"),
+					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "loadbalancer", "lb-002"),
+				),
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
 // mcs_csv_server
 // ---------------------------------------------------------------------------
 
@@ -1275,7 +1479,7 @@ func TestAccSiteToSiteVPNResource_CRUD(t *testing.T) {
 				"id": 7, "uuid": "vpn-uuid-001", "name": req["name"],
 				"state": req["state"], "last_status": req["last_status"],
 				"resets": req["resets"], "last_check": req["last_check"],
-				"last_reset": req["last_reset"],
+				"last_reset":           req["last_reset"],
 				"created_at_timestamp": "2025-01-01T00:00:00Z",
 				"updated_at_timestamp": "2025-01-01T00:00:00Z",
 			}

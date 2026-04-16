@@ -114,6 +114,8 @@ func (p *MCSProvider) Resources(_ context.Context) []func() resource.Resource {
 		NewMonitorIPResource,
 		NewNATTranslationResource,
 		NewPublicIPAddressResource,
+		NewRewriteActionResource,
+		NewRewritePolicyResource,
 		NewSiteToSiteVPNResource,
 		NewVirtualDatacenterResource,
 	}
@@ -145,6 +147,8 @@ func (p *MCSProvider) DataSources(_ context.Context) []func() datasource.DataSou
 		NewNetworkDataSource,
 		NewNetworkPoolDataSource,
 		NewPublicIPAddressDataSource,
+		NewRewriteActionDataSource,
+		NewRewritePolicyDataSource,
 		NewSiteToSiteVPNDataSource,
 		NewTenantDataSource,
 		NewVirtualDatacenterDataSource,

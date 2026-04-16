@@ -27,6 +27,8 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
   - [mcs_certificate](#mcs_certificate-data-source)
   - [mcs_cs_action](#mcs_cs_action-data-source)
   - [mcs_cs_policy](#mcs_cs_policy-data-source)
+  - [mcs_rewrite_action](#mcs_rewrite_action-data-source)
+  - [mcs_rewrite_policy](#mcs_rewrite_policy-data-source)
   - [mcs_csv_server](#mcs_csv_server-data-source)
   - [mcs_lb_servicegroup](#mcs_lb_servicegroup-data-source)
   - [mcs_lb_servicegroup_member](#mcs_lb_servicegroup_member-data-source)
@@ -63,6 +65,8 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
     - [mcs_csv_server](#mcs_csv_server)
     - [mcs_cs_action](#mcs_cs_action)
     - [mcs_cs_policy](#mcs_cs_policy)
+    - [mcs_rewrite_action](#mcs_rewrite_action)
+    - [mcs_rewrite_policy](#mcs_rewrite_policy)
   - [Virtualization](#virtualization)
     - [mcs_virtual_datacenter](#mcs_virtual_datacenter)
   - [Monitoring](#monitoring)
@@ -705,6 +709,70 @@ data "mcs_cs_policy" "routing" {
 | `cs_policies` | List   | Computed | All CS policies (populated when neither `name` nor `id` is set). |
 
 **Nested `cs_policies` attributes:** `id`, `name`, `action`, `expression`, `customer`, `application`, `loadbalancer` — all String, Computed.
+
+---
+
+### mcs_rewrite_action (Data Source)
+
+Look up rewrite actions. Provide `name` or `id` for a single match, or omit both to list all.
+
+#### Example
+
+```hcl
+data "mcs_rewrite_action" "hostname_replace" {
+  name = "replace-host"
+}
+```
+
+#### Attributes
+
+| Attribute | Type | Mode | Description |
+|-----------|------|------|-------------|
+| `name` | String | Optional | Exact rewrite action name. |
+| `id` | String | Optional/Computed | Rewrite action UUID. |
+| `type` | String | Computed | Rewrite action type. |
+| `target` | String | Computed | Rewrite target expression. |
+| `stringbuilderexpr` | String | Computed | String builder expression. |
+| `search` | String | Computed | Search expression. |
+| `comment` | String | Computed | Rewrite action comment. |
+| `customer` | String | Computed | Customer identifier. |
+| `loadbalancer` | String | Computed | UUID of the load balancer. |
+| `rewrite_actions` | List | Computed | All rewrite actions (populated when neither `name` nor `id` is set). |
+
+**Nested `rewrite_actions` attributes:** `id`, `name`, `type`, `target`, `stringbuilderexpr`, `search`, `comment`, `customer`, `loadbalancer` — all String, Computed.
+
+---
+
+### mcs_rewrite_policy (Data Source)
+
+Look up rewrite policies. Provide `name` or `id` for a single match, or omit both to list all.
+
+#### Example
+
+```hcl
+data "mcs_rewrite_policy" "request_rules" {
+  name = "rewrite-requests"
+}
+```
+
+#### Attributes
+
+| Attribute | Type | Mode | Description |
+|-----------|------|------|-------------|
+| `name` | String | Optional | Exact rewrite policy name. |
+| `id` | String | Optional/Computed | Rewrite policy UUID. |
+| `rule` | String | Computed | Rewrite rule expression. |
+| `action` | String | Computed | Rewrite action UUID. |
+| `undefaction` | String | Computed | Action used when the rule result is undefined. |
+| `comment` | String | Computed | Rewrite policy comment. |
+| `priority` | Number | Computed | Rewrite policy priority. |
+| `bindpoint` | String | Computed | Rewrite bind point. |
+| `gotopriorityexpression` | String | Computed | Priority expression after evaluation. |
+| `customer` | String | Computed | Customer identifier. |
+| `loadbalancer` | String | Computed | UUID of the load balancer. |
+| `rewrite_policies` | List | Computed | All rewrite policies (populated when neither `name` nor `id` is set). |
+
+**Nested `rewrite_policies` attributes:** `id`, `name`, `rule`, `action`, `undefaction`, `comment`, `bindpoint`, `gotopriorityexpression`, `customer`, `loadbalancer` (String) and `priority` (Number) — all Computed.
 
 ---
 
@@ -1700,6 +1768,82 @@ resource "mcs_cs_policy" "by_url" {
 | `customer`    | String | No       | Customer identifier. |
 | `application` | String | No       | Application identifier. |
 | `loadbalancer` | String | No      | UUID of the load balancer. |
+
+**Read-only attributes:** `id` (String).
+
+---
+
+#### mcs_rewrite_action
+
+Manages a rewrite action.
+
+##### Example
+
+```hcl
+resource "mcs_rewrite_action" "replace_host" {
+  name              = "replace-host"
+  type              = "replace"
+  target            = "HTTP.REQ.HOSTNAME"
+  stringbuilderexpr = "\"example.org\""
+  search            = "example.com"
+  comment           = "Replace host header"
+  customer          = mcs_customer.example.id
+  loadbalancer      = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
+}
+```
+
+##### Attributes
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | String | **Yes** | Rewrite action name. |
+| `type` | String | No | Rewrite action type. |
+| `target` | String | No | Rewrite target expression. |
+| `stringbuilderexpr` | String | No | String builder expression. |
+| `search` | String | No | Search expression. |
+| `comment` | String | No | Rewrite action comment. |
+| `customer` | String | No | Customer identifier. |
+| `loadbalancer` | String | No | UUID of the load balancer. |
+
+**Read-only attributes:** `id` (String).
+
+---
+
+#### mcs_rewrite_policy
+
+Manages a rewrite policy.
+
+##### Example
+
+```hcl
+resource "mcs_rewrite_policy" "rewrite_requests" {
+  name                   = "rewrite-requests"
+  rule                   = "HTTP.REQ.URL.CONTAINS(\"/old\")"
+  action                 = mcs_rewrite_action.replace_host.id
+  undefaction            = "NOREWRITE"
+  comment                = "Rewrite incoming requests"
+  priority               = 100
+  bindpoint              = "REQUEST"
+  gotopriorityexpression = "NEXT"
+  customer               = mcs_customer.example.id
+  loadbalancer           = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
+}
+```
+
+##### Attributes
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | String | **Yes** | Rewrite policy name. |
+| `rule` | String | No | Rewrite rule expression. |
+| `action` | String | No | Rewrite action UUID to invoke. |
+| `undefaction` | String | No | Action used when the rule result is undefined. |
+| `comment` | String | No | Rewrite policy comment. |
+| `priority` | Number | No | Rewrite policy priority. |
+| `bindpoint` | String | No | Rewrite bind point. |
+| `gotopriorityexpression` | String | No | Priority expression after evaluation. |
+| `customer` | String | No | Customer identifier. |
+| `loadbalancer` | String | No | UUID of the load balancer. |
 
 **Read-only attributes:** `id` (String).
 
