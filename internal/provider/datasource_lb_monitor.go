@@ -3,12 +3,11 @@ package provider
 import (
 	"context"
 	"fmt"
-	"net/url"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &LbMonitorDataSource{}
@@ -18,18 +17,18 @@ type LbMonitorDataSource struct {
 }
 
 type LbMonitorDataSourceModel struct {
-	Name         types.String       `tfsdk:"name"`
-	Id           types.String       `tfsdk:"id"`
-	Type         types.String       `tfsdk:"type"`
-	Interval     types.Int64        `tfsdk:"interval"`
-	Resptimeout  types.Int64        `tfsdk:"resptimeout"`
-	Downtime     types.Int64        `tfsdk:"downtime"`
-	Respcode     types.String       `tfsdk:"respcode"`
-	Secure       types.String       `tfsdk:"secure"`
-	Httprequest  types.String       `tfsdk:"httprequest"`
-	Loadbalancer types.String       `tfsdk:"loadbalancer"`
-	Protected    types.Bool         `tfsdk:"protected"`
-	Customer     types.String       `tfsdk:"customer"`
+	Name         types.String         `tfsdk:"name"`
+	Id           types.String         `tfsdk:"id"`
+	Type         types.String         `tfsdk:"type"`
+	Interval     types.Int64          `tfsdk:"interval"`
+	Resptimeout  types.Int64          `tfsdk:"resptimeout"`
+	Downtime     types.Int64          `tfsdk:"downtime"`
+	Respcode     types.String         `tfsdk:"respcode"`
+	Secure       types.String         `tfsdk:"secure"`
+	Httprequest  types.String         `tfsdk:"httprequest"`
+	Loadbalancer types.String         `tfsdk:"loadbalancer"`
+	Protected    types.Bool           `tfsdk:"protected"`
+	Customer     types.String         `tfsdk:"customer"`
 	LbMonitors   []LbMonitorListModel `tfsdk:"lb_monitors"`
 }
 
@@ -172,24 +171,17 @@ func (d *LbMonitorDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	path := "/api/loadbalancing/monitor/?page_size=1000"
-	if !config.Name.IsNull() && config.Name.ValueString() != "" {
-		path += "&name__icontains=" + url.QueryEscape(config.Name.ValueString())
-	}
-
-	var page struct {
-		Results []lbMonitorDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[lbMonitorDSAPIModel](ctx, d.client, "/api/loadbalancing/monitor/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading lb_monitors", err.Error())
 		return
 	}
 
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *lbMonitorDSAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name == config.Name.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name == config.Name.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -216,10 +208,10 @@ func (d *LbMonitorDataSource) Read(ctx context.Context, req datasource.ReadReque
 		Loadbalancer: types.StringNull(),
 		Protected:    types.BoolNull(),
 		Customer:     types.StringNull(),
-		LbMonitors:   make([]LbMonitorListModel, 0, len(page.Results)),
+		LbMonitors:   make([]LbMonitorListModel, 0, len(items)),
 	}
-	for i := range page.Results {
-		state.LbMonitors = append(state.LbMonitors, toLbMonitorListModel(&page.Results[i]))
+	for i := range items {
+		state.LbMonitors = append(state.LbMonitors, toLbMonitorListModel(&items[i]))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

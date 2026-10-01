@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"net/url"
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -24,7 +23,7 @@ type RewritePolicyDataSourceModel struct {
 	Action                 types.String         `tfsdk:"action"`
 	Undefaction            types.String         `tfsdk:"undefaction"`
 	Comment                types.String         `tfsdk:"comment"`
-	Priority               types.Float64        `tfsdk:"priority"`
+	Priority               types.Int64          `tfsdk:"priority"`
 	Bindpoint              types.String         `tfsdk:"bindpoint"`
 	Gotopriorityexpression types.String         `tfsdk:"gotopriorityexpression"`
 	Customer               types.String         `tfsdk:"customer"`
@@ -33,31 +32,31 @@ type RewritePolicyDataSourceModel struct {
 }
 
 type RewritePolicyModel struct {
-	Id                     types.String  `tfsdk:"id"`
-	Name                   types.String  `tfsdk:"name"`
-	Rule                   types.String  `tfsdk:"rule"`
-	Action                 types.String  `tfsdk:"action"`
-	Undefaction            types.String  `tfsdk:"undefaction"`
-	Comment                types.String  `tfsdk:"comment"`
-	Priority               types.Float64 `tfsdk:"priority"`
-	Bindpoint              types.String  `tfsdk:"bindpoint"`
-	Gotopriorityexpression types.String  `tfsdk:"gotopriorityexpression"`
-	Customer               types.String  `tfsdk:"customer"`
-	Loadbalancer           types.String  `tfsdk:"loadbalancer"`
+	Id                     types.String `tfsdk:"id"`
+	Name                   types.String `tfsdk:"name"`
+	Rule                   types.String `tfsdk:"rule"`
+	Action                 types.String `tfsdk:"action"`
+	Undefaction            types.String `tfsdk:"undefaction"`
+	Comment                types.String `tfsdk:"comment"`
+	Priority               types.Int64  `tfsdk:"priority"`
+	Bindpoint              types.String `tfsdk:"bindpoint"`
+	Gotopriorityexpression types.String `tfsdk:"gotopriorityexpression"`
+	Customer               types.String `tfsdk:"customer"`
+	Loadbalancer           types.String `tfsdk:"loadbalancer"`
 }
 
 type rewritePolicyDSAPIModel struct {
-	Id                     string   `json:"id"`
-	Name                   string   `json:"name"`
-	Rule                   *string  `json:"rule,omitempty"`
-	Action                 *string  `json:"action,omitempty"`
-	Undefaction            *string  `json:"undefaction,omitempty"`
-	Comment                *string  `json:"comment,omitempty"`
-	Priority               *float64 `json:"priority,omitempty"`
-	Bindpoint              *string  `json:"bindpoint,omitempty"`
-	Gotopriorityexpression *string  `json:"gotopriorityexpression,omitempty"`
-	Customer               *string  `json:"customer,omitempty"`
-	Loadbalancer           *string  `json:"loadbalancer,omitempty"`
+	Id                     string  `json:"id"`
+	Name                   string  `json:"name"`
+	Rule                   *string `json:"rule,omitempty"`
+	Action                 *string `json:"action,omitempty"`
+	Undefaction            *string `json:"undefaction,omitempty"`
+	Comment                *string `json:"comment,omitempty"`
+	Priority               *int64  `json:"priority,omitempty"`
+	Bindpoint              *string `json:"bindpoint,omitempty"`
+	Gotopriorityexpression *string `json:"gotopriorityexpression,omitempty"`
+	Customer               *string `json:"customer,omitempty"`
+	Loadbalancer           *string `json:"loadbalancer,omitempty"`
 }
 
 func NewRewritePolicyDataSource() datasource.DataSource {
@@ -76,7 +75,7 @@ func (d *RewritePolicyDataSource) Schema(_ context.Context, _ datasource.SchemaR
 		"action":                 schema.StringAttribute{Computed: true},
 		"undefaction":            schema.StringAttribute{Computed: true},
 		"comment":                schema.StringAttribute{Computed: true},
-		"priority":               schema.Float64Attribute{Computed: true},
+		"priority":               schema.Int64Attribute{Computed: true},
 		"bindpoint":              schema.StringAttribute{Computed: true},
 		"gotopriorityexpression": schema.StringAttribute{Computed: true},
 		"customer":               schema.StringAttribute{Computed: true},
@@ -111,7 +110,7 @@ func (d *RewritePolicyDataSource) Schema(_ context.Context, _ datasource.SchemaR
 				Computed:    true,
 				Description: "Rewrite policy comment.",
 			},
-			"priority": schema.Float64Attribute{
+			"priority": schema.Int64Attribute{
 				Computed:    true,
 				Description: "Rewrite policy priority.",
 			},
@@ -172,24 +171,17 @@ func (d *RewritePolicyDataSource) Read(ctx context.Context, req datasource.ReadR
 		return
 	}
 
-	path := "/api/loadbalancing/rewritepolicy/?page_size=1000"
-	if !config.Name.IsNull() && config.Name.ValueString() != "" {
-		path += "&name__icontains=" + url.QueryEscape(config.Name.ValueString())
-	}
-
-	var page struct {
-		Results []rewritePolicyDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[rewritePolicyDSAPIModel](ctx, d.client, "/api/loadbalancing/rewritepolicy/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading rewrite policies", err.Error())
 		return
 	}
 
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *rewritePolicyDSAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name == config.Name.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name == config.Name.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -210,15 +202,15 @@ func (d *RewritePolicyDataSource) Read(ctx context.Context, req datasource.ReadR
 		Action:                 types.StringNull(),
 		Undefaction:            types.StringNull(),
 		Comment:                types.StringNull(),
-		Priority:               types.Float64Null(),
+		Priority:               types.Int64Null(),
 		Bindpoint:              types.StringNull(),
 		Gotopriorityexpression: types.StringNull(),
 		Customer:               types.StringNull(),
 		Loadbalancer:           types.StringNull(),
-		RewritePolicies:        make([]RewritePolicyModel, 0, len(page.Results)),
+		RewritePolicies:        make([]RewritePolicyModel, 0, len(items)),
 	}
-	for i := range page.Results {
-		state.RewritePolicies = append(state.RewritePolicies, rewritePolicyItemToModel(&page.Results[i]))
+	for i := range items {
+		state.RewritePolicies = append(state.RewritePolicies, rewritePolicyItemToModel(&items[i]))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -247,9 +239,9 @@ func setSingleRewritePolicy(state *RewritePolicyDataSourceModel, item *rewritePo
 		state.Comment = types.StringNull()
 	}
 	if item.Priority != nil {
-		state.Priority = types.Float64Value(*item.Priority)
+		state.Priority = types.Int64Value(*item.Priority)
 	} else {
-		state.Priority = types.Float64Null()
+		state.Priority = types.Int64Null()
 	}
 	if item.Bindpoint != nil {
 		state.Bindpoint = types.StringValue(*item.Bindpoint)
@@ -300,9 +292,9 @@ func rewritePolicyItemToModel(item *rewritePolicyDSAPIModel) RewritePolicyModel 
 		m.Comment = types.StringNull()
 	}
 	if item.Priority != nil {
-		m.Priority = types.Float64Value(*item.Priority)
+		m.Priority = types.Int64Value(*item.Priority)
 	} else {
-		m.Priority = types.Float64Null()
+		m.Priority = types.Int64Null()
 	}
 	if item.Bindpoint != nil {
 		m.Bindpoint = types.StringValue(*item.Bindpoint)

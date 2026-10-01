@@ -17,30 +17,28 @@ func TestAccCertificateResource_CRUD(t *testing.T) {
 	mock := newMockAPIServer()
 	defer mock.Close()
 
+	cert := map[string]interface{}{
+		"id": "cert-001", "ca": false, "valid_to_timestamp": nil,
+		"customer": "cust-001", "protected": true,
+	}
+	var bodies []map[string]interface{}
+
 	mock.On("/api/loadbalancing/certificate", func(w http.ResponseWriter, r *http.Request, body []byte) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method {
-		case http.MethodPost:
+		case http.MethodPost, http.MethodPut:
 			var req map[string]interface{}
 			_ = json.Unmarshal(body, &req)
-			resp := map[string]interface{}{"id": "cert-001"}
+			bodies = append(bodies, req)
 			for k, v := range req {
-				resp[k] = v
+				cert[k] = v
 			}
-			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(resp)
+			if r.Method == http.MethodPost {
+				w.WriteHeader(http.StatusCreated)
+			}
+			_ = json.NewEncoder(w).Encode(cert)
 		case http.MethodGet:
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"id": "cert-001", "name": "my-cert",
-			})
-		case http.MethodPut:
-			var req map[string]interface{}
-			_ = json.Unmarshal(body, &req)
-			resp := map[string]interface{}{"id": "cert-001"}
-			for k, v := range req {
-				resp[k] = v
-			}
-			_ = json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(cert)
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -52,15 +50,46 @@ func TestAccCertificateResource_CRUD(t *testing.T) {
 			{
 				Config: providerConfigBlock(mock.URL()) + `
 resource "mcs_certificate" "test" {
-  name = "my-cert"
+  name         = "my-cert"
+  loadbalancer = "lb-001"
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_certificate.test", "id", "cert-001"),
 					resource.TestCheckResourceAttr("mcs_certificate.test", "name", "my-cert"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "loadbalancer", "lb-001"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "customer", "cust-001"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "protected", "true"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "ca", "false"),
+					resource.TestCheckNoResourceAttr("mcs_certificate.test", "valid_to_timestamp"),
+				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_certificate" "test" {
+  name         = "my-cert"
+  loadbalancer = "lb-002"
+  customer     = "cust-002"
+  ca           = true
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_certificate.test", "loadbalancer", "lb-002"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "customer", "cust-002"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "ca", "true"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "protected", "true"),
 				),
 			},
 		},
 	})
+
+	if len(bodies) == 0 {
+		t.Fatal("expected a POST body")
+	}
+	if _, ok := bodies[0]["customer"]; ok {
+		t.Errorf("unset customer must not be sent, got body %v", bodies[0])
+	}
+	if _, ok := bodies[0]["protected"]; ok {
+		t.Errorf("read-only protected must not be sent, got body %v", bodies[0])
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -665,7 +694,7 @@ func TestAccCsvServerResource_CRUD(t *testing.T) {
 resource "mcs_csv_server" "test" {
   name   = "my-csv"
   ufname = "my-csv-uf"
-  type   = "HTTP"
+  type   = "http"
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_csv_server.test", "id", "csv-001"),
@@ -679,7 +708,7 @@ resource "mcs_csv_server" "test" {
 resource "mcs_csv_server" "test" {
   name        = "my-csv"
   ufname      = "my-csv-uf"
-  type        = "HTTP"
+  type        = "http"
   ipaddress   = "pip-uuid-1"
   policies    = ["pol-1"]
   certificate = ["cert-1"]

@@ -3,12 +3,11 @@ package provider
 import (
 	"context"
 	"fmt"
-	"net/url"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &CsPolicyDataSource{}
@@ -18,14 +17,14 @@ type CsPolicyDataSource struct {
 }
 
 type CsPolicyDataSourceModel struct {
-	Name         types.String      `tfsdk:"name"`
-	Id           types.String      `tfsdk:"id"`
-	Action       types.String      `tfsdk:"action"`
-	Expression   types.String      `tfsdk:"expression"`
-	Customer     types.String      `tfsdk:"customer"`
-	Application  types.String      `tfsdk:"application"`
-	Loadbalancer types.String      `tfsdk:"loadbalancer"`
-	CsPolicies   []CsPolicyModel   `tfsdk:"cs_policies"`
+	Name         types.String    `tfsdk:"name"`
+	Id           types.String    `tfsdk:"id"`
+	Action       types.String    `tfsdk:"action"`
+	Expression   types.String    `tfsdk:"expression"`
+	Customer     types.String    `tfsdk:"customer"`
+	Application  types.String    `tfsdk:"application"`
+	Loadbalancer types.String    `tfsdk:"loadbalancer"`
+	CsPolicies   []CsPolicyModel `tfsdk:"cs_policies"`
 }
 
 type CsPolicyModel struct {
@@ -140,24 +139,17 @@ func (d *CsPolicyDataSource) Read(ctx context.Context, req datasource.ReadReques
 		return
 	}
 
-	path := "/api/loadbalancing/cspolicy/?page_size=1000"
-	if !config.Name.IsNull() && config.Name.ValueString() != "" {
-		path += "&name__icontains=" + url.QueryEscape(config.Name.ValueString())
-	}
-
-	var page struct {
-		Results []csPolicyDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[csPolicyDSAPIModel](ctx, d.client, "/api/loadbalancing/cspolicy/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading CS policies", err.Error())
 		return
 	}
 
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *csPolicyDSAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name == config.Name.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name == config.Name.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -179,10 +171,10 @@ func (d *CsPolicyDataSource) Read(ctx context.Context, req datasource.ReadReques
 		Customer:     types.StringNull(),
 		Application:  types.StringNull(),
 		Loadbalancer: types.StringNull(),
-		CsPolicies:   make([]CsPolicyModel, 0, len(page.Results)),
+		CsPolicies:   make([]CsPolicyModel, 0, len(items)),
 	}
-	for i := range page.Results {
-		state.CsPolicies = append(state.CsPolicies, csPolicyItemToModel(&page.Results[i]))
+	for i := range items {
+		state.CsPolicies = append(state.CsPolicies, csPolicyItemToModel(&items[i]))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

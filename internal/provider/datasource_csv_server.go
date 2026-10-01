@@ -3,13 +3,12 @@ package provider
 import (
 	"context"
 	"fmt"
-	"net/url"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &CsvServerDataSource{}
@@ -19,43 +18,52 @@ type CsvServerDataSource struct {
 }
 
 type CsvServerDataSourceModel struct {
-	Name         types.String `tfsdk:"name"`
-	Id           types.String `tfsdk:"id"`
-	Ufname       types.String `tfsdk:"ufname"`
-	Ipaddress    types.String `tfsdk:"ipaddress"`
-	Port         types.Int64  `tfsdk:"port"`
-	Type         types.String `tfsdk:"type"`
-	Policies     types.List   `tfsdk:"policies"`
-	Certificate  types.List   `tfsdk:"certificate"`
-	Customer     types.String `tfsdk:"customer"`
-	Loadbalancer types.String `tfsdk:"loadbalancer"`
-	CsvServers   []CsvServerModel `tfsdk:"csv_servers"`
+	Name          types.String     `tfsdk:"name"`
+	Id            types.String     `tfsdk:"id"`
+	Ufname        types.String     `tfsdk:"ufname"`
+	Ipaddress     types.String     `tfsdk:"ipaddress"`
+	Port          types.Int64      `tfsdk:"port"`
+	Type          types.String     `tfsdk:"type"`
+	Policies      types.List       `tfsdk:"policies"`
+	Certificate   types.List       `tfsdk:"certificate"`
+	CaCertificate types.List       `tfsdk:"ca_certificate"`
+	Customer      types.String     `tfsdk:"customer"`
+	Loadbalancer  types.String     `tfsdk:"loadbalancer"`
+	Clientauth    types.Bool       `tfsdk:"clientauth"`
+	Clientcert    types.String     `tfsdk:"clientcert"`
+	CsvServers    []CsvServerModel `tfsdk:"csv_servers"`
 }
 
 type CsvServerModel struct {
-	Id           types.String `tfsdk:"id"`
-	Name         types.String `tfsdk:"name"`
-	Ufname       types.String `tfsdk:"ufname"`
-	Ipaddress    types.String `tfsdk:"ipaddress"`
-	Port         types.Int64  `tfsdk:"port"`
-	Type         types.String `tfsdk:"type"`
-	Policies     types.List   `tfsdk:"policies"`
-	Certificate  types.List   `tfsdk:"certificate"`
-	Customer     types.String `tfsdk:"customer"`
-	Loadbalancer types.String `tfsdk:"loadbalancer"`
+	Id            types.String `tfsdk:"id"`
+	Name          types.String `tfsdk:"name"`
+	Ufname        types.String `tfsdk:"ufname"`
+	Ipaddress     types.String `tfsdk:"ipaddress"`
+	Port          types.Int64  `tfsdk:"port"`
+	Type          types.String `tfsdk:"type"`
+	Policies      types.List   `tfsdk:"policies"`
+	Certificate   types.List   `tfsdk:"certificate"`
+	CaCertificate types.List   `tfsdk:"ca_certificate"`
+	Customer      types.String `tfsdk:"customer"`
+	Loadbalancer  types.String `tfsdk:"loadbalancer"`
+	Clientauth    types.Bool   `tfsdk:"clientauth"`
+	Clientcert    types.String `tfsdk:"clientcert"`
 }
 
 type csvServerDSAPIModel struct {
-	Id           string   `json:"id"`
-	Name         string   `json:"name"`
-	Ufname       string   `json:"ufname"`
-	Ipaddress    *string  `json:"ipaddress,omitempty"`
-	Port         *int64   `json:"port,omitempty"`
-	Type         string   `json:"type"`
-	Policies     []string `json:"policies,omitempty"`
-	Customer     *string  `json:"customer,omitempty"`
-	Certificate  []string `json:"certificate,omitempty"`
-	Loadbalancer *string  `json:"loadbalancer,omitempty"`
+	Id            string   `json:"id"`
+	Name          string   `json:"name"`
+	Ufname        string   `json:"ufname"`
+	Ipaddress     *string  `json:"ipaddress,omitempty"`
+	Port          *int64   `json:"port,omitempty"`
+	Type          string   `json:"type"`
+	Policies      []string `json:"policies,omitempty"`
+	Customer      *string  `json:"customer,omitempty"`
+	Certificate   []string `json:"certificate,omitempty"`
+	CaCertificate []string `json:"ca_certificate,omitempty"`
+	Loadbalancer  *string  `json:"loadbalancer,omitempty"`
+	Clientauth    *bool    `json:"clientauth,omitempty"`
+	Clientcert    *string  `json:"clientcert,omitempty"`
 }
 
 func NewCsvServerDataSource() datasource.DataSource {
@@ -68,22 +76,19 @@ func (d *CsvServerDataSource) Metadata(_ context.Context, req datasource.Metadat
 
 func (d *CsvServerDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	csvAttrs := map[string]schema.Attribute{
-		"id": schema.StringAttribute{Computed: true},
-		"name": schema.StringAttribute{Computed: true},
-		"ufname": schema.StringAttribute{Computed: true},
-		"ipaddress": schema.StringAttribute{Computed: true},
-		"port": schema.Int64Attribute{Computed: true},
-		"type": schema.StringAttribute{Computed: true},
-		"policies": schema.ListAttribute{
-			ElementType: types.StringType,
-			Computed:    true,
-		},
-		"certificate": schema.ListAttribute{
-			ElementType: types.StringType,
-			Computed:    true,
-		},
-		"customer": schema.StringAttribute{Computed: true},
-		"loadbalancer": schema.StringAttribute{Computed: true},
+		"id":             schema.StringAttribute{Computed: true},
+		"name":           schema.StringAttribute{Computed: true},
+		"ufname":         schema.StringAttribute{Computed: true},
+		"ipaddress":      schema.StringAttribute{Computed: true},
+		"port":           schema.Int64Attribute{Computed: true},
+		"type":           schema.StringAttribute{Computed: true},
+		"policies":       schema.ListAttribute{ElementType: types.StringType, Computed: true},
+		"certificate":    schema.ListAttribute{ElementType: types.StringType, Computed: true},
+		"ca_certificate": schema.ListAttribute{ElementType: types.StringType, Computed: true},
+		"customer":       schema.StringAttribute{Computed: true},
+		"loadbalancer":   schema.StringAttribute{Computed: true},
+		"clientauth":     schema.BoolAttribute{Computed: true},
+		"clientcert":     schema.StringAttribute{Computed: true},
 	}
 
 	resp.Schema = schema.Schema{
@@ -124,6 +129,11 @@ func (d *CsvServerDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 				Computed:    true,
 				Description: "Bound certificates.",
 			},
+			"ca_certificate": schema.ListAttribute{
+				ElementType: types.StringType,
+				Computed:    true,
+				Description: "Bound CA certificates.",
+			},
 			"customer": schema.StringAttribute{
 				Computed:    true,
 				Description: "Customer identifier.",
@@ -131,6 +141,14 @@ func (d *CsvServerDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 			"loadbalancer": schema.StringAttribute{
 				Computed:    true,
 				Description: "Associated load balancer.",
+			},
+			"clientauth": schema.BoolAttribute{
+				Computed:    true,
+				Description: "Whether client certificate authentication is enabled.",
+			},
+			"clientcert": schema.StringAttribute{
+				Computed:    true,
+				Description: "Client certificate requirement (`Mandatory` or `Optional`).",
 			},
 			"csv_servers": schema.ListNestedAttribute{
 				Computed:     true,
@@ -176,24 +194,17 @@ func (d *CsvServerDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	path := "/api/loadbalancing/csvserver/?page_size=1000"
-	if !config.Name.IsNull() && config.Name.ValueString() != "" {
-		path += "&name__icontains=" + url.QueryEscape(config.Name.ValueString())
-	}
-
-	var page struct {
-		Results []csvServerDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[csvServerDSAPIModel](ctx, d.client, "/api/loadbalancing/csvserver/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading CSV servers", err.Error())
 		return
 	}
 
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *csvServerDSAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name == config.Name.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name == config.Name.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -210,121 +221,64 @@ func (d *CsvServerDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	emptyPolicies, dEmptyP := types.ListValueFrom(ctx, types.StringType, []string{})
-	resp.Diagnostics.Append(dEmptyP...)
-	emptyCert, dEmptyC := types.ListValueFrom(ctx, types.StringType, []string{})
-	resp.Diagnostics.Append(dEmptyC...)
+	empty := computedListValue[string](ctx, types.StringType, nil, &resp.Diagnostics)
+	state := CsvServerDataSourceModel{
+		Name:          types.StringNull(),
+		Id:            types.StringNull(),
+		Ufname:        types.StringNull(),
+		Ipaddress:     types.StringNull(),
+		Port:          types.Int64Null(),
+		Type:          types.StringNull(),
+		Policies:      empty,
+		Certificate:   empty,
+		CaCertificate: empty,
+		Customer:      types.StringNull(),
+		Loadbalancer:  types.StringNull(),
+		Clientauth:    types.BoolNull(),
+		Clientcert:    types.StringNull(),
+		CsvServers:    make([]CsvServerModel, 0, len(items)),
+	}
+	for i := range items {
+		state.CsvServers = append(state.CsvServers, csvServerItemToModel(ctx, &items[i], &resp.Diagnostics))
+	}
 	if resp.Diagnostics.HasError() {
 		return
-	}
-
-	state := CsvServerDataSourceModel{
-		Name:         types.StringNull(),
-		Id:           types.StringNull(),
-		Ufname:       types.StringNull(),
-		Ipaddress:    types.StringNull(),
-		Port:         types.Int64Null(),
-		Type:         types.StringNull(),
-		Policies:     emptyPolicies,
-		Certificate:  emptyCert,
-		Customer:     types.StringNull(),
-		Loadbalancer: types.StringNull(),
-		CsvServers:   make([]CsvServerModel, 0, len(page.Results)),
-	}
-	for i := range page.Results {
-		m, diags := csvServerItemToModel(ctx, &page.Results[i])
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-		state.CsvServers = append(state.CsvServers, m)
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func setSingleCsvServer(ctx context.Context, state *CsvServerDataSourceModel, item *csvServerDSAPIModel, diags *diag.Diagnostics) {
-	state.Id = types.StringValue(item.Id)
-	state.Name = types.StringValue(item.Name)
-	state.Ufname = types.StringValue(item.Ufname)
-	if item.Ipaddress != nil {
-		state.Ipaddress = types.StringValue(*item.Ipaddress)
-	} else {
-		state.Ipaddress = types.StringNull()
-	}
-	if item.Port != nil {
-		state.Port = types.Int64Value(*item.Port)
-	} else {
-		state.Port = types.Int64Null()
-	}
-	state.Type = types.StringValue(item.Type)
-	pl := item.Policies
-	if pl == nil {
-		pl = []string{}
-	}
-	policiesList, d := types.ListValueFrom(ctx, types.StringType, pl)
-	diags.Append(d...)
-	state.Policies = policiesList
-	cert := item.Certificate
-	if cert == nil {
-		cert = []string{}
-	}
-	certList, d2 := types.ListValueFrom(ctx, types.StringType, cert)
-	diags.Append(d2...)
-	state.Certificate = certList
-	if item.Customer != nil {
-		state.Customer = types.StringValue(*item.Customer)
-	} else {
-		state.Customer = types.StringNull()
-	}
-	if item.Loadbalancer != nil {
-		state.Loadbalancer = types.StringValue(*item.Loadbalancer)
-	} else {
-		state.Loadbalancer = types.StringNull()
-	}
+	m := csvServerItemToModel(ctx, item, diags)
+	state.Id = m.Id
+	state.Name = m.Name
+	state.Ufname = m.Ufname
+	state.Ipaddress = m.Ipaddress
+	state.Port = m.Port
+	state.Type = m.Type
+	state.Policies = m.Policies
+	state.Certificate = m.Certificate
+	state.CaCertificate = m.CaCertificate
+	state.Customer = m.Customer
+	state.Loadbalancer = m.Loadbalancer
+	state.Clientauth = m.Clientauth
+	state.Clientcert = m.Clientcert
 	state.CsvServers = []CsvServerModel{}
 }
 
-func csvServerItemToModel(ctx context.Context, item *csvServerDSAPIModel) (CsvServerModel, diag.Diagnostics) {
-	var diags diag.Diagnostics
-	m := CsvServerModel{
-		Id:     types.StringValue(item.Id),
-		Name:   types.StringValue(item.Name),
-		Ufname: types.StringValue(item.Ufname),
-		Type:   types.StringValue(item.Type),
+func csvServerItemToModel(ctx context.Context, item *csvServerDSAPIModel, diags *diag.Diagnostics) CsvServerModel {
+	return CsvServerModel{
+		Id:            types.StringValue(item.Id),
+		Name:          types.StringValue(item.Name),
+		Ufname:        types.StringValue(item.Ufname),
+		Ipaddress:     types.StringPointerValue(item.Ipaddress),
+		Port:          types.Int64PointerValue(item.Port),
+		Type:          types.StringValue(item.Type),
+		Policies:      computedListValue(ctx, types.StringType, item.Policies, diags),
+		Certificate:   computedListValue(ctx, types.StringType, item.Certificate, diags),
+		CaCertificate: computedListValue(ctx, types.StringType, item.CaCertificate, diags),
+		Customer:      types.StringPointerValue(item.Customer),
+		Loadbalancer:  types.StringPointerValue(item.Loadbalancer),
+		Clientauth:    types.BoolPointerValue(item.Clientauth),
+		Clientcert:    types.StringPointerValue(item.Clientcert),
 	}
-	if item.Ipaddress != nil {
-		m.Ipaddress = types.StringValue(*item.Ipaddress)
-	} else {
-		m.Ipaddress = types.StringNull()
-	}
-	if item.Port != nil {
-		m.Port = types.Int64Value(*item.Port)
-	} else {
-		m.Port = types.Int64Null()
-	}
-	pl := item.Policies
-	if pl == nil {
-		pl = []string{}
-	}
-	policiesList, d := types.ListValueFrom(ctx, types.StringType, pl)
-	diags.Append(d...)
-	m.Policies = policiesList
-	cert := item.Certificate
-	if cert == nil {
-		cert = []string{}
-	}
-	certList, d2 := types.ListValueFrom(ctx, types.StringType, cert)
-	diags.Append(d2...)
-	m.Certificate = certList
-	if item.Customer != nil {
-		m.Customer = types.StringValue(*item.Customer)
-	} else {
-		m.Customer = types.StringNull()
-	}
-	if item.Loadbalancer != nil {
-		m.Loadbalancer = types.StringValue(*item.Loadbalancer)
-	} else {
-		m.Loadbalancer = types.StringNull()
-	}
-	return m, diags
 }

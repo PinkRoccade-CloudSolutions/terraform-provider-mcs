@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ resource.Resource = &CsPolicyResource{}
@@ -31,10 +32,10 @@ type CsPolicyResourceModel struct {
 type csPolicyAPIModel struct {
 	Id           string  `json:"id,omitempty"`
 	Name         string  `json:"name"`
-	Action       *string `json:"action,omitempty"`
+	Action       *string `json:"action"`
 	Expression   *string `json:"expression,omitempty"`
 	Customer     *string `json:"customer,omitempty"`
-	Application  *string `json:"application,omitempty"`
+	Application  *string `json:"application"`
 	Loadbalancer *string `json:"loadbalancer,omitempty"`
 }
 
@@ -57,20 +58,16 @@ func (r *CsPolicyResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				Required: true,
 			},
 			"action": schema.StringAttribute{
-				Optional: true,
+				Optional:    true,
+				Description: "UUID of the CS action.",
 			},
-			"expression": schema.StringAttribute{
-				Optional: true,
-			},
-			"customer": schema.StringAttribute{
-				Optional: true,
-			},
+			"expression": lbOptString("Content switching expression.", stringvalidator.LengthAtMost(16384)),
+			"customer":   lbOptString(""),
 			"application": schema.StringAttribute{
-				Optional: true,
+				Optional:    true,
+				Description: "UUID of the application.",
 			},
-			"loadbalancer": schema.StringAttribute{
-				Optional: true,
-			},
+			"loadbalancer": lbOptString(""),
 		},
 	}
 }
@@ -90,6 +87,27 @@ func (r *CsPolicyResource) Configure(_ context.Context, req resource.ConfigureRe
 	r.client = client
 }
 
+func csPolicyToAPI(plan *CsPolicyResourceModel) csPolicyAPIModel {
+	return csPolicyAPIModel{
+		Name:         plan.Name.ValueString(),
+		Action:       stringPtr(plan.Action),
+		Expression:   stringPtr(plan.Expression),
+		Customer:     stringPtr(plan.Customer),
+		Application:  stringPtr(plan.Application),
+		Loadbalancer: stringPtr(plan.Loadbalancer),
+	}
+}
+
+func csPolicyFromAPI(m *CsPolicyResourceModel, api *csPolicyAPIModel) {
+	m.Id = types.StringValue(api.Id)
+	m.Name = types.StringValue(api.Name)
+	m.Action = types.StringPointerValue(api.Action)
+	m.Expression = types.StringPointerValue(api.Expression)
+	m.Customer = types.StringPointerValue(api.Customer)
+	m.Application = types.StringPointerValue(api.Application)
+	m.Loadbalancer = types.StringPointerValue(api.Loadbalancer)
+}
+
 func (r *CsPolicyResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan CsPolicyResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -97,45 +115,14 @@ func (r *CsPolicyResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	apiModel := csPolicyAPIModel{
-		Name: plan.Name.ValueString(),
-	}
-	if !plan.Action.IsNull() {
-		v := plan.Action.ValueString()
-		apiModel.Action = &v
-	}
-	if !plan.Expression.IsNull() {
-		v := plan.Expression.ValueString()
-		apiModel.Expression = &v
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-	if !plan.Application.IsNull() {
-		v := plan.Application.ValueString()
-		apiModel.Application = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
-	}
-
 	var apiResp csPolicyAPIModel
-	err := r.client.Post(ctx, "/api/loadbalancing/cspolicy/", apiModel, &apiResp)
+	err := r.client.Post(ctx, "/api/loadbalancing/cspolicy/", csPolicyToAPI(&plan), &apiResp)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating cs_policy", err.Error())
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringValue(apiResp.Name)
-	plan.Action = types.StringPointerValue(apiResp.Action)
-	plan.Expression = types.StringPointerValue(apiResp.Expression)
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-	plan.Application = types.StringPointerValue(apiResp.Application)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	csPolicyFromAPI(&plan, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -157,14 +144,7 @@ func (r *CsPolicyResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	state.Id = types.StringValue(apiResp.Id)
-	state.Name = types.StringValue(apiResp.Name)
-	state.Action = types.StringPointerValue(apiResp.Action)
-	state.Expression = types.StringPointerValue(apiResp.Expression)
-	state.Customer = types.StringPointerValue(apiResp.Customer)
-	state.Application = types.StringPointerValue(apiResp.Application)
-	state.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	csPolicyFromAPI(&state, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -181,45 +161,14 @@ func (r *CsPolicyResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	apiModel := csPolicyAPIModel{
-		Name: plan.Name.ValueString(),
-	}
-	if !plan.Action.IsNull() {
-		v := plan.Action.ValueString()
-		apiModel.Action = &v
-	}
-	if !plan.Expression.IsNull() {
-		v := plan.Expression.ValueString()
-		apiModel.Expression = &v
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-	if !plan.Application.IsNull() {
-		v := plan.Application.ValueString()
-		apiModel.Application = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
-	}
-
 	var apiResp csPolicyAPIModel
-	err := r.client.Put(ctx, fmt.Sprintf("/api/loadbalancing/cspolicy/%s/", state.Id.ValueString()), apiModel, &apiResp)
+	err := r.client.Put(ctx, fmt.Sprintf("/api/loadbalancing/cspolicy/%s/", state.Id.ValueString()), csPolicyToAPI(&plan), &apiResp)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating cs_policy", err.Error())
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringValue(apiResp.Name)
-	plan.Action = types.StringPointerValue(apiResp.Action)
-	plan.Expression = types.StringPointerValue(apiResp.Expression)
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-	plan.Application = types.StringPointerValue(apiResp.Application)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	csPolicyFromAPI(&plan, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 

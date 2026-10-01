@@ -3,12 +3,11 @@ package provider
 import (
 	"context"
 	"fmt"
-	"net/url"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &CertificateDataSource{}
@@ -18,12 +17,14 @@ type CertificateDataSource struct {
 }
 
 type CertificateDataSourceModel struct {
-	Name               types.String       `tfsdk:"name"`
-	Id                 types.String       `tfsdk:"id"`
-	Ca                 types.Bool         `tfsdk:"ca"`
-	ValidToTimestamp   types.String       `tfsdk:"valid_to_timestamp"`
-	Loadbalancer       types.String       `tfsdk:"loadbalancer"`
-	Certificates       []CertificateModel `tfsdk:"certificates"`
+	Name             types.String       `tfsdk:"name"`
+	Id               types.String       `tfsdk:"id"`
+	Ca               types.Bool         `tfsdk:"ca"`
+	ValidToTimestamp types.String       `tfsdk:"valid_to_timestamp"`
+	Loadbalancer     types.String       `tfsdk:"loadbalancer"`
+	Customer         types.String       `tfsdk:"customer"`
+	Protected        types.Bool         `tfsdk:"protected"`
+	Certificates     []CertificateModel `tfsdk:"certificates"`
 }
 
 type CertificateModel struct {
@@ -32,6 +33,8 @@ type CertificateModel struct {
 	Ca               types.Bool   `tfsdk:"ca"`
 	ValidToTimestamp types.String `tfsdk:"valid_to_timestamp"`
 	Loadbalancer     types.String `tfsdk:"loadbalancer"`
+	Customer         types.String `tfsdk:"customer"`
+	Protected        types.Bool   `tfsdk:"protected"`
 }
 
 type certificateDSAPIModel struct {
@@ -40,6 +43,8 @@ type certificateDSAPIModel struct {
 	Ca               *bool   `json:"ca,omitempty"`
 	ValidToTimestamp *string `json:"valid_to_timestamp,omitempty"`
 	Loadbalancer     *string `json:"loadbalancer,omitempty"`
+	Customer         *string `json:"customer,omitempty"`
+	Protected        *bool   `json:"protected,omitempty"`
 }
 
 func NewCertificateDataSource() datasource.DataSource {
@@ -52,11 +57,13 @@ func (d *CertificateDataSource) Metadata(_ context.Context, req datasource.Metad
 
 func (d *CertificateDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	certAttrs := map[string]schema.Attribute{
-		"id": schema.StringAttribute{Computed: true},
-		"name": schema.StringAttribute{Computed: true},
-		"ca": schema.BoolAttribute{Computed: true},
+		"id":                 schema.StringAttribute{Computed: true},
+		"name":               schema.StringAttribute{Computed: true},
+		"ca":                 schema.BoolAttribute{Computed: true},
 		"valid_to_timestamp": schema.StringAttribute{Computed: true},
-		"loadbalancer": schema.StringAttribute{Computed: true},
+		"loadbalancer":       schema.StringAttribute{Computed: true},
+		"customer":           schema.StringAttribute{Computed: true},
+		"protected":          schema.BoolAttribute{Computed: true},
 	}
 
 	resp.Schema = schema.Schema{
@@ -82,6 +89,14 @@ func (d *CertificateDataSource) Schema(_ context.Context, _ datasource.SchemaReq
 			"loadbalancer": schema.StringAttribute{
 				Computed:    true,
 				Description: "Associated load balancer.",
+			},
+			"customer": schema.StringAttribute{
+				Computed:    true,
+				Description: "Owning customer.",
+			},
+			"protected": schema.BoolAttribute{
+				Computed:    true,
+				Description: "Whether the certificate is protected from changes.",
 			},
 			"certificates": schema.ListNestedAttribute{
 				Computed:     true,
@@ -124,24 +139,17 @@ func (d *CertificateDataSource) Read(ctx context.Context, req datasource.ReadReq
 		return
 	}
 
-	path := "/api/loadbalancing/certificate/?page_size=1000"
-	if !config.Name.IsNull() && config.Name.ValueString() != "" {
-		path += "&name__icontains=" + url.QueryEscape(config.Name.ValueString())
-	}
-
-	var page struct {
-		Results []certificateDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[certificateDSAPIModel](ctx, d.client, "/api/loadbalancing/certificate/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading certificates", err.Error())
 		return
 	}
 
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *certificateDSAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name != nil && *page.Results[i].Name == config.Name.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name != nil && *items[i].Name == config.Name.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -161,62 +169,36 @@ func (d *CertificateDataSource) Read(ctx context.Context, req datasource.ReadReq
 		Ca:               types.BoolNull(),
 		ValidToTimestamp: types.StringNull(),
 		Loadbalancer:     types.StringNull(),
-		Certificates:     make([]CertificateModel, 0, len(page.Results)),
+		Customer:         types.StringNull(),
+		Protected:        types.BoolNull(),
+		Certificates:     make([]CertificateModel, 0, len(items)),
 	}
-	for i := range page.Results {
-		state.Certificates = append(state.Certificates, certificateItemToModel(&page.Results[i]))
+	for i := range items {
+		state.Certificates = append(state.Certificates, certificateItemToModel(&items[i]))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func setSingleCertificate(state *CertificateDataSourceModel, item *certificateDSAPIModel) {
-	state.Id = types.StringValue(item.Id)
-	if item.Name != nil {
-		state.Name = types.StringValue(*item.Name)
-	} else {
-		state.Name = types.StringNull()
-	}
-	if item.Ca != nil {
-		state.Ca = types.BoolValue(*item.Ca)
-	} else {
-		state.Ca = types.BoolNull()
-	}
-	if item.ValidToTimestamp != nil {
-		state.ValidToTimestamp = types.StringValue(*item.ValidToTimestamp)
-	} else {
-		state.ValidToTimestamp = types.StringNull()
-	}
-	if item.Loadbalancer != nil {
-		state.Loadbalancer = types.StringValue(*item.Loadbalancer)
-	} else {
-		state.Loadbalancer = types.StringNull()
-	}
+	m := certificateItemToModel(item)
+	state.Id = m.Id
+	state.Name = m.Name
+	state.Ca = m.Ca
+	state.ValidToTimestamp = m.ValidToTimestamp
+	state.Loadbalancer = m.Loadbalancer
+	state.Customer = m.Customer
+	state.Protected = m.Protected
 	state.Certificates = []CertificateModel{}
 }
 
 func certificateItemToModel(item *certificateDSAPIModel) CertificateModel {
-	m := CertificateModel{
-		Id: types.StringValue(item.Id),
+	return CertificateModel{
+		Id:               types.StringValue(item.Id),
+		Name:             types.StringPointerValue(item.Name),
+		Ca:               types.BoolPointerValue(item.Ca),
+		ValidToTimestamp: types.StringPointerValue(item.ValidToTimestamp),
+		Loadbalancer:     types.StringPointerValue(item.Loadbalancer),
+		Customer:         types.StringPointerValue(item.Customer),
+		Protected:        types.BoolPointerValue(item.Protected),
 	}
-	if item.Name != nil {
-		m.Name = types.StringValue(*item.Name)
-	} else {
-		m.Name = types.StringNull()
-	}
-	if item.Ca != nil {
-		m.Ca = types.BoolValue(*item.Ca)
-	} else {
-		m.Ca = types.BoolNull()
-	}
-	if item.ValidToTimestamp != nil {
-		m.ValidToTimestamp = types.StringValue(*item.ValidToTimestamp)
-	} else {
-		m.ValidToTimestamp = types.StringNull()
-	}
-	if item.Loadbalancer != nil {
-		m.Loadbalancer = types.StringValue(*item.Loadbalancer)
-	} else {
-		m.Loadbalancer = types.StringNull()
-	}
-	return m
 }
