@@ -34,6 +34,34 @@ export MCS_HOST="https://mcs.example.com"
 export MCS_TOKEN="your-api-token"
 ```
 
+### Importing existing resources
+
+Every resource supports `terraform import`, so objects that already exist in MCS can be brought under Terraform management without recreating them. Write a matching resource block first, then import it:
+
+```bash
+terraform import mcs_customer.example <customer-id>
+```
+
+On Terraform >= 1.5 you can use an `import` block instead and review the import in `terraform plan`:
+
+```hcl
+import {
+  to = mcs_customer.example
+  id = "<customer-id>"
+}
+```
+
+Most resources are imported by their MCS `id`. A few use a different ID:
+
+| Resource | Import ID |
+|----------|-----------|
+| `mcs_dbl` | `<ipaddress>` |
+| `mcs_firewall_object`, `mcs_firewall_object_group`, `mcs_firewall_service`, `mcs_firewall_service_group` | `<domain>/<name>` |
+| `mcs_firewall_rule` | `<domain>/<policyid>` |
+| `mcs_dns_entry` | `<domain_uuid>/<name>/<type>/<content>` |
+
+After importing, run `terraform plan`. If it shows changes, update your configuration to match the imported object. The Import subsection of each resource in the [docs](./docs/index.md) gives the exact ID format and an example.
+
 For full documentation on all supported resources and data sources, see the [docs](./docs/index.md).
 
 ## Developing the Provider
