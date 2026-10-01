@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &PublicIPAddressDataSource{}
@@ -25,7 +25,7 @@ type PublicIPAddressDataSourceModel struct {
 	Status            types.String               `tfsdk:"status"`
 	Type              types.String               `tfsdk:"type"`
 	Customer          types.String               `tfsdk:"customer"`
-	PublicIPAddresses []PublicIPAddressListModel  `tfsdk:"public_ip_addresses"`
+	PublicIPAddresses []PublicIPAddressListModel `tfsdk:"public_ip_addresses"`
 }
 
 type PublicIPAddressListModel struct {
@@ -40,7 +40,7 @@ type PublicIPAddressListModel struct {
 
 type publicIPAddressDSAPIModel struct {
 	Id          string  `json:"id"`
-	IPAddress   string  `json:"ip_address"`
+	IPAddress   *string `json:"ip_address"`
 	Pool        *string `json:"pool"`
 	Description string  `json:"description"`
 	Status      string  `json:"status"`
@@ -94,7 +94,7 @@ func (d *PublicIPAddressDataSource) Schema(_ context.Context, _ datasource.Schem
 			},
 			"type": schema.StringAttribute{
 				Computed:    true,
-				Description: "Type: nat, vip, or loadbalancer.",
+				Description: "Type: nat, vip, loadbalancer or secureingress.",
 			},
 			"customer": schema.StringAttribute{
 				Computed:    true,
@@ -141,24 +141,22 @@ func (d *PublicIPAddressDataSource) Read(ctx context.Context, req datasource.Rea
 		return
 	}
 
-	path := "/api/networking/publicipaddresss/?page_size=1000"
+	path := "/api/networking/publicipaddresss/"
 	if !config.IPAddress.IsNull() && config.IPAddress.ValueString() != "" {
-		path += "&ip_address__icontains=" + url.QueryEscape(config.IPAddress.ValueString())
+		path += "?ip_address__icontains=" + url.QueryEscape(config.IPAddress.ValueString())
 	}
 
-	var page struct {
-		Results []publicIPAddressDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[publicIPAddressDSAPIModel](ctx, d.client, path)
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading public IP addresses", err.Error())
 		return
 	}
 
 	if !config.IPAddress.IsNull() && config.IPAddress.ValueString() != "" {
 		var match *publicIPAddressDSAPIModel
-		for i := range page.Results {
-			if page.Results[i].IPAddress == config.IPAddress.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].IPAddress != nil && *items[i].IPAddress == config.IPAddress.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -180,9 +178,9 @@ func (d *PublicIPAddressDataSource) Read(ctx context.Context, req datasource.Rea
 		Status:            types.StringNull(),
 		Type:              types.StringNull(),
 		Customer:          types.StringNull(),
-		PublicIPAddresses: make([]PublicIPAddressListModel, 0, len(page.Results)),
+		PublicIPAddresses: make([]PublicIPAddressListModel, 0, len(items)),
 	}
-	for _, item := range page.Results {
+	for _, item := range items {
 		state.PublicIPAddresses = append(state.PublicIPAddresses, toPublicIPAddressListModel(&item))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
@@ -190,7 +188,7 @@ func (d *PublicIPAddressDataSource) Read(ctx context.Context, req datasource.Rea
 
 func setSinglePublicIPAddress(state *PublicIPAddressDataSourceModel, addr *publicIPAddressDSAPIModel) {
 	state.Id = types.StringValue(addr.Id)
-	state.IPAddress = types.StringValue(addr.IPAddress)
+	state.IPAddress = types.StringPointerValue(addr.IPAddress)
 	state.Description = types.StringValue(addr.Description)
 	state.Status = types.StringValue(addr.Status)
 	state.Type = types.StringValue(addr.Type)
@@ -218,7 +216,7 @@ func toPublicIPAddressListModel(addr *publicIPAddressDSAPIModel) PublicIPAddress
 	}
 	return PublicIPAddressListModel{
 		Id:          types.StringValue(addr.Id),
-		IPAddress:   types.StringValue(addr.IPAddress),
+		IPAddress:   types.StringPointerValue(addr.IPAddress),
 		Pool:        pool,
 		Description: types.StringValue(addr.Description),
 		Status:      types.StringValue(addr.Status),

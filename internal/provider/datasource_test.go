@@ -203,7 +203,7 @@ func TestAccNetworkDataSource_ByName(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
-				{"id": "net-001", "name": "mgmt", "ipv4_prefix": "10.0.0.0/24", "vlan_id": 100},
+				{"id": "net-001", "name": "mgmt", "ipv4_prefix": "10.0.0.0/24", "vlanid": 100},
 			},
 		})
 	})
@@ -235,8 +235,8 @@ func TestAccNetworkDataSource_ListAll(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
-				{"id": "net-001", "name": "mgmt", "ipv4_prefix": "10.0.0.0/24", "vlan_id": 100},
-				{"id": "net-002", "name": "data", "ipv4_prefix": "10.1.0.0/24", "vlan_id": 200},
+				{"id": "net-001", "name": "mgmt", "ipv4_prefix": "10.0.0.0/24", "vlanid": 100},
+				{"id": "net-002", "name": "data", "ipv4_prefix": "10.1.0.0/24", "vlanid": 200},
 			},
 		})
 	})
@@ -376,14 +376,14 @@ func TestAccZoneDataSource_ByName(t *testing.T) {
 				{
 					"uuid": "zone-uuid-1", "name": "dmz", "description": "DMZ Zone", "adom": "adom1", "transit_vrf": "vrf1",
 					"loadbalancers": []map[string]interface{}{
-						{"id": "lb-001", "name": "lb-dmz-1"},
-						{"id": "lb-002", "name": "lb-dmz-2"},
+						{"id": "lb-001", "alias": "lb-dmz-1"},
+						{"id": "lb-002", "alias": "lb-dmz-2"},
 					},
 				},
 				{
 					"uuid": "zone-uuid-2", "name": "internal", "description": "Internal Zone", "adom": "adom1", "transit_vrf": "vrf2",
 					"loadbalancers": []map[string]interface{}{
-						{"id": "lb-003", "name": "lb-internal-1"},
+						{"id": "lb-003", "alias": "lb-internal-1"},
 					},
 				},
 			},
@@ -425,7 +425,7 @@ func TestAccZoneDataSource_ListAll(t *testing.T) {
 				{
 					"uuid": "zone-uuid-1", "name": "dmz", "description": "DMZ", "adom": "a1", "transit_vrf": "v1",
 					"loadbalancers": []map[string]interface{}{
-						{"id": "lb-001", "name": "lb-dmz-1"},
+						{"id": "lb-001", "alias": "lb-dmz-1"},
 					},
 				},
 				{
