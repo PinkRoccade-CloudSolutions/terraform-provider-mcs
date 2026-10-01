@@ -453,6 +453,35 @@ func TestClient_ListAll_MultiplePages(t *testing.T) {
 	}
 }
 
+func TestClient_ListAll_BasePathPrefix(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("page") == "2" {
+			_, _ = fmt.Fprint(w, `{"count":2,"next":null,"previous":null,"results":[{"id":2}]}`)
+		} else {
+			nextURL := fmt.Sprintf("http://%s/mcs/api/things/?page=2", r.Host)
+			_, _ = fmt.Fprintf(w, `{"count":2,"next":"%s","previous":null,"results":[{"id":1}]}`, nextURL)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL+"/mcs", "test-token", false)
+	items, err := c.ListAll(context.Background(), "/api/things/")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 2 {
+		t.Errorf("got %d items, want 2", len(items))
+	}
+	for _, p := range paths {
+		if p != "/mcs/api/things/" {
+			t.Errorf("unexpected request path %q", p)
+		}
+	}
+}
+
 func TestClient_ListAll_EmptyResults(t *testing.T) {
 	c, srv := testClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -110,6 +110,11 @@ func (c *Client) ListAll(ctx context.Context, path string) ([]json.RawMessage, e
 			return nil, fmt.Errorf("parsing next page URL: %w", err)
 		}
 		currentPath = parsed.RequestURI()
+		// The next link is absolute; strip any path prefix that is already part of baseURL
+		// (e.g. https://host/mcs) so it is not doubled when doRequest prepends baseURL.
+		if base, err := url.Parse(c.baseURL); err == nil && base.Path != "" && base.Path != "/" {
+			currentPath = strings.TrimPrefix(currentPath, strings.TrimRight(base.Path, "/"))
+		}
 	}
 
 	return all, nil
