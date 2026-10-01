@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -12,7 +13,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ resource.Resource = &CsActionResource{}
+var (
+	_ resource.Resource                = &CsActionResource{}
+	_ resource.ResourceWithImportState = &CsActionResource{}
+)
 
 type CsActionResource struct {
 	client *apiclient.Client
@@ -172,4 +176,8 @@ func (r *CsActionResource) Delete(ctx context.Context, req resource.DeleteReques
 		}
 		resp.Diagnostics.AddError("Error deleting cs_action", err.Error())
 	}
+}
+
+func (r *CsActionResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

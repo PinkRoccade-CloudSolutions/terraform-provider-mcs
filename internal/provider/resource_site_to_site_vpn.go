@@ -8,6 +8,7 @@ import (
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
@@ -18,7 +19,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ resource.Resource = &SiteToSiteVPNResource{}
+var (
+	_ resource.Resource                = &SiteToSiteVPNResource{}
+	_ resource.ResourceWithImportState = &SiteToSiteVPNResource{}
+)
 
 type SiteToSiteVPNResource struct {
 	client *apiclient.Client
@@ -297,4 +301,8 @@ func mapSiteToSiteVPNToState(ctx context.Context, state *SiteToSiteVPNResourceMo
 	state.UpdatedAtTimestamp = types.StringValue(api.UpdatedAtTimestamp)
 	state.CreatedByUser = types.Int64PointerValue(api.CreatedByUser)
 	state.UpdatedByUser = types.Int64PointerValue(api.UpdatedByUser)
+}
+
+func (r *SiteToSiteVPNResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

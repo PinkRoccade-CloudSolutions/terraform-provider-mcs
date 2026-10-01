@@ -7,6 +7,7 @@ import (
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -15,7 +16,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ resource.Resource = &LbServicegroupResource{}
+var (
+	_ resource.Resource                = &LbServicegroupResource{}
+	_ resource.ResourceWithImportState = &LbServicegroupResource{}
+)
 
 type LbServicegroupResource struct {
 	client *apiclient.Client
@@ -282,4 +286,8 @@ func (r *LbServicegroupResource) Delete(ctx context.Context, req resource.Delete
 		}
 		resp.Diagnostics.AddError("Error deleting lb_servicegroup", err.Error())
 	}
+}
+
+func (r *LbServicegroupResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

@@ -1394,6 +1394,12 @@ All optional fields are at most 255 characters. When omitted, the value stored b
 
 **Read-only attributes:** `id` (String) — The contact ID.
 
+##### Import
+
+```shell
+terraform import mcs_contact.admin <contact-id>
+```
+
 ---
 
 #### mcs_customer
@@ -1421,6 +1427,12 @@ resource "mcs_customer" "example" {
 | `admin_contacts` | List(Number) | No      | List of administrative contact IDs. Computed from the API when omitted; set `[]` to clear. |
 
 **Read-only attributes:** `id` (String) — The customer ID.
+
+##### Import
+
+```shell
+terraform import mcs_customer.example <customer-id>
+```
 
 ---
 
@@ -1540,6 +1552,12 @@ resource "mcs_public_ip_address" "web" {
 | `id`        | String | UUID of the public IP address. |
 | `status`    | String | Allocation status: `available`, `assigned`, or `reserved`. |
 
+##### Import
+
+```shell
+terraform import mcs_public_ip_address.web <public-ip-uuid>
+```
+
 ---
 
 #### mcs_nat_translation
@@ -1614,6 +1632,12 @@ resource "mcs_nat_translation" "outbound" {
 | `translation` | String | Human-readable translation summary. |
 | `state`     | String | Sync state: `synced`, `unsynced`, `error`, or `deleted`. |
 
+##### Import
+
+```shell
+terraform import mcs_nat_translation.web_nat <nat-translation-uuid>
+```
+
 ---
 
 #### mcs_site_to_site_vpn
@@ -1649,6 +1673,12 @@ resource "mcs_site_to_site_vpn" "office" {
 | `last_reset` | String | No       | Timestamp of the last reset. Computed when omitted (may be null). |
 
 **Read-only attributes:** `id` (String), `uuid` (String), `created_at_timestamp` (String), `updated_at_timestamp` (String), `created_by_user` (Number), `updated_by_user` (Number).
+
+##### Import
+
+```shell
+terraform import mcs_site_to_site_vpn.office <vpn-id>
+```
 
 ---
 
@@ -1814,6 +1844,14 @@ resource "mcs_firewall_object" "web_server" {
 
 **Read-only attributes:** `id` (String), `uuid` (String — firewall UUID), `used` (Bool — whether the object is in use by a policy), `managed` (Bool — whether the object is managed by MCS).
 
+##### Import
+
+Import by firewall domain and name, separated by `/`:
+
+```shell
+terraform import mcs_firewall_object.web_server <domain>/<name>
+```
+
 ---
 
 #### mcs_firewall_object_group
@@ -1843,6 +1881,14 @@ resource "mcs_firewall_object_group" "web_servers" {
 | `member` | List(String) | No       | List of member object names. Removing the attribute clears the members. |
 
 **Read-only attributes:** `id` (String), `uuid` (String), `used` (Bool).
+
+##### Import
+
+Import by firewall domain and name, separated by `/`:
+
+```shell
+terraform import mcs_firewall_object_group.web_servers <domain>/<name>
+```
 
 ---
 
@@ -1895,6 +1941,14 @@ resource "mcs_firewall_rule" "allow_https" {
 | `last_hit`         | String       | Timestamp of the last hit. |
 | `compliancy_errors` | List(String) | Compliancy errors reported for the rule. |
 
+##### Import
+
+Import by firewall domain and numeric policy ID, separated by `/`:
+
+```shell
+terraform import mcs_firewall_rule.allow_https <domain>/<policyid>
+```
+
 ---
 
 #### mcs_firewall_service
@@ -1926,6 +1980,14 @@ resource "mcs_firewall_service" "custom_app" {
 
 **Read-only attributes:** `id` (String), `uuid` (String), `used` (Bool).
 
+##### Import
+
+Import by firewall domain and name, separated by `/`:
+
+```shell
+terraform import mcs_firewall_service.custom_app <domain>/<name>
+```
+
 ---
 
 #### mcs_firewall_service_group
@@ -1953,6 +2015,14 @@ resource "mcs_firewall_service_group" "web_services" {
 | `member` | List(String) | No       | List of member service names. Removing the attribute clears the members. |
 
 **Read-only attributes:** `id` (String), `uuid` (String), `used` (Bool).
+
+##### Import
+
+Import by firewall domain and name, separated by `/`:
+
+```shell
+terraform import mcs_firewall_service_group.web_services <domain>/<name>
+```
 
 ---
 
@@ -1983,6 +2053,12 @@ resource "mcs_certificate" "web_cert" {
 | `customer`        | String | No       | Customer identifier. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String), `protected` (Bool, whether the certificate is protected from changes).
+
+##### Import
+
+```shell
+terraform import mcs_certificate.web_cert <certificate-uuid>
+```
 
 ---
 
@@ -2025,6 +2101,12 @@ All optional attributes are also computed: when omitted, the value set by the se
 | `customer`    | String | No       | Customer identifier. |
 
 **Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_lb_monitor.http_monitor <monitor-uuid>
+```
 
 ---
 
@@ -2069,6 +2151,12 @@ resource "mcs_lb_servicegroup" "web_backend" {
 
 **Read-only attributes:** `id` (String).
 
+##### Import
+
+```shell
+terraform import mcs_lb_servicegroup.web_backend <servicegroup-uuid>
+```
+
 ---
 
 #### mcs_lb_servicegroup_member
@@ -2102,6 +2190,12 @@ resource "mcs_lb_servicegroup_member" "web1" {
 | `loadbalancer` | String | No      | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_lb_servicegroup_member.web1 <servicegroup-member-uuid>
+```
 
 ---
 
@@ -2138,6 +2232,12 @@ resource "mcs_lbv_server" "web_lb" {
 | `loadbalancer` | String      | No       | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_lbv_server.web_lb <lbvserver-uuid>
+```
 
 ---
 
@@ -2183,6 +2283,12 @@ resource "mcs_csv_server" "web_frontend" {
 
 **Read-only attributes:** `id` (String).
 
+##### Import
+
+```shell
+terraform import mcs_csv_server.web_frontend <csvserver-uuid>
+```
+
 ---
 
 #### mcs_cs_action
@@ -2210,6 +2316,12 @@ resource "mcs_cs_action" "route_to_backend" {
 | `loadbalancer` | String | No      | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_cs_action.route_to_backend <csaction-uuid>
+```
 
 ---
 
@@ -2278,6 +2390,12 @@ resource "mcs_cs_policy" "by_url" {
 
 **Read-only attributes:** `id` (String).
 
+##### Import
+
+```shell
+terraform import mcs_cs_policy.by_url <cspolicy-uuid>
+```
+
 ---
 
 #### mcs_rewrite_action
@@ -2315,6 +2433,12 @@ All optional attributes are also computed: when omitted, the value set by the se
 | `loadbalancer` | String | No | UUID of the load balancer. |
 
 **Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_rewrite_action.replace_host <rewrite-action-uuid>
+```
 
 ---
 
@@ -2358,6 +2482,12 @@ All optional attributes except `action` are also computed: when omitted, the val
 
 **Read-only attributes:** `id` (String).
 
+##### Import
+
+```shell
+terraform import mcs_rewrite_policy.rewrite_requests <rewrite-policy-uuid>
+```
+
 ---
 
 ### Monitoring
@@ -2393,6 +2523,12 @@ resource "mcs_monitor_ip" "web_check" {
 | `id`                  | String | Monitor entry ID. |
 | `timestamp`           | String | Creation timestamp. |
 | `last_check_timestamp` | String | Timestamp of the last check. |
+
+##### Import
+
+```shell
+terraform import mcs_monitor_ip.web_check <monitor-ip-uuid>
+```
 
 ---
 
@@ -2503,6 +2639,14 @@ resource "mcs_dns_entry" "mail" {
 |-----------|--------|-------------|
 | `id`      | String | Composite identifier: `domain_uuid/name/type/content`. |
 
+##### Import
+
+Import by the composite ID `<domain_uuid>/<name>/<type>/<content>`. The entry is found by an exact match on name, type and content, so give each one exactly as MCS lists it for the zone. Depending on the zone, MCS returns names relative (`www`) or as an FQDN with a trailing dot (`www.example.com.`). Content is the last part and may itself contain `/`.
+
+```shell
+terraform import mcs_dns_entry.www 0b7c0f9e-1234-4cde-9abc-0123456789ab/www/A/192.0.2.1
+```
+
 ---
 
 ### Deny/Block Lists
@@ -2546,6 +2690,14 @@ resource "mcs_dbl" "blocked_ip" {
 
 > **Note:** Read, update, and delete operations use the `ipaddress` as the lookup key, not the `id`.
 
+##### Import
+
+Import by IP address, not by `id`:
+
+```shell
+terraform import mcs_dbl.blocked_ip 192.0.2.100
+```
+
 ---
 
 #### mcs_domain_dbl
@@ -2579,6 +2731,12 @@ resource "mcs_domain_dbl" "blocked_domain" {
 | `id`        | String | Entry ID. |
 | `timestamp` | String | Creation timestamp. |
 | `occurrence` | Number | Number of occurrences. |
+
+##### Import
+
+```shell
+terraform import mcs_domain_dbl.blocked_domain <domain-dbl-id>
+```
 
 ---
 

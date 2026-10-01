@@ -9,6 +9,7 @@ import (
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
@@ -18,7 +19,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ resource.Resource = &DnsEntryResource{}
+var (
+	_ resource.Resource                = &DnsEntryResource{}
+	_ resource.ResourceWithImportState = &DnsEntryResource{}
+)
 
 type DnsEntryResource struct {
 	client *apiclient.Client
@@ -223,4 +227,19 @@ func (r *DnsEntryResource) listEntries(ctx context.Context, domainUUID string) (
 		return entries, nil
 	}
 	return listAll[dnsEntryAPIModel](ctx, r.client, path)
+}
+
+// ImportState takes the composite id "<domain_uuid>/<name>/<type>/<content>". There is no
+// single-entry GET, so Read matches name, type and content exactly against the zone's entries;
+// content is the last part and may itself contain slashes.
+func (r *DnsEntryResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	parts, ok := parseImportID(req.ID, 4, "<domain_uuid>/<name>/<type>/<content>", &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("domain_uuid"), parts[0])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), parts[1])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("type"), parts[2])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("content"), parts[3])...)
 }

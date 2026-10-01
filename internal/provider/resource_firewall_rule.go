@@ -7,6 +7,7 @@ import (
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
@@ -15,7 +16,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ resource.Resource = &FirewallRuleResource{}
+var (
+	_ resource.Resource                = &FirewallRuleResource{}
+	_ resource.ResourceWithImportState = &FirewallRuleResource{}
+)
 
 type FirewallRuleResource struct {
 	client *apiclient.Client
@@ -328,4 +332,19 @@ func mapFirewallRuleToState(ctx context.Context, model *FirewallRuleModel, domai
 	model.SrcIntf = listValue(ctx, types.StringType, model.SrcIntf, api.SrcIntf, diags)
 	model.DstIntf = listValue(ctx, types.StringType, model.DstIntf, api.DstIntf, diags)
 	model.Service = listValue(ctx, types.StringType, model.Service, api.Service, diags)
+}
+
+// ImportState takes "<domain>/<policyid>", the two values the API addresses a rule by.
+func (r *FirewallRuleResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	parts, ok := parseImportID(req.ID, 2, "<domain>/<policyid>", &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	policyid, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid import ID", fmt.Sprintf("Expected an import ID of the form \"<domain>/<policyid>\" with a numeric policyid, got %q.", req.ID))
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("domain"), parts[0])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("policyid"), policyid)...)
 }

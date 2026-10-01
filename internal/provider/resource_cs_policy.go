@@ -6,6 +6,7 @@ import (
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -13,7 +14,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ resource.Resource = &CsPolicyResource{}
+var (
+	_ resource.Resource                = &CsPolicyResource{}
+	_ resource.ResourceWithImportState = &CsPolicyResource{}
+)
 
 type CsPolicyResource struct {
 	client *apiclient.Client
@@ -186,4 +190,8 @@ func (r *CsPolicyResource) Delete(ctx context.Context, req resource.DeleteReques
 		}
 		resp.Diagnostics.AddError("Error deleting cs_policy", err.Error())
 	}
+}
+
+func (r *CsPolicyResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

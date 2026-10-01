@@ -7,6 +7,7 @@ import (
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
@@ -16,7 +17,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ resource.Resource = &DblResource{}
+var (
+	_ resource.Resource                = &DblResource{}
+	_ resource.ResourceWithImportState = &DblResource{}
+)
 
 type DblResource struct {
 	client *apiclient.Client
@@ -253,4 +257,9 @@ func (r *DblResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 		}
 		resp.Diagnostics.AddError("Error deleting dbl entry", err.Error())
 	}
+}
+
+// ImportState takes the IP address, because the API addresses DBL entries by IP rather than by id.
+func (r *DblResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("ipaddress"), req, resp)
 }

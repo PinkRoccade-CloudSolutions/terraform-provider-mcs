@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 func TestListAll_FollowsPages(t *testing.T) {
@@ -52,5 +52,33 @@ func TestListElems(t *testing.T) {
 	}
 	if diags.HasError() {
 		t.Fatal(diags)
+	}
+}
+
+func TestParseImportID(t *testing.T) {
+	cases := []struct {
+		id   string
+		n    int
+		want []string
+	}{
+		{"dom/obj", 2, []string{"dom", "obj"}},
+		{"uuid/_dmarc/TXT/v=DMARC1; rua=mailto:a/b", 4, []string{"uuid", "_dmarc", "TXT", "v=DMARC1; rua=mailto:a/b"}},
+		{"dom", 2, nil},
+		{"dom/", 2, nil},
+		{"/obj", 2, nil},
+		{"uuid/www/A", 4, nil},
+	}
+	for _, c := range cases {
+		var diags diag.Diagnostics
+		got, ok := parseImportID(c.id, c.n, "<format>", &diags)
+		if c.want == nil {
+			if ok || !diags.HasError() {
+				t.Errorf("%q: expected an error, got %v", c.id, got)
+			}
+			continue
+		}
+		if !ok || diags.HasError() || fmt.Sprint(got) != fmt.Sprint(c.want) {
+			t.Errorf("%q: got %q (diags %v), want %q", c.id, got, diags, c.want)
+		}
 	}
 }

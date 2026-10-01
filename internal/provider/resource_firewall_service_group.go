@@ -6,6 +6,7 @@ import (
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
@@ -14,7 +15,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ resource.Resource = &FirewallServiceGroupResource{}
+var (
+	_ resource.Resource                = &FirewallServiceGroupResource{}
+	_ resource.ResourceWithImportState = &FirewallServiceGroupResource{}
+)
 
 type FirewallServiceGroupResource struct {
 	client *apiclient.Client
@@ -207,4 +211,14 @@ func (r *FirewallServiceGroupResource) Delete(ctx context.Context, req resource.
 		}
 		resp.Diagnostics.AddError("Error deleting firewall service group", err.Error())
 	}
+}
+
+// ImportState takes "<domain>/<name>", the two values the API addresses this object by.
+func (r *FirewallServiceGroupResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	parts, ok := parseImportID(req.ID, 2, "<domain>/<name>", &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("domain"), parts[0])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), parts[1])...)
 }

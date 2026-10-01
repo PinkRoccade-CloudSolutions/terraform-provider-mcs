@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 // listAll fetches every page of a paginated list endpoint and decodes each item into T.
@@ -100,4 +101,22 @@ func boolPtr(v types.Bool) *bool {
 	}
 	b := v.ValueBool()
 	return &b
+}
+
+// parseImportID splits a composite import ID on "/" into exactly n non-empty parts. The last
+// part keeps any further slashes, so it may hold free text such as TXT record content. On a
+// malformed ID it adds an error naming the expected format and returns false.
+func parseImportID(id string, n int, format string, diags *diag.Diagnostics) ([]string, bool) {
+	parts := strings.SplitN(id, "/", n)
+	if len(parts) != n {
+		diags.AddError("Invalid import ID", fmt.Sprintf("Expected an import ID of the form %q, got %q.", format, id))
+		return nil, false
+	}
+	for _, p := range parts {
+		if p == "" {
+			diags.AddError("Invalid import ID", fmt.Sprintf("Expected an import ID of the form %q, got %q.", format, id))
+			return nil, false
+		}
+	}
+	return parts, true
 }

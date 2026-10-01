@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
@@ -19,7 +20,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ resource.Resource = &NATTranslationResource{}
+var (
+	_ resource.Resource                = &NATTranslationResource{}
+	_ resource.ResourceWithImportState = &NATTranslationResource{}
+)
 
 type NATTranslationResource struct {
 	client *apiclient.Client
@@ -353,4 +357,8 @@ func mapNATToState(ctx context.Context, state *NATTranslationResourceModel, api 
 	}
 	state.SnatSourceAddresses = listValue(ctx, types.StringType, state.SnatSourceAddresses, api.SnatSourceAddresses.values(), diags)
 	state.SnatTranslatedAddresses = listValue(ctx, types.StringType, state.SnatTranslatedAddresses, api.SnatTranslatedAddresses.values(), diags)
+}
+
+func (r *NATTranslationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

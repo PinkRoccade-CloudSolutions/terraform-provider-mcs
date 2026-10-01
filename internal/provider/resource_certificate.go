@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
@@ -13,7 +14,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ resource.Resource = &CertificateResource{}
+var (
+	_ resource.Resource                = &CertificateResource{}
+	_ resource.ResourceWithImportState = &CertificateResource{}
+)
 
 type CertificateResource struct {
 	client *apiclient.Client
@@ -197,4 +201,8 @@ func (r *CertificateResource) Delete(ctx context.Context, req resource.DeleteReq
 		}
 		resp.Diagnostics.AddError("Error deleting certificate", err.Error())
 	}
+}
+
+func (r *CertificateResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

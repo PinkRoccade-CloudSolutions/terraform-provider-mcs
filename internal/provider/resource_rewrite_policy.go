@@ -6,6 +6,7 @@ import (
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -13,7 +14,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ resource.Resource = &RewritePolicyResource{}
+var (
+	_ resource.Resource                = &RewritePolicyResource{}
+	_ resource.ResourceWithImportState = &RewritePolicyResource{}
+)
 
 type RewritePolicyResource struct {
 	client *apiclient.Client
@@ -207,4 +211,8 @@ func (r *RewritePolicyResource) Delete(ctx context.Context, req resource.DeleteR
 		}
 		resp.Diagnostics.AddError("Error deleting rewrite_policy", err.Error())
 	}
+}
+
+func (r *RewritePolicyResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
