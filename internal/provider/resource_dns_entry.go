@@ -114,7 +114,7 @@ func (r *DnsEntryResource) Create(ctx context.Context, req resource.CreateReques
 	apiReq := dnsEntryAPIModel{
 		Name:    plan.Name.ValueString(),
 		Type:    plan.Type.ValueString(),
-		Content: plan.Content.ValueString(),
+		Content: dnsEntryUnquote(plan.Type.ValueString(), plan.Content.ValueString()),
 		Expire:  int(plan.Expire.ValueInt64()),
 	}
 
@@ -126,7 +126,7 @@ func (r *DnsEntryResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	plan.Id = types.StringValue(buildDnsEntryID(domainUUID, apiResp.Name, apiResp.Type, apiResp.Content))
+	plan.Id = types.StringValue(buildDnsEntryID(domainUUID, plan.Name.ValueString(), plan.Type.ValueString(), plan.Content.ValueString()))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -155,7 +155,8 @@ func (r *DnsEntryResource) Read(ctx context.Context, req resource.ReadRequest, r
 
 	var found *dnsEntryAPIModel
 	for i := range entries {
-		if entries[i].Name == wantName && entries[i].Type == wantType && entries[i].Content == wantContent {
+		if entries[i].Name == wantName && entries[i].Type == wantType &&
+			dnsEntryUnquote(wantType, entries[i].Content) == dnsEntryUnquote(wantType, wantContent) {
 			found = &entries[i]
 			break
 		}
@@ -168,9 +169,9 @@ func (r *DnsEntryResource) Read(ctx context.Context, req resource.ReadRequest, r
 
 	state.Name = types.StringValue(found.Name)
 	state.Type = types.StringValue(found.Type)
-	state.Content = types.StringValue(found.Content)
+	// Keep the content as configured: for TXT records it may differ from the API's only in quoting.
 	state.Expire = types.Int64Value(int64(found.Expire))
-	state.Id = types.StringValue(buildDnsEntryID(domainUUID, found.Name, found.Type, found.Content))
+	state.Id = types.StringValue(buildDnsEntryID(domainUUID, found.Name, found.Type, wantContent))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -192,7 +193,7 @@ func (r *DnsEntryResource) Delete(ctx context.Context, req resource.DeleteReques
 	apiReq := dnsEntryAPIModel{
 		Name:    state.Name.ValueString(),
 		Type:    state.Type.ValueString(),
-		Content: state.Content.ValueString(),
+		Content: dnsEntryUnquote(state.Type.ValueString(), state.Content.ValueString()),
 		Expire:  int(state.Expire.ValueInt64()),
 	}
 
@@ -205,6 +206,16 @@ func (r *DnsEntryResource) Delete(ctx context.Context, req resource.DeleteReques
 		}
 		resp.Diagnostics.AddError("Error deleting DNS entry", err.Error())
 	}
+}
+
+// dnsEntryUnquote strips one surrounding pair of double quotes from TXT content. MCS adds the
+// quotes itself when writing to PowerDNS (pre-quoted content is rejected) and returns TXT content
+// quoted, so content is compared and sent without them.
+func dnsEntryUnquote(entryType, content string) string {
+	if strings.EqualFold(entryType, "TXT") && len(content) >= 2 && content[0] == '"' && content[len(content)-1] == '"' {
+		return content[1 : len(content)-1]
+	}
+	return content
 }
 
 func buildDnsEntryID(domainUUID, name, entryType, content string) string {
