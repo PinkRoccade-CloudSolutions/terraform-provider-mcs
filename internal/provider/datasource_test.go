@@ -199,11 +199,12 @@ func TestAccNetworkDataSource_ByName(t *testing.T) {
 	mock := newMockAPIServer()
 	defer mock.Close()
 
-	mock.On("/api/networking/networks", func(w http.ResponseWriter, r *http.Request, _ []byte) {
+	mock.On("/api/v3/networking/networks", func(w http.ResponseWriter, r *http.Request, _ []byte) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
-				{"id": "net-001", "name": "mgmt", "ipv4_prefix": "10.0.0.0/24", "vlanid": 100},
+				{"id": "net-001", "name": "mgmt", "ipv4_prefix": "10.0.0.0/24", "vlanid": 100,
+					"type": "vlan", "dhcp_server": true, "dhcp_server_lease_time": 3600, "ipv6_prefix": "2001:db8::/64", "visible": true},
 			},
 		})
 	})
@@ -221,6 +222,11 @@ data "mcs_network" "test" {
 					resource.TestCheckResourceAttr("data.mcs_network.test", "name", "mgmt"),
 					resource.TestCheckResourceAttr("data.mcs_network.test", "ipv4_prefix", "10.0.0.0/24"),
 					resource.TestCheckResourceAttr("data.mcs_network.test", "vlan_id", "100"),
+					resource.TestCheckResourceAttr("data.mcs_network.test", "type", "vlan"),
+					resource.TestCheckResourceAttr("data.mcs_network.test", "dhcp_server", "true"),
+					resource.TestCheckResourceAttr("data.mcs_network.test", "dhcp_server_lease_time", "3600"),
+					resource.TestCheckResourceAttr("data.mcs_network.test", "ipv6_prefix", "2001:db8::/64"),
+					resource.TestCheckResourceAttr("data.mcs_network.test", "visible", "true"),
 				),
 			},
 		},
@@ -231,7 +237,7 @@ func TestAccNetworkDataSource_ListAll(t *testing.T) {
 	mock := newMockAPIServer()
 	defer mock.Close()
 
-	mock.On("/api/networking/networks", func(w http.ResponseWriter, r *http.Request, _ []byte) {
+	mock.On("/api/v3/networking/networks", func(w http.ResponseWriter, r *http.Request, _ []byte) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
@@ -262,7 +268,7 @@ func TestAccNetworkDataSource_NotFound(t *testing.T) {
 	mock := newMockAPIServer()
 	defer mock.Close()
 
-	mock.On("/api/networking/networks", func(w http.ResponseWriter, r *http.Request, _ []byte) {
+	mock.On("/api/v3/networking/networks", func(w http.ResponseWriter, r *http.Request, _ []byte) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{},

@@ -346,7 +346,7 @@ func TestAccNetworkDataSource_DomainAndPagination(t *testing.T) {
 	defer mock.Close()
 
 	var queries []string
-	netPagedMock(mock, "/api/networking/networks/", [][]map[string]interface{}{
+	netPagedMock(mock, "/api/v3/networking/networks/", [][]map[string]interface{}{
 		{{"id": "net-001", "name": "mgmt", "vlanid": 100, "domain": 5,
 			"domain_detail": map[string]interface{}{"id": 5, "vdom_id": "vd5", "name": "prod"}}},
 		{{"id": "net-002", "name": "data", "vlanid": 200, "domain": nil, "domain_detail": nil,

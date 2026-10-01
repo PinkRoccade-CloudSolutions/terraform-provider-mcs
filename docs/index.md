@@ -15,6 +15,7 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
   - [mcs_domain](#mcs_domain)
   - [mcs_zone](#mcs_zone)
   - [mcs_network](#mcs_network)
+  - [mcs_network_products](#mcs_network_products-data-source)
   - [mcs_networkpool](#mcs_networkpool)
   - [mcs_firewall](#mcs_firewall)
   - [mcs_interface](#mcs_interface)
@@ -51,6 +52,7 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
     - [mcs_customer](#mcs_customer)
   - [Networking](#networking)
     - [mcs_ippool](#mcs_ippool-resource)
+    - [mcs_network](#mcs_network-resource)
     - [mcs_networkpool](#mcs_networkpool-resource)
     - [mcs_public_ip_address](#mcs_public_ip_address)
     - [mcs_nat_translation](#mcs_nat_translation)
@@ -296,7 +298,7 @@ locals {
 
 ### mcs_network
 
-Look up networks. Provide `name` for a single match, or omit to list all (optionally filtered by `domain`).
+Look up networks (v3 networking API). Provide `name` for a single match, or omit to list all (optionally filtered by `domain`).
 
 #### Example
 
@@ -316,16 +318,52 @@ output "network_vlan" {
 |--------------|--------|----------|-------------|
 | `name`       | String | Optional | Exact network name to look up. |
 | `domain`     | Number | Optional/Computed | Filter by domain ID; set to the matched network's domain. |
-| `id`         | String | Computed | Network ID. |
+| `id`         | String | Computed | Network UUID. |
 | `domain_name` | String | Computed | Name of the network's domain (from `domain_detail`). |
 | `domain_vdom_id` | String | Computed | VDOM ID of the network's domain (from `domain_detail`). |
 | `description` | String | Computed | Network description. |
 | `ipv4_prefix` | String | Computed | IPv4 CIDR prefix. |
 | `ipv4_address` | String | Computed | IPv4 address. |
 | `vlan_id`    | Number | Computed | VLAN identifier (API field `vlanid`). |
+| `customer`   | String | Computed | Customer that owns the network. |
+| `customer_name` | String | Computed | Name of the customer that owns the network. |
+| `type`       | String | Computed | Interface type: `vlan`, `tunnel`, `lacp` or `physical`. |
+| `parent`     | String | Computed | Parent LACP interface. |
+| `ipv6_prefix` | String | Computed | IPv6 prefix. |
+| `ipv6_address` | String | Computed | IPv6 address. |
+| `dhcp_server` | Bool  | Computed | Whether a DHCP server is enabled on the interface. |
+| `dhcp_server_address_pool` | String | Computed | DHCP server address pool. |
+| `dhcp_server_netmask` | String | Computed | DHCP server netmask. |
+| `dhcp_server_dns_servers` | String | Computed | Comma-separated DNS servers handed out by the DHCP server. |
+| `dhcp_server_lease_time` | Number | Computed | DHCP lease time. |
+| `visible`    | Bool   | Computed | Whether the interface is visible to end users. |
+| `created_at` | String | Computed | Creation timestamp. |
+| `updated_at` | String | Computed | Last update timestamp. |
 | `networks`   | List   | Computed | List of all networks (populated when `name` is not set). |
 
-**Nested `networks` attributes:** `id`, `name`, `domain_name`, `domain_vdom_id`, `description`, `ipv4_prefix`, `ipv4_address` (String); `domain`, `vlan_id` (Number) — all Computed.
+**Nested `networks` attributes:** the same attributes as the single-network attributes above (`id`, `name`, `domain`, `domain_name`, …, `updated_at`) — all Computed.
+
+---
+
+### mcs_network_products (Data Source)
+
+Lists the products a network can be created under — the allowed values of the `product` argument of the [`mcs_network`](#mcs_network-resource) resource. Each product owns a PRODID band.
+
+#### Example
+
+```hcl
+data "mcs_network_products" "all" {}
+
+output "network_products" {
+  value = data.mcs_network_products.all.names
+}
+```
+
+#### Attributes
+
+| Attribute | Type         | Mode     | Description |
+|-----------|--------------|----------|-------------|
+| `names`   | List(String) | Computed | Names of the available network products. |
 
 ---
 
@@ -1479,6 +1517,93 @@ output "nat_pool_free_ips" {
 ```shell
 terraform import mcs_ippool.nat <pool-uuid>
 ```
+
+---
+
+#### mcs_network (Resource)
+
+Deploys a network (VLAN, prefix and interface) in a domain through the v3 networking API.
+
+Creating the resource queues a deploy job and waits until it has finished; destroying it queues a teardown and waits until the network is gone. The deploy request is sent exactly once (it is never retried automatically, so a flaky connection cannot queue a second network). If the job fails after MCS has already written the network, the network is kept in state as tainted and is replaced on the next apply.
+
+Networks cannot be changed in place: changing any argument destroys the network and deploys a new one.
+
+##### Example
+
+```hcl
+data "mcs_domain" "production" {
+  name = "production"
+}
+
+data "mcs_networkpool" "lan" {
+  name = "Production LAN Pool"
+}
+
+resource "mcs_network" "web" {
+  domain_uuid     = data.mcs_domain.production.uuid
+  product         = "DMZ"
+  bitmask         = 26
+  description     = "Web tier"
+  network_pool_id = data.mcs_networkpool.lan.id
+
+  timeouts {
+    create = "45m"
+  }
+}
+
+output "web_vlan" {
+  value = mcs_network.web.vlan_id
+}
+```
+
+##### Attributes
+
+| Attribute         | Type   | Required | Description |
+|-------------------|--------|----------|-------------|
+| `domain_uuid`     | String | **Yes**  | UUID of the domain (VDOM) to attach the network to, e.g. `data.mcs_domain.x.uuid`. |
+| `product`         | String | **Yes**  | Product that owns the network; picks the PRODID band. One of `Algemeen`, `CareCTRL`, `Caress`, `CreAim`, `DMZ`, `Geniq - Planywhere`, `MyHealthOnline`, `NPQ`, `PQConnect`, `PRLG`, `Quarant`, `ValueCare`, `Windex` (see [`mcs_network_products`](#mcs_network_products-data-source)). |
+| `bitmask`         | Number | **Yes**  | Prefix length of the network (24–29). |
+| `description`     | String | **Yes**  | What the network is for (max 4096 characters). |
+| `network_pool_id` | String | No       | UUID of the root network pool to allocate the prefix from. Conflicts with `prefix`. |
+| `prefix`          | String | No       | Explicit network address to use instead of allocating from a pool, e.g. `10.0.0.0`. Conflicts with `network_pool_id`. |
+| `timeouts`        | Block  | No       | `create` and `delete` durations (e.g. `"45m"`). Both default to 30 minutes. |
+
+All arguments except `timeouts` force a new network when changed.
+
+**Read-only attributes:**
+
+| Attribute         | Type   | Description |
+|-------------------|--------|-------------|
+| `id`              | String | UUID of the network. |
+| `name`            | String | Network name, assigned by MCS. |
+| `domain_id`       | Number | Integer ID of the network's domain. |
+| `domain_name`     | String | Name of the network's domain. |
+| `domain_vdom_id`  | String | VDOM ID of the network's domain. |
+| `customer`        | String | Customer that owns the network. |
+| `customer_name`   | String | Name of the customer that owns the network. |
+| `type`            | String | Interface type: `vlan`, `tunnel`, `lacp` or `physical`. |
+| `parent`          | String | Parent LACP interface. |
+| `vlan_id`         | Number | VLAN ID assigned to the network. |
+| `ipv4_prefix`     | String | IPv4 prefix (CIDR). |
+| `ipv4_address`    | String | IPv4 address. |
+| `ipv6_prefix`     | String | IPv6 prefix. |
+| `ipv6_address`    | String | IPv6 address. |
+| `dhcp_server`     | Bool   | Whether a DHCP server is enabled on the interface. |
+| `dhcp_server_address_pool` | String | DHCP server address pool. |
+| `dhcp_server_netmask` | String | DHCP server netmask. |
+| `dhcp_server_dns_servers` | String | Comma-separated DNS servers handed out by the DHCP server. |
+| `dhcp_server_lease_time` | Number | DHCP lease time. |
+| `visible`         | Bool   | Whether the interface is visible to end users. |
+| `created_at`      | String | Creation timestamp. |
+| `updated_at`      | String | Last update timestamp. |
+
+##### Import
+
+```shell
+terraform import mcs_network.web <network-uuid>
+```
+
+The API does not return `product`, `network_pool_id` or `prefix`, so after an import they are taken from your configuration on the next apply as an in-place update, without recreating the network. `domain_uuid` is looked up from the network's domain and `bitmask` is derived from `ipv4_prefix`.
 
 ---
 

@@ -13250,6 +13250,229 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v3/networking/network-products/:
+    get:
+      operationId: v3_networking_network_products_list
+      description: |-
+        GET /api/v3/networking/network-products/
+
+        The products a Network can be created under. Each one owns a PRODID band,
+        so the choice is not cosmetic.
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Product'
+          description: ''
+  /api/v3/networking/networks/:
+    get:
+      operationId: v3_networking_networks_list
+      description: |-
+        GET  /api/v3/networking/networks/   List Networks in the caller's tenant.
+        POST /api/v3/networking/networks/   Queue a deploy; answers 202 with a job.
+      parameters:
+      - in: query
+        name: customer
+        schema:
+          type: string
+      - in: query
+        name: description__icontains
+        schema:
+          type: string
+      - in: query
+        name: dhcp_server
+        schema:
+          type: boolean
+      - in: query
+        name: domain
+        schema:
+          type: integer
+      - in: query
+        name: domain__vdom_id
+        schema:
+          type: string
+      - in: query
+        name: ipv4_prefix__icontains
+        schema:
+          type: string
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: name__icontains
+        schema:
+          type: string
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Search
+      - in: query
+        name: visible
+        schema:
+          type: boolean
+      - in: query
+        name: vlanid
+        schema:
+          type: integer
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedNetworkV3List'
+          description: ''
+    post:
+      operationId: v3_networking_networks_create
+      description: |-
+        GET  /api/v3/networking/networks/   List Networks in the caller's tenant.
+        POST /api/v3/networking/networks/   Queue a deploy; answers 202 with a job.
+      tags:
+      - v3/networking
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NetworkCreateV3'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/NetworkCreateV3'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/NetworkCreateV3'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkOperation'
+          description: ''
+        '400':
+          description: Validation error
+        '403':
+          description: networking.add_network required
+  /api/v3/networking/networks/{id}/:
+    get:
+      operationId: v3_networking_networks_retrieve
+      description: |-
+        GET    /api/v3/networking/networks/<id>/   Retrieve one Network.
+        DELETE /api/v3/networking/networks/<id>/   Queue a teardown; answers 202.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkV3'
+          description: ''
+    delete:
+      operationId: v3_networking_networks_destroy
+      description: |-
+        GET    /api/v3/networking/networks/<id>/   Retrieve one Network.
+        DELETE /api/v3/networking/networks/<id>/   Queue a teardown; answers 202.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkOperation'
+          description: ''
+        '403':
+          description: networking.undeploy_network required
+        '404':
+          description: Not found
+        '409':
+          description: Nothing to tear down, or a teardown is already running
+  /api/v3/networking/operations/{job_id}/:
+    get:
+      operationId: v3_networking_operations_retrieve
+      description: |-
+        GET /api/v3/networking/operations/<job_id>/
+
+        Follow a queued deploy or undeploy. Once the deploy has written the row,
+        ``network`` carries the created Network so a client never has to guess
+        which one it got.
+      parameters:
+      - in: path
+        name: job_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkOperation'
+          description: ''
+        '404':
+          description: Not found
   /api/v3/requests/:
     get:
       operationId: v3_requests_retrieve
@@ -17278,6 +17501,62 @@ components:
       required:
       - domain_detail
       - id
+    NetworkCreateV3:
+      type: object
+      description: |-
+        Validates a deploy request before anything is allocated.
+
+        Every rule here used to be either absent or enforced by the orchestrator
+        raising mid-flight, after a VLAN had already been reserved.
+      properties:
+        domain:
+          type: string
+          format: uuid
+          description: UUID of the Domain (VDOM) to attach the Network to.
+        network_pool:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID of the root NetworkPool to allocate from. Mutually exclusive
+            with prefix.
+        prefix:
+          type: string
+          nullable: true
+          description: Explicit network address to use instead of allocating from
+            a pool, e.g. 10.0.0.0. Mutually exclusive with network_pool.
+        bitmask:
+          type: integer
+          maximum: 29
+          minimum: 24
+          description: Prefix length for the new Network (24-29).
+        description:
+          type: string
+          description: What the Network is for; stored on the Network record.
+          maxLength: 4096
+        product:
+          allOf:
+          - $ref: '#/components/schemas/ProductEnum'
+          description: |-
+            Product that owns the Network; picks the PRODID band.
+
+            * `Algemeen` - Algemeen
+            * `CareCTRL` - CareCTRL
+            * `Caress` - Caress
+            * `CreAim` - CreAim
+            * `DMZ` - DMZ
+            * `Geniq - Planywhere` - Geniq - Planywhere
+            * `MyHealthOnline` - MyHealthOnline
+            * `NPQ` - NPQ
+            * `PQConnect` - PQConnect
+            * `PRLG` - PRLG
+            * `Quarant` - Quarant
+            * `ValueCare` - ValueCare
+            * `Windex` - Windex
+      required:
+      - bitmask
+      - description
+      - domain
+      - product
     NetworkDomainDetail:
       type: object
       description: Nested Domain summary for Network list inventory (alongside integer
@@ -17296,6 +17575,34 @@ components:
           maxLength: 255
       required:
       - id
+    NetworkOperation:
+      type: object
+      description: A queued deploy or undeploy, and its Network once there is one.
+      properties:
+        job_id:
+          type: integer
+        jobname:
+          type: string
+        status:
+          type: string
+          nullable: true
+        result:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+        network:
+          allOf:
+          - $ref: '#/components/schemas/NetworkV3'
+          nullable: true
+      required:
+      - job_id
+      - jobname
+      - message
+      - network
+      - result
+      - status
     NetworkPool:
       type: object
       properties:
@@ -17335,6 +17642,129 @@ components:
         * `lan` - LAN
         * `wan` - WAN
         * `transit` - Transit
+    NetworkV3:
+      type: object
+      description: |-
+        The full Network record.
+
+        Wider than the v2 list serializer on purpose: a Terraform provider has to
+        detect drift on fields the v2 list omits.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        domain:
+          type: integer
+          readOnly: true
+          nullable: true
+        domain_detail:
+          allOf:
+          - $ref: '#/components/schemas/NetworkDomainDetail'
+          readOnly: true
+        customer:
+          type: string
+          readOnly: true
+          nullable: true
+        customer_name:
+          type: string
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+        type:
+          allOf:
+          - $ref: '#/components/schemas/NetworkV3TypeEnum'
+          readOnly: true
+        parent:
+          allOf:
+          - $ref: '#/components/schemas/ParentEnum'
+          readOnly: true
+        vlanid:
+          type: integer
+          readOnly: true
+        ipv4_prefix:
+          type: string
+          readOnly: true
+        ipv4_address:
+          type: string
+          readOnly: true
+        ipv6_prefix:
+          type: string
+          readOnly: true
+        ipv6_address:
+          type: string
+          readOnly: true
+        dhcp_server:
+          type: boolean
+          readOnly: true
+          description: Enable a DHCP Server on this interface
+        dhcp_server_address_pool:
+          type: string
+          readOnly: true
+        dhcp_server_netmask:
+          type: string
+          readOnly: true
+        dhcp_server_dns_servers:
+          type: string
+          readOnly: true
+          description: Specify the DNS servers for this pool, more than one can be
+            supplied with a comma separated list.
+        dhcp_server_lease_time:
+          type: integer
+          readOnly: true
+        visible:
+          type: boolean
+          readOnly: true
+          description: Make interface visible to end users.
+        created_at_timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Time when this object was created
+        updated_at_timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Time when this object was last updated
+      required:
+      - created_at_timestamp
+      - customer
+      - customer_name
+      - description
+      - dhcp_server
+      - dhcp_server_address_pool
+      - dhcp_server_dns_servers
+      - dhcp_server_lease_time
+      - dhcp_server_netmask
+      - domain
+      - domain_detail
+      - id
+      - ipv4_address
+      - ipv4_prefix
+      - ipv6_address
+      - ipv6_prefix
+      - name
+      - parent
+      - type
+      - updated_at_timestamp
+      - visible
+      - vlanid
+    NetworkV3TypeEnum:
+      enum:
+      - vlan
+      - tunnel
+      - lacp
+      - physical
+      type: string
+      description: |-
+        * `vlan` - VLAN
+        * `tunnel` - Tunnel
+        * `lacp` - LACP
+        * `physical` - Physical
     NotificationSchema:
       type: object
       description: |-
@@ -18658,6 +19088,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/NetworkPool'
+    PaginatedNetworkV3List:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkV3'
     PaginatedNotificationSchemaList:
       type: object
       required:
@@ -19072,6 +19525,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Zone'
+    ParentEnum:
+      enum:
+      - LACP Edge netwe
+      - LACP Transit
+      type: string
+      description: |-
+        * `LACP Edge netwe` - Edge
+        * `LACP Transit` - Transit
     PatchedAlert:
       type: object
       properties:
@@ -21854,6 +22315,43 @@ components:
       description: |-
         * `device` - device
         * `content_version` - content_version
+    Product:
+      type: object
+      properties:
+        name:
+          type: string
+      required:
+      - name
+    ProductEnum:
+      enum:
+      - Algemeen
+      - CareCTRL
+      - Caress
+      - CreAim
+      - DMZ
+      - Geniq - Planywhere
+      - MyHealthOnline
+      - NPQ
+      - PQConnect
+      - PRLG
+      - Quarant
+      - ValueCare
+      - Windex
+      type: string
+      description: |-
+        * `Algemeen` - Algemeen
+        * `CareCTRL` - CareCTRL
+        * `Caress` - Caress
+        * `CreAim` - CreAim
+        * `DMZ` - DMZ
+        * `Geniq - Planywhere` - Geniq - Planywhere
+        * `MyHealthOnline` - MyHealthOnline
+        * `NPQ` - NPQ
+        * `PQConnect` - PQConnect
+        * `PRLG` - PRLG
+        * `Quarant` - Quarant
+        * `ValueCare` - ValueCare
+        * `Windex` - Windex
     ProfileAction:
       type: object
       properties:

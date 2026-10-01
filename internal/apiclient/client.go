@@ -53,27 +53,39 @@ func NewClient(baseURL, token string, insecure bool) *Client {
 }
 
 func (c *Client) Get(ctx context.Context, path string, result interface{}) error {
-	return c.doRequest(ctx, http.MethodGet, path, nil, result)
+	return c.doRequest(ctx, http.MethodGet, path, nil, result, true)
 }
 
 func (c *Client) Post(ctx context.Context, path string, body, result interface{}) error {
-	return c.doRequest(ctx, http.MethodPost, path, body, result)
+	return c.doRequest(ctx, http.MethodPost, path, body, result, true)
+}
+
+// PostOnce sends a POST exactly once, without retrying on network errors, 429 or 5xx. Use it
+// for non-idempotent calls where a retry could queue a second job (e.g. a network deploy).
+func (c *Client) PostOnce(ctx context.Context, path string, body, result interface{}) error {
+	return c.doRequest(ctx, http.MethodPost, path, body, result, false)
 }
 
 func (c *Client) Put(ctx context.Context, path string, body, result interface{}) error {
-	return c.doRequest(ctx, http.MethodPut, path, body, result)
+	return c.doRequest(ctx, http.MethodPut, path, body, result, true)
 }
 
 func (c *Client) Patch(ctx context.Context, path string, body, result interface{}) error {
-	return c.doRequest(ctx, http.MethodPatch, path, body, result)
+	return c.doRequest(ctx, http.MethodPatch, path, body, result, true)
 }
 
 func (c *Client) Delete(ctx context.Context, path string) error {
-	return c.doRequest(ctx, http.MethodDelete, path, nil, nil)
+	return c.doRequest(ctx, http.MethodDelete, path, nil, nil, true)
+}
+
+// DeleteWithResult sends a DELETE and decodes the response body, for endpoints that answer
+// with a body (e.g. a 202 carrying a teardown job).
+func (c *Client) DeleteWithResult(ctx context.Context, path string, result interface{}) error {
+	return c.doRequest(ctx, http.MethodDelete, path, nil, result, true)
 }
 
 func (c *Client) DeleteWithBody(ctx context.Context, path string, body interface{}) error {
-	return c.doRequest(ctx, http.MethodDelete, path, body, nil)
+	return c.doRequest(ctx, http.MethodDelete, path, body, nil, true)
 }
 
 // PaginatedResponse represents the envelope returned by paginated list endpoints.
@@ -120,7 +132,7 @@ func (c *Client) ListAll(ctx context.Context, path string) ([]json.RawMessage, e
 	return all, nil
 }
 
-func (c *Client) doRequest(ctx context.Context, method, path string, body, result interface{}) error {
+func (c *Client) doRequest(ctx context.Context, method, path string, body, result interface{}, retry bool) error {
 	if idx := strings.IndexByte(path, '?'); idx != -1 {
 		base := path[:idx]
 		query := path[idx:]
@@ -143,8 +155,13 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body, resul
 		bodyReader = bytes.NewReader(jsonBody)
 	}
 
+	attempts := maxRetries
+	if !retry {
+		attempts = 0
+	}
+
 	var lastErr error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	for attempt := 0; attempt <= attempts; attempt++ {
 		if attempt > 0 {
 			delay := time.Duration(math.Pow(2, float64(attempt-1))) * baseRetryDelay
 			if delay > maxRetryDelay {
@@ -228,6 +245,9 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body, resul
 		return nil
 	}
 
+	if !retry {
+		return lastErr
+	}
 	return fmt.Errorf("request failed after %d retries: %w", maxRetries, lastErr)
 }
 
