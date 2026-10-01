@@ -210,14 +210,23 @@ output "all_domains" {
 | Attribute   | Type   | Mode     | Description |
 |------------|--------|----------|-------------|
 | `name`     | String | Optional | Exact domain name to look up. |
-| `id`       | String | Computed | Domain ID (set when a single domain is matched). |
+| `id`       | Number | Computed | Domain ID (set when a single domain is matched). |
 | `uuid`     | String | Computed | Domain UUID. |
+| `vdom_id`  | String | Computed | VDOM ID of the domain. |
 | `description` | String | Computed | Domain description. |
 | `adom`     | String | Computed | Administrative domain. |
-| `zone`     | String | Computed | Associated zone. |
+| `zone_id`  | Number | Computed | ID of the associated network zone. |
+| `zone_name` | String | Computed | Name of the associated network zone. |
+| `customer` | String | Computed | Customer ID. |
+| `customer_name` | String | Computed | Customer name. |
+| `tag`      | List(Number) | Computed | Tag IDs. |
+| `comp_errors` | Number | Computed | Number of compliance errors. |
+| `max_networks` | Number | Computed | Maximum number of networks in the domain. |
 | `domains`  | List   | Computed | List of all domains (populated when `name` is not set). |
 
-**Nested `domains` attributes:** `id`, `uuid`, `name`, `description`, `adom`, `zone` — all String, Computed.
+**Nested `domains` attributes:** `id`, `uuid`, `vdom_id`, `name`, `description`, `adom`, `zone_id`, `zone_name`, `customer`, `customer_name`, `tag`, `comp_errors`, `max_networks` — all Computed.
+
+> The former `zone` attribute was removed: the API now returns the zone as an object, exposed as `zone_id` and `zone_name`.
 
 ---
 
@@ -334,7 +343,7 @@ data "mcs_networkpool" "lan_pool" {
 
 ### mcs_firewall
 
-Look up firewalls. Provide `name` or `id` for a single match, or omit both to list all.
+Look up firewalls. Provide `name` or `id` for a single match, or omit both to list all (optionally filtered by `customer`).
 
 #### Example
 
@@ -354,12 +363,25 @@ output "firewall_id" {
 |-------------|--------|----------|-------------|
 | `name`      | String | Optional | Exact firewall name. |
 | `id`        | String | Optional/Computed | Firewall ID (use as filter or read from result). |
+| `customer`  | String | Optional/Computed | Customer filter for name and list lookups; the customer of the matched firewall. |
 | `description` | String | Computed | Firewall description. |
-| `customer`  | String | Computed | Associated customer. |
-| `type`      | String | Computed | Firewall type (e.g. `internet`, `wan`). |
+| `customer_name` | String | Computed | Customer name. |
+| `type`      | String | Computed | Firewall type (`internet` or `wan`). |
+| `device`    | String | Computed | Firewall device. |
+| `device_name` | String | Computed | Device name. |
+| `platform`  | String | Computed | Device platform. |
+| `supports_threat_protection` | Bool | Computed | Whether the device supports threat protection. |
+| `context`   | String | Computed | VDOM on Fortimanager or Device Group on Panorama. |
+| `external_interface` | String | Computed | External (internet or WAN facing) interface. |
+| `internal_interface` | String | Computed | Internal (VDOM or transit facing) interface. |
+| `default_log_profile` | String | Computed | Default log profile for new rules. |
+| `default_protect_profile` | String | Computed | Default protect group profile for new rules. |
+| `multi_tenant` | Bool | Computed | Whether the device is multi tenant. |
+| `tag_name`  | String | Computed | TAG name for object lookups on multi tenant firewalls (PaloAlto only). |
+| `nat_ip_sync_enabled` | Bool | Computed | Whether the daily Panorama NAT public IP import is enabled. |
 | `firewalls` | List   | Computed | List of all firewalls (populated when `name` and `id` are not set). |
 
-**Nested `firewalls` attributes:** `id`, `name`, `description`, `customer`, `type` — all String, Computed.
+**Nested `firewalls` attributes:** all of the attributes above except `firewalls` — all Computed.
 
 ---
 
@@ -1360,13 +1382,13 @@ resource "mcs_firewall_object" "web_server" {
 
 | Attribute | Type   | Required | Description |
 |----------|--------|----------|-------------|
-| `domain` | String | **Yes**  | Firewall domain (VDOM). |
-| `name`   | String | **Yes**  | Object name. |
+| `domain` | String | **Yes**  | Firewall domain (VDOM). Changing this forces a new resource. |
+| `name`   | String | **Yes**  | Object name. Renaming updates in place. |
 | `address` | String | **Yes** | IP address. |
 | `subnet` | String | **Yes**  | Subnet mask. |
-| `comment` | String | No      | Comment / description. |
+| `comment` | String | No      | Comment / description. Server value is kept when omitted. |
 
-**Read-only attributes:** `id` (String), `uuid` (String — firewall UUID), `used` (Bool — whether the object is in use by a policy).
+**Read-only attributes:** `id` (String), `uuid` (String — firewall UUID), `used` (Bool — whether the object is in use by a policy), `managed` (Bool — whether the object is managed by MCS).
 
 ---
 
@@ -1391,10 +1413,10 @@ resource "mcs_firewall_object_group" "web_servers" {
 
 | Attribute | Type         | Required | Description |
 |----------|-------------|----------|-------------|
-| `domain` | String       | **Yes**  | Firewall domain (VDOM). |
-| `name`   | String       | **Yes**  | Group name. |
-| `comment` | String      | No       | Comment / description. |
-| `member` | List(String) | No       | List of member object names. |
+| `domain` | String       | **Yes**  | Firewall domain (VDOM). Changing this forces a new resource. |
+| `name`   | String       | **Yes**  | Group name. Renaming updates in place. |
+| `comment` | String      | No       | Comment / description. Server value is kept when omitted. |
+| `member` | List(String) | No       | List of member object names. Removing the attribute clears the members. |
 
 **Read-only attributes:** `id` (String), `uuid` (String), `used` (Bool).
 
@@ -1424,15 +1446,15 @@ resource "mcs_firewall_rule" "allow_https" {
 
 | Attribute | Type         | Required | Description |
 |----------|-------------|----------|-------------|
-| `domain` | String       | **Yes**  | Firewall domain (VDOM). |
+| `domain` | String       | **Yes**  | Firewall domain (VDOM). Changing this forces a new resource. |
 | `enabled` | Bool        | **Yes**  | Whether the rule is enabled. |
 | `action` | Bool         | **Yes**  | `true` = allow, `false` = deny. |
-| `src`    | List(String) | No       | Source address objects/groups. |
-| `dst`    | List(String) | No       | Destination address objects/groups. |
-| `src_intf` | List(String) | No     | Source interfaces. |
-| `dst_intf` | List(String) | No     | Destination interfaces. |
-| `service` | List(String) | No      | Service objects/groups (e.g. `"HTTPS"`, `"SSH"`). |
-| `comment` | String      | No       | Comment / description. |
+| `src`    | List(String) | No       | Source address objects/groups. Removing the attribute clears it. |
+| `dst`    | List(String) | No       | Destination address objects/groups. Removing the attribute clears it. |
+| `src_intf` | List(String) | No     | Source interfaces. Removing the attribute clears it. |
+| `dst_intf` | List(String) | No     | Destination interfaces. Removing the attribute clears it. |
+| `service` | List(String) | No      | Service objects/groups (e.g. `"HTTPS"`, `"SSH"`). Removing the attribute clears it. |
+| `comment` | String      | No       | Comment / description. Server value is kept when omitted. |
 
 **Read-only attributes:**
 
@@ -1442,6 +1464,12 @@ resource "mcs_firewall_rule" "allow_https" {
 | `uuid`             | String       | Firewall UUID. |
 | `policyid`         | Number       | Policy ID (used internally for API operations). |
 | `group`            | String       | Rule group. |
+| `origin`           | String       | Origin of the rule. |
+| `used`             | Bool         | Whether the rule is in use. |
+| `compliant`        | Bool         | Whether the rule is compliant. |
+| `hit_count`        | Number       | Number of hits on the rule. |
+| `last_hit`         | String       | Timestamp of the last hit. |
+| `compliancy_errors` | List(String) | Compliancy errors reported for the rule. |
 
 ---
 
@@ -1465,12 +1493,12 @@ resource "mcs_firewall_service" "custom_app" {
 
 | Attribute       | Type         | Required | Description |
 |----------------|-------------|----------|-------------|
-| `domain`       | String       | **Yes**  | Firewall domain (VDOM). |
-| `name`         | String       | **Yes**  | Service name. |
+| `domain`       | String       | **Yes**  | Firewall domain (VDOM). Changing this forces a new resource. |
+| `name`         | String       | **Yes**  | Service name. Renaming updates in place. |
 | `protocol`     | String       | **Yes**  | Protocol type (e.g. `TCP/UDP/SCTP`). |
-| `tcp_portrange` | List(String) | No      | TCP port ranges (e.g. `["80", "443", "8000-8999"]`). |
-| `udp_portrange` | List(String) | No      | UDP port ranges. |
-| `comment`      | String       | No       | Comment / description. |
+| `tcp_portrange` | List(String) | No      | TCP port ranges (e.g. `["80", "443", "8000-8999"]`). Removing the attribute clears it. |
+| `udp_portrange` | List(String) | No      | UDP port ranges. Removing the attribute clears it. |
+| `comment`      | String       | No       | Comment / description. Server value is kept when omitted. |
 
 **Read-only attributes:** `id` (String), `uuid` (String), `used` (Bool).
 
@@ -1495,10 +1523,10 @@ resource "mcs_firewall_service_group" "web_services" {
 
 | Attribute | Type         | Required | Description |
 |----------|-------------|----------|-------------|
-| `domain` | String       | **Yes**  | Firewall domain (VDOM). |
-| `name`   | String       | **Yes**  | Service group name. |
-| `comment` | String      | No       | Comment / description. |
-| `member` | List(String) | No       | List of member service names. |
+| `domain` | String       | **Yes**  | Firewall domain (VDOM). Changing this forces a new resource. |
+| `name`   | String       | **Yes**  | Service group name. Renaming updates in place. |
+| `comment` | String      | No       | Comment / description. Server value is kept when omitted. |
+| `member` | List(String) | No       | List of member service names. Removing the attribute clears the members. |
 
 **Read-only attributes:** `id` (String), `uuid` (String), `used` (Bool).
 
