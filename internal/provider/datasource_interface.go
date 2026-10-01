@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &InterfaceDataSource{}
@@ -141,10 +141,8 @@ func (d *InterfaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 	}
 
 	// List all (the API has no name filter parameter for interfaces)
-	var page struct {
-		Results []interfaceAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, "/api/virtualization/interface/?page_size=1000", &page); err != nil {
+	items, err := listAll[interfaceAPIModel](ctx, d.client, "/api/virtualization/interface/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading interfaces", err.Error())
 		return
 	}
@@ -152,9 +150,9 @@ func (d *InterfaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 	// Single-match by name (client-side exact match)
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *interfaceAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name == config.Name.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name == config.Name.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -177,9 +175,9 @@ func (d *InterfaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 		Network:     types.StringNull(),
 		MACAddress:  types.StringNull(),
 		VMName:      types.StringNull(),
-		Interfaces:  make([]InterfaceListModel, 0, len(page.Results)),
+		Interfaces:  make([]InterfaceListModel, 0, len(items)),
 	}
-	for _, item := range page.Results {
+	for _, item := range items {
 		network := types.StringNull()
 		if item.Network != nil {
 			network = types.StringValue(*item.Network)

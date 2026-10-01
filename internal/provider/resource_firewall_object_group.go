@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ resource.Resource = &FirewallObjectGroupResource{}
@@ -30,11 +30,17 @@ type FirewallObjectGroupModel struct {
 	Used    types.Bool   `tfsdk:"used"`
 }
 
+type firewallObjectGroupRequest struct {
+	Name    string    `json:"name"`
+	Comment *string   `json:"comment,omitempty"`
+	Member  *[]string `json:"member,omitempty"`
+}
+
 type firewallObjectGroupAPI struct {
-	Name    string   `json:"name,omitempty"`
-	Uuid    string   `json:"uuid,omitempty"`
-	Comment *string  `json:"comment,omitempty"`
-	Member  []string `json:"member,omitempty"`
+	Name    string   `json:"name"`
+	Uuid    string   `json:"uuid"`
+	Comment *string  `json:"comment"`
+	Member  []string `json:"member"`
 	Used    bool     `json:"used"`
 }
 
@@ -55,8 +61,9 @@ func (r *FirewallObjectGroupResource) Schema(_ context.Context, _ resource.Schem
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"domain": schema.StringAttribute{
-				Required:    true,
-				Description: "The domain this group belongs to.",
+				Required:      true,
+				Description:   "The domain this group belongs to. Changing this forces a new resource.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
@@ -68,13 +75,15 @@ func (r *FirewallObjectGroupResource) Schema(_ context.Context, _ resource.Schem
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"comment": schema.StringAttribute{
-				Optional:    true,
-				Description: "Comment for the group.",
+				Optional:      true,
+				Computed:      true,
+				Description:   "Comment for the group.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"member": schema.ListAttribute{
 				ElementType: types.StringType,
 				Optional:    true,
-				Description: "List of member object names.",
+				Description: "List of member object names. Removing the attribute clears the members.",
 			},
 			"used": schema.BoolAttribute{
 				Computed:      true,
@@ -97,6 +106,15 @@ func (r *FirewallObjectGroupResource) Configure(_ context.Context, req resource.
 	r.client = client
 }
 
+func mapFirewallObjectGroupToState(ctx context.Context, model *FirewallObjectGroupModel, api *firewallObjectGroupAPI, diags *diag.Diagnostics) {
+	model.Id = types.StringValue(api.Uuid)
+	model.Name = types.StringValue(api.Name)
+	model.Uuid = types.StringValue(api.Uuid)
+	model.Used = types.BoolValue(api.Used)
+	model.Comment = firewallCommentValue(api.Comment)
+	model.Member = listValue(ctx, types.StringType, model.Member, api.Member, diags)
+}
+
 func (r *FirewallObjectGroupResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan FirewallObjectGroupModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -104,46 +122,23 @@ func (r *FirewallObjectGroupResource) Create(ctx context.Context, req resource.C
 		return
 	}
 
-	domain := plan.Domain.ValueString()
-
-	body := firewallObjectGroupAPI{
-		Name: plan.Name.ValueString(),
+	body := firewallObjectGroupRequest{
+		Name:    plan.Name.ValueString(),
+		Comment: stringPtr(plan.Comment),
+		Member:  listElems[string](ctx, plan.Member, &resp.Diagnostics),
 	}
-	if !plan.Comment.IsNull() {
-		v := plan.Comment.ValueString()
-		body.Comment = &v
-	}
-	if !plan.Member.IsNull() {
-		var members []string
-		resp.Diagnostics.Append(plan.Member.ElementsAs(ctx, &members, false)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-		body.Member = members
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	var apiResp firewallObjectGroupAPI
-	path := fmt.Sprintf("/api/networking/domain/%s/groups/", domain)
+	path := fmt.Sprintf("/api/networking/domain/%s/groups/", plan.Domain.ValueString())
 	if err := r.client.Post(ctx, path, body, &apiResp); err != nil {
 		resp.Diagnostics.AddError("Error creating firewall object group", err.Error())
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Uuid)
-	plan.Name = types.StringValue(apiResp.Name)
-	plan.Uuid = types.StringValue(apiResp.Uuid)
-	plan.Used = types.BoolValue(apiResp.Used)
-	if apiResp.Comment != nil {
-		plan.Comment = types.StringValue(*apiResp.Comment)
-	}
-	if len(apiResp.Member) > 0 {
-		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Member)
-		resp.Diagnostics.Append(diags...)
-		plan.Member = listVal
-	} else {
-		plan.Member = types.ListValueMust(types.StringType, []attr.Value{})
-	}
-
+	mapFirewallObjectGroupToState(ctx, &plan, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -154,11 +149,8 @@ func (r *FirewallObjectGroupResource) Read(ctx context.Context, req resource.Rea
 		return
 	}
 
-	domain := state.Domain.ValueString()
-	name := state.Name.ValueString()
-
 	var apiResp firewallObjectGroupAPI
-	path := fmt.Sprintf("/api/networking/domain/%s/groups/%s/", domain, name)
+	path := fmt.Sprintf("/api/networking/domain/%s/groups/%s/", state.Domain.ValueString(), state.Name.ValueString())
 	if err := r.client.Get(ctx, path, &apiResp); err != nil {
 		if apiclient.IsNotFound(err) {
 			resp.State.RemoveResource(ctx)
@@ -168,76 +160,36 @@ func (r *FirewallObjectGroupResource) Read(ctx context.Context, req resource.Rea
 		return
 	}
 
-	state.Id = types.StringValue(apiResp.Uuid)
-	state.Name = types.StringValue(apiResp.Name)
-	state.Uuid = types.StringValue(apiResp.Uuid)
-	state.Used = types.BoolValue(apiResp.Used)
-	if apiResp.Comment != nil {
-		state.Comment = types.StringValue(*apiResp.Comment)
-	} else {
-		state.Comment = types.StringNull()
-	}
-	if len(apiResp.Member) > 0 {
-		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Member)
-		resp.Diagnostics.Append(diags...)
-		state.Member = listVal
-	} else {
-		state.Member = types.ListValueMust(types.StringType, []attr.Value{})
-	}
-
+	mapFirewallObjectGroupToState(ctx, &state, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *FirewallObjectGroupResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan FirewallObjectGroupModel
+	var plan, state FirewallObjectGroupModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	domain := plan.Domain.ValueString()
-	name := plan.Name.ValueString()
-
-	body := firewallObjectGroupAPI{
-		Name: name,
+	body := firewallObjectGroupRequest{
+		Name:    plan.Name.ValueString(),
+		Comment: stringPtr(plan.Comment),
+		Member:  listElemsForUpdate[string](ctx, plan.Member, state.Member, &resp.Diagnostics),
 	}
-	if !plan.Comment.IsNull() {
-		v := plan.Comment.ValueString()
-		body.Comment = &v
-	}
-	if !plan.Member.IsNull() {
-		var members []string
-		resp.Diagnostics.Append(plan.Member.ElementsAs(ctx, &members, false)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-		body.Member = members
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
+	// Address the group by its current (state) name so that renames work.
 	var apiResp firewallObjectGroupAPI
-	path := fmt.Sprintf("/api/networking/domain/%s/groups/%s/", domain, name)
+	path := fmt.Sprintf("/api/networking/domain/%s/groups/%s/", state.Domain.ValueString(), state.Name.ValueString())
 	if err := r.client.Patch(ctx, path, body, &apiResp); err != nil {
 		resp.Diagnostics.AddError("Error updating firewall object group", err.Error())
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Uuid)
-	plan.Name = types.StringValue(apiResp.Name)
-	plan.Uuid = types.StringValue(apiResp.Uuid)
-	plan.Used = types.BoolValue(apiResp.Used)
-	if apiResp.Comment != nil {
-		plan.Comment = types.StringValue(*apiResp.Comment)
-	} else {
-		plan.Comment = types.StringNull()
-	}
-	if len(apiResp.Member) > 0 {
-		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Member)
-		resp.Diagnostics.Append(diags...)
-		plan.Member = listVal
-	} else {
-		plan.Member = types.ListValueMust(types.StringType, []attr.Value{})
-	}
-
+	mapFirewallObjectGroupToState(ctx, &plan, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -248,10 +200,7 @@ func (r *FirewallObjectGroupResource) Delete(ctx context.Context, req resource.D
 		return
 	}
 
-	domain := state.Domain.ValueString()
-	name := state.Name.ValueString()
-
-	path := fmt.Sprintf("/api/networking/domain/%s/groups/%s/", domain, name)
+	path := fmt.Sprintf("/api/networking/domain/%s/groups/%s/", state.Domain.ValueString(), state.Name.ValueString())
 	if err := r.client.Delete(ctx, path); err != nil {
 		if apiclient.IsNotFound(err) {
 			return

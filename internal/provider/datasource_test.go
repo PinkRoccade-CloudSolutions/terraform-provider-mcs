@@ -21,8 +21,12 @@ func TestAccDomainDataSource_ByName(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
-				{"id": 1, "uuid": "dom-uuid-1", "name": "prod", "description": "Production", "adom": "adom1", "zone": "zone1"},
-				{"id": 2, "uuid": "dom-uuid-2", "name": "staging", "description": "Staging", "adom": "adom1", "zone": "zone2"},
+				{"id": 1, "uuid": "dom-uuid-1", "vdom_id": "vd1", "name": "prod", "description": "Production", "adom": "adom1",
+					"zone": map[string]interface{}{"id": 10, "name": "zone1"}, "customer": map[string]interface{}{"id": "cust-1", "contractid": "C1", "name": "Acme"},
+					"tag": []int{3, 4}, "comp_errors": 2, "max_networks": 16},
+				{"id": 2, "uuid": "dom-uuid-2", "name": "staging", "description": "Staging", "adom": "adom1",
+					"zone": map[string]interface{}{"id": 11, "name": "zone2"}, "customer": map[string]interface{}{"id": "cust-1", "name": "Acme"},
+					"max_networks": 8},
 			},
 		})
 	})
@@ -41,7 +45,15 @@ data "mcs_domain" "test" {
 					resource.TestCheckResourceAttr("data.mcs_domain.test", "uuid", "dom-uuid-1"),
 					resource.TestCheckResourceAttr("data.mcs_domain.test", "description", "Production"),
 					resource.TestCheckResourceAttr("data.mcs_domain.test", "adom", "adom1"),
-					resource.TestCheckResourceAttr("data.mcs_domain.test", "zone", "zone1"),
+					resource.TestCheckResourceAttr("data.mcs_domain.test", "zone_id", "10"),
+					resource.TestCheckResourceAttr("data.mcs_domain.test", "zone_name", "zone1"),
+					resource.TestCheckResourceAttr("data.mcs_domain.test", "vdom_id", "vd1"),
+					resource.TestCheckResourceAttr("data.mcs_domain.test", "customer", "cust-1"),
+					resource.TestCheckResourceAttr("data.mcs_domain.test", "customer_name", "Acme"),
+					resource.TestCheckResourceAttr("data.mcs_domain.test", "tag.#", "2"),
+					resource.TestCheckResourceAttr("data.mcs_domain.test", "tag.1", "4"),
+					resource.TestCheckResourceAttr("data.mcs_domain.test", "comp_errors", "2"),
+					resource.TestCheckResourceAttr("data.mcs_domain.test", "max_networks", "16"),
 				),
 			},
 		},
@@ -56,8 +68,12 @@ func TestAccDomainDataSource_ListAll(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
-				{"id": 1, "uuid": "dom-uuid-1", "name": "prod", "description": "Production", "adom": "adom1", "zone": "zone1"},
-				{"id": 2, "uuid": "dom-uuid-2", "name": "staging", "description": "Staging", "adom": "adom1", "zone": "zone2"},
+				{"id": 1, "uuid": "dom-uuid-1", "vdom_id": "vd1", "name": "prod", "description": "Production", "adom": "adom1",
+					"zone": map[string]interface{}{"id": 10, "name": "zone1"}, "customer": map[string]interface{}{"id": "cust-1", "contractid": "C1", "name": "Acme"},
+					"tag": []int{3, 4}, "comp_errors": 2, "max_networks": 16},
+				{"id": 2, "uuid": "dom-uuid-2", "name": "staging", "description": "Staging", "adom": "adom1",
+					"zone": map[string]interface{}{"id": 11, "name": "zone2"}, "customer": map[string]interface{}{"id": "cust-1", "name": "Acme"},
+					"max_networks": 8},
 			},
 		})
 	})
@@ -73,6 +89,11 @@ data "mcs_domain" "all" {
 					resource.TestCheckResourceAttr("data.mcs_domain.all", "domains.#", "2"),
 					resource.TestCheckResourceAttr("data.mcs_domain.all", "domains.0.name", "prod"),
 					resource.TestCheckResourceAttr("data.mcs_domain.all", "domains.1.name", "staging"),
+					resource.TestCheckResourceAttr("data.mcs_domain.all", "domains.0.zone_id", "10"),
+					resource.TestCheckResourceAttr("data.mcs_domain.all", "domains.1.zone_name", "zone2"),
+					resource.TestCheckResourceAttr("data.mcs_domain.all", "domains.1.customer", "cust-1"),
+					resource.TestCheckResourceAttr("data.mcs_domain.all", "domains.1.tag.#", "0"),
+					resource.TestCheckResourceAttr("data.mcs_domain.all", "domains.1.max_networks", "8"),
 				),
 			},
 		},
@@ -470,7 +491,11 @@ func TestAccFirewallDataSource_ByName(t *testing.T) {
 	defer mock.Close()
 
 	fws := []map[string]interface{}{
-		{"id": "fw-001", "name": "internet-fw", "description": "Internet firewall", "customer": "acme", "type": "internet"},
+		{"id": "fw-001", "name": "internet-fw", "description": "Internet firewall", "customer": "acme", "type": "internet",
+			"customer_name": "Acme Corp", "device": "dev-1", "device_name": "fmg-01", "platform": "fortinet",
+			"supports_threat_protection": true, "context": "vdom-a", "external_interface": "port1", "internal_interface": "port2",
+			"default_log_profile": "log-default", "default_protect_profile": "protect-default", "multi_tenant": true,
+			"tag_name": "tenant-a", "nat_ip_sync_enabled": true},
 		{"id": "fw-002", "name": "wan-fw", "description": "WAN firewall", "customer": "acme", "type": "wan"},
 	}
 
@@ -491,6 +516,19 @@ data "mcs_firewall" "test" {
 					resource.TestCheckResourceAttr("data.mcs_firewall.test", "id", "fw-001"),
 					resource.TestCheckResourceAttr("data.mcs_firewall.test", "name", "internet-fw"),
 					resource.TestCheckResourceAttr("data.mcs_firewall.test", "type", "internet"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "customer_name", "Acme Corp"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "device", "dev-1"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "device_name", "fmg-01"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "platform", "fortinet"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "supports_threat_protection", "true"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "context", "vdom-a"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "external_interface", "port1"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "internal_interface", "port2"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "default_log_profile", "log-default"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "default_protect_profile", "protect-default"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "multi_tenant", "true"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "tag_name", "tenant-a"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.test", "nat_ip_sync_enabled", "true"),
 				),
 			},
 		},
@@ -502,7 +540,11 @@ func TestAccFirewallDataSource_ListAll(t *testing.T) {
 	defer mock.Close()
 
 	fws := []map[string]interface{}{
-		{"id": "fw-001", "name": "internet-fw", "description": "Internet firewall", "customer": "acme", "type": "internet"},
+		{"id": "fw-001", "name": "internet-fw", "description": "Internet firewall", "customer": "acme", "type": "internet",
+			"customer_name": "Acme Corp", "device": "dev-1", "device_name": "fmg-01", "platform": "fortinet",
+			"supports_threat_protection": true, "context": "vdom-a", "external_interface": "port1", "internal_interface": "port2",
+			"default_log_profile": "log-default", "default_protect_profile": "protect-default", "multi_tenant": true,
+			"tag_name": "tenant-a", "nat_ip_sync_enabled": true},
 		{"id": "fw-002", "name": "wan-fw", "description": "WAN firewall", "customer": "acme", "type": "wan"},
 	}
 
@@ -520,6 +562,9 @@ data "mcs_firewall" "all" {}`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.mcs_firewall.all", "firewalls.#", "2"),
 					resource.TestCheckResourceAttr("data.mcs_firewall.all", "firewalls.0.name", "internet-fw"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.all", "firewalls.0.device_name", "fmg-01"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.all", "firewalls.0.nat_ip_sync_enabled", "true"),
+					resource.TestCheckResourceAttr("data.mcs_firewall.all", "firewalls.1.multi_tenant", "false"),
 				),
 			},
 		},
