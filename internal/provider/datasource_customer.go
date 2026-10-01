@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &CustomerDataSource{}
@@ -22,6 +22,7 @@ type CustomerDataSourceModel struct {
 	Id            types.String        `tfsdk:"id"`
 	Name          types.String        `tfsdk:"name"`
 	ContractId    types.String        `tfsdk:"contractid"`
+	Sdm           types.Int64         `tfsdk:"sdm"`
 	AdminContacts types.List          `tfsdk:"admin_contacts"`
 	TechContacts  types.List          `tfsdk:"tech_contacts"`
 	Customers     []CustomerListModel `tfsdk:"customers"`
@@ -31,16 +32,18 @@ type CustomerListModel struct {
 	Id            types.String `tfsdk:"id"`
 	Name          types.String `tfsdk:"name"`
 	ContractId    types.String `tfsdk:"contractid"`
+	Sdm           types.Int64  `tfsdk:"sdm"`
 	AdminContacts types.List   `tfsdk:"admin_contacts"`
 	TechContacts  types.List   `tfsdk:"tech_contacts"`
 }
 
 type customerDSAPIModel struct {
-	Id            string `json:"id"`
-	Name          string `json:"name"`
-	ContractId    string `json:"contractid,omitempty"`
-	AdminContacts []int  `json:"admin_contacts"`
-	TechContacts  []int  `json:"tech_contacts"`
+	Id            string  `json:"id"`
+	Name          string  `json:"name"`
+	ContractId    string  `json:"contractid"`
+	Sdm           *int64  `json:"sdm"`
+	AdminContacts []int64 `json:"admin_contacts"`
+	TechContacts  []int64 `json:"tech_contacts"`
 }
 
 func NewCustomerDataSource() datasource.DataSource {
@@ -58,6 +61,7 @@ func (d *CustomerDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 			Computed: true,
 		},
 		"contractid": schema.StringAttribute{Computed: true},
+		"sdm":        schema.Int64Attribute{Computed: true},
 		"admin_contacts": schema.ListAttribute{
 			Computed:    true,
 			ElementType: types.Int64Type,
@@ -80,6 +84,10 @@ func (d *CustomerDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 				Description: "Filter by name (uses name__icontains then exact match).",
 			},
 			"contractid": schema.StringAttribute{Computed: true},
+			"sdm": schema.Int64Attribute{
+				Computed:    true,
+				Description: "Service Delivery Manager (user id); null when not set.",
+			},
 			"admin_contacts": schema.ListAttribute{
 				Computed:    true,
 				ElementType: types.Int64Type,
@@ -125,7 +133,7 @@ func (d *CustomerDataSource) Read(ctx context.Context, req datasource.ReadReques
 			resp.Diagnostics.AddError("Error reading customer", err.Error())
 			return
 		}
-		setSingleCustomer(ctx, &config, &item, resp)
+		setSingleCustomer(ctx, &config, &item, &resp.Diagnostics)
 		if resp.Diagnostics.HasError() {
 			return
 		}
@@ -133,15 +141,13 @@ func (d *CustomerDataSource) Read(ctx context.Context, req datasource.ReadReques
 		return
 	}
 
-	path := "/api/tenant/customers/?page_size=1000"
+	path := "/api/tenant/customers/"
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
-		path += "&name__icontains=" + url.QueryEscape(config.Name.ValueString())
+		path += "?name__icontains=" + url.QueryEscape(config.Name.ValueString())
 	}
 
-	var page struct {
-		Results []customerDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[customerDSAPIModel](ctx, d.client, path)
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading customers", err.Error())
 		return
 	}
@@ -149,9 +155,9 @@ func (d *CustomerDataSource) Read(ctx context.Context, req datasource.ReadReques
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		want := config.Name.ValueString()
 		var match *customerDSAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name == want {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name == want {
+				match = &items[i]
 				break
 			}
 		}
@@ -160,7 +166,7 @@ func (d *CustomerDataSource) Read(ctx context.Context, req datasource.ReadReques
 				fmt.Sprintf("No customer with exact name %q was found.", want))
 			return
 		}
-		setSingleCustomer(ctx, &config, match, resp)
+		setSingleCustomer(ctx, &config, match, &resp.Diagnostics)
 		if resp.Diagnostics.HasError() {
 			return
 		}
@@ -172,57 +178,42 @@ func (d *CustomerDataSource) Read(ctx context.Context, req datasource.ReadReques
 		Id:            types.StringNull(),
 		Name:          types.StringNull(),
 		ContractId:    types.StringNull(),
+		Sdm:           types.Int64Null(),
 		AdminContacts: types.ListNull(types.Int64Type),
 		TechContacts:  types.ListNull(types.Int64Type),
-		Customers:     make([]CustomerListModel, 0, len(page.Results)),
+		Customers:     make([]CustomerListModel, 0, len(items)),
 	}
-	for i := range page.Results {
-		lm, diags := customerToListModel(ctx, &page.Results[i])
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-		state.Customers = append(state.Customers, lm)
+	for i := range items {
+		state.Customers = append(state.Customers, customerToListModel(ctx, &items[i], &resp.Diagnostics))
+	}
+	if resp.Diagnostics.HasError() {
+		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-func setSingleCustomer(ctx context.Context, state *CustomerDataSourceModel, item *customerDSAPIModel, resp *datasource.ReadResponse) {
-	state.Id = types.StringValue(item.Id)
-	state.Name = types.StringValue(item.Name)
-	state.ContractId = types.StringValue(item.ContractId)
-	admin64 := intSliceToInt64(item.AdminContacts)
-	tech64 := intSliceToInt64(item.TechContacts)
-	adminList, diags := types.ListValueFrom(ctx, types.Int64Type, admin64)
-	resp.Diagnostics.Append(diags...)
-	techList, diags := types.ListValueFrom(ctx, types.Int64Type, tech64)
-	resp.Diagnostics.Append(diags...)
-	state.AdminContacts = adminList
-	state.TechContacts = techList
+func setSingleCustomer(ctx context.Context, state *CustomerDataSourceModel, item *customerDSAPIModel, diags *diag.Diagnostics) {
+	lm := customerToListModel(ctx, item, diags)
+	state.Id = lm.Id
+	state.Name = lm.Name
+	state.ContractId = lm.ContractId
+	state.Sdm = lm.Sdm
+	state.AdminContacts = lm.AdminContacts
+	state.TechContacts = lm.TechContacts
 	state.Customers = []CustomerListModel{}
 }
 
-func customerToListModel(ctx context.Context, item *customerDSAPIModel) (CustomerListModel, diag.Diagnostics) {
-	var diags diag.Diagnostics
-	admin64 := intSliceToInt64(item.AdminContacts)
-	tech64 := intSliceToInt64(item.TechContacts)
-	adminList, d := types.ListValueFrom(ctx, types.Int64Type, admin64)
-	diags.Append(d...)
-	techList, d2 := types.ListValueFrom(ctx, types.Int64Type, tech64)
-	diags.Append(d2...)
+func customerToListModel(ctx context.Context, item *customerDSAPIModel, diags *diag.Diagnostics) CustomerListModel {
+	sdm := types.Int64Null()
+	if item.Sdm != nil {
+		sdm = types.Int64Value(*item.Sdm)
+	}
 	return CustomerListModel{
 		Id:            types.StringValue(item.Id),
 		Name:          types.StringValue(item.Name),
 		ContractId:    types.StringValue(item.ContractId),
-		AdminContacts: adminList,
-		TechContacts:  techList,
-	}, diags
-}
-
-func intSliceToInt64(xs []int) []int64 {
-	out := make([]int64, len(xs))
-	for i, v := range xs {
-		out[i] = int64(v)
+		Sdm:           sdm,
+		AdminContacts: computedListValue(ctx, types.Int64Type, item.AdminContacts, diags),
+		TechContacts:  computedListValue(ctx, types.Int64Type, item.TechContacts, diags),
 	}
-	return out
 }

@@ -20,20 +20,20 @@ type VirtualDatacenterDataSource struct {
 type VirtualDatacenterDataSourceModel struct {
 	Name               types.String                 `tfsdk:"name"`
 	Id                 types.String                 `tfsdk:"id"`
-	Customer           types.String                 `tfsdk:"customer"`
+	Cluster            types.String                 `tfsdk:"cluster"`
 	VirtualDatacenters []VirtualDatacenterListModel `tfsdk:"virtual_datacenters"`
 }
 
 type VirtualDatacenterListModel struct {
-	Id       types.String `tfsdk:"id"`
-	Name     types.String `tfsdk:"name"`
-	Customer types.String `tfsdk:"customer"`
+	Id      types.String `tfsdk:"id"`
+	Name    types.String `tfsdk:"name"`
+	Cluster types.String `tfsdk:"cluster"`
 }
 
 type virtualDatacenterDSAPIModel struct {
-	Id       string `json:"id"`
-	Name     string `json:"name"`
-	Customer string `json:"customer"`
+	Id      string `json:"id"`
+	Name    string `json:"name"`
+	Cluster string `json:"cluster"`
 }
 
 func NewVirtualDatacenterDataSource() datasource.DataSource {
@@ -46,9 +46,9 @@ func (d *VirtualDatacenterDataSource) Metadata(_ context.Context, req datasource
 
 func (d *VirtualDatacenterDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	vdcAttrs := map[string]schema.Attribute{
-		"id":       schema.StringAttribute{Computed: true},
-		"name":     schema.StringAttribute{Computed: true},
-		"customer": schema.StringAttribute{Computed: true},
+		"id":      schema.StringAttribute{Computed: true},
+		"name":    schema.StringAttribute{Computed: true},
+		"cluster": schema.StringAttribute{Computed: true},
 	}
 
 	resp.Schema = schema.Schema{
@@ -63,8 +63,9 @@ func (d *VirtualDatacenterDataSource) Schema(_ context.Context, _ datasource.Sch
 				Computed:    true,
 				Description: "UUID of a specific virtual datacenter to look up.",
 			},
-			"customer": schema.StringAttribute{
-				Computed: true,
+			"cluster": schema.StringAttribute{
+				Computed:    true,
+				Description: "UUID of the cluster used by the VDC to deploy VMs.",
 			},
 			"virtual_datacenters": schema.ListNestedAttribute{
 				Computed:     true,
@@ -107,24 +108,22 @@ func (d *VirtualDatacenterDataSource) Read(ctx context.Context, req datasource.R
 		return
 	}
 
-	path := "/api/virtualization/virtualdatacenter/?page_size=1000"
+	path := "/api/virtualization/virtualdatacenter/"
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
-		path += "&name__contains=" + url.QueryEscape(config.Name.ValueString())
+		path += "?name__icontains=" + url.QueryEscape(config.Name.ValueString())
 	}
 
-	var page struct {
-		Results []virtualDatacenterDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[virtualDatacenterDSAPIModel](ctx, d.client, path)
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading virtual datacenters", err.Error())
 		return
 	}
 
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *virtualDatacenterDSAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name == config.Name.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name == config.Name.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -141,14 +140,14 @@ func (d *VirtualDatacenterDataSource) Read(ctx context.Context, req datasource.R
 	state := VirtualDatacenterDataSourceModel{
 		Name:               types.StringNull(),
 		Id:                 types.StringNull(),
-		Customer:           types.StringNull(),
-		VirtualDatacenters: make([]VirtualDatacenterListModel, 0, len(page.Results)),
+		Cluster:            types.StringNull(),
+		VirtualDatacenters: make([]VirtualDatacenterListModel, 0, len(items)),
 	}
-	for _, item := range page.Results {
+	for _, item := range items {
 		state.VirtualDatacenters = append(state.VirtualDatacenters, VirtualDatacenterListModel{
-			Id:       types.StringValue(item.Id),
-			Name:     types.StringValue(item.Name),
-			Customer: types.StringValue(item.Customer),
+			Id:      types.StringValue(item.Id),
+			Name:    types.StringValue(item.Name),
+			Cluster: types.StringValue(item.Cluster),
 		})
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
@@ -157,6 +156,6 @@ func (d *VirtualDatacenterDataSource) Read(ctx context.Context, req datasource.R
 func setSingleVirtualDatacenter(state *VirtualDatacenterDataSourceModel, vdc *virtualDatacenterDSAPIModel) {
 	state.Id = types.StringValue(vdc.Id)
 	state.Name = types.StringValue(vdc.Name)
-	state.Customer = types.StringValue(vdc.Customer)
+	state.Cluster = types.StringValue(vdc.Cluster)
 	state.VirtualDatacenters = []VirtualDatacenterListModel{}
 }

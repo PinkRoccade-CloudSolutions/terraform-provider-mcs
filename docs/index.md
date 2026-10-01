@@ -67,8 +67,6 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
     - [mcs_cs_policy](#mcs_cs_policy)
     - [mcs_rewrite_action](#mcs_rewrite_action)
     - [mcs_rewrite_policy](#mcs_rewrite_policy)
-  - [Virtualization](#virtualization)
-    - [mcs_virtual_datacenter](#mcs_virtual_datacenter)
   - [Monitoring](#monitoring)
     - [mcs_monitor_ip](#mcs_monitor_ip)
   - [DNS](#dns)
@@ -529,18 +527,28 @@ output "vm_names" {
 }
 ```
 
+#### Example — VMs in a domain
+
+```hcl
+data "mcs_virtualmachine" "in_domain" {
+  domain_id = data.mcs_domain.production.id
+}
+```
+
 #### Attributes
 
 | Attribute          | Type   | Mode     | Description |
 |-------------------|--------|----------|-------------|
-| `name`            | String | Optional | Exact VM name to look up. |
+| `name`            | String | Optional | Exact VM name to look up (sent as `name__icontains`, matched exactly client-side). |
 | `id`              | String | Optional/Computed | VM UUID. |
+| `domain_id`       | Number | Optional | Only consider VMs with an interface in a network of this domain (`interfaces__network__domain__id`). Combines with `name`. |
 | `cpu`             | Number | Computed | Number of vCPUs (set when a single VM is matched). |
 | `memory`          | Number | Computed | Memory in MB (set when a single VM is matched). |
 | `os`              | String | Computed | Operating system (set when a single VM is matched). |
+| `state`           | String | Computed | Power state (set when a single VM is matched). |
 | `disks`           | List   | Computed | Disks attached to the matched VM. |
 | `interfaces`      | List   | Computed | Network interfaces of the matched VM. |
-| `virtual_machines` | List  | Computed | All VMs (populated when neither `name` nor `id` is set). |
+| `virtual_machines` | List  | Computed | All VMs (populated when neither `name` nor `id` is set). Each item has `id`, `name`, `cpu`, `memory`, `os`, `state`, `disks`, `interfaces`. |
 
 **Nested `disks` attributes:**
 
@@ -560,8 +568,9 @@ output "vm_names" {
 | `name`       | String | Interface name. |
 | `ipaddress`  | String | IPv4 address. |
 | `ipv6address` | String | IPv6 address. |
-| `network`    | String | Associated network. |
+| `network`    | String | Associated network UUID (null when not connected). |
 | `mac_address` | String | MAC address. |
+| `vm_name`    | String | Name of the VM the interface belongs to. |
 
 ---
 
@@ -577,7 +586,7 @@ data "mcs_job" "deployment" {
 }
 
 output "job_status" {
-  value = data.mcs_job.deployment.message
+  value = "${data.mcs_job.deployment.status}: ${data.mcs_job.deployment.result}"
 }
 ```
 
@@ -587,11 +596,20 @@ output "job_status" {
 |---------------------|--------|----------|-------------|
 | `id`                | Number | **Required** | Job ID. |
 | `jobname`           | String | Computed | Name of the job. |
+| `status`            | String | Computed | Job status name (flattened from the API's nested `status` object). |
+| `result`            | String | Computed | Job result name (flattened from the API's nested `result` object). |
 | `timestamp`         | String | Computed | Job start timestamp. |
-| `endtime`           | String | Computed | Job end timestamp. |
+| `endtime`           | String | Computed | Job end timestamp; null while the job is still running. |
 | `message`           | String | Computed | Job status message. |
 | `dryrun`            | Bool   | Computed | Whether this was a dry run. |
 | `continue_on_failure` | Bool | Computed | Whether the job continues on failure. |
+| `can_force_continue_transit` | String | Computed | Whether the job can be forced to continue a transit step. |
+| `parent`            | Number | Computed | ID of the parent job, if chained. |
+| `sub_jobs`          | List of Number | Computed | IDs of the sub jobs. |
+| `created_at_timestamp` | String | Computed | Creation time. |
+| `updated_at_timestamp` | String | Computed | Last update time. |
+| `created_by_user`   | Number | Computed | ID of the user who created the job (may be null). |
+| `updated_by_user`   | Number | Computed | ID of the user who last updated the job (may be null). |
 
 ---
 
@@ -615,7 +633,7 @@ output "disk_size" {
 
 | Attribute | Type   | Mode     | Description |
 |----------|--------|----------|-------------|
-| `name`   | String | Optional | Exact disk name to look up. |
+| `name`   | String | Optional | Exact disk name to look up (the API has no name filter, so all disks are listed and matched client-side). |
 | `id`     | String | Optional/Computed | Disk UUID. |
 | `size`   | Number | Computed | Size in GB. |
 | `path`   | String | Computed | Disk path. |
@@ -642,12 +660,12 @@ data "mcs_virtual_datacenter" "prod" {
 
 | Attribute             | Type   | Mode     | Description |
 |----------------------|--------|----------|-------------|
-| `name`               | String | Optional | Exact virtual datacenter name. |
+| `name`               | String | Optional | Exact virtual datacenter name (sent as `name__icontains`, matched exactly client-side). |
 | `id`                 | String | Optional/Computed | Virtual datacenter UUID. |
-| `customer`           | String | Computed | Customer identifier. |
+| `cluster`            | String | Computed | UUID of the cluster the VDC deploys VMs on. |
 | `virtual_datacenters` | List  | Computed | All virtual datacenters (populated when neither `name` nor `id` is set). |
 
-**Nested `virtual_datacenters` attributes:** `id`, `name`, `customer` — all String, Computed.
+**Nested `virtual_datacenters` attributes:** `id`, `name`, `cluster` — all String, Computed.
 
 ---
 
@@ -964,8 +982,12 @@ data "mcs_dbl" "blocked" {
 | `source`    | String | Computed | Source of the block entry. |
 | `occurrence` | Number | Computed | Number of occurrences. |
 | `persistent` | Bool  | Computed | Whether the entry persists. |
+| `blackholed` | Bool  | Computed | Whether traffic from the IP is dropped early (blackholed). |
 | `hostname`  | String | Computed | Resolved hostname. |
-| `dbls`      | List   | Computed | All DBL entries (populated when `ipaddress` is not set). |
+| `meta`      | String | Computed | Server-provided metadata about the IP address. |
+| `itsm`      | String | Computed | ITSM registration for the block. |
+| `reason`    | String | Computed | Reason for the block when no ITSM ticket exists. |
+| `dbls`      | List   | Computed | All DBL entries (populated when `ipaddress` is not set); items have the same attributes. |
 
 ---
 
@@ -1029,7 +1051,8 @@ data "mcs_domain_dbl" "all" {}
 | `source`    | String | Computed | Source of the block entry. |
 | `persistent` | Bool  | Computed | Whether the entry persists. |
 | `occurrence` | Number | Computed | Number of occurrences. |
-| `domain_dbls` | List | Computed | All domain DBL entries (populated when `id` is not set). |
+| `labels`    | List(String) | Computed | Names of the attached DBL labels. |
+| `domain_dbls` | List | Computed | All domain DBL entries (populated when `id` is not set); items have the same attributes. |
 
 ---
 
@@ -1074,7 +1097,7 @@ data "mcs_contact" "admin" {
 
 | Attribute   | Type   | Mode     | Description |
 |------------|--------|----------|-------------|
-| `name`     | String | Optional | Company name to look up. |
+| `name`     | String | Optional | Exact company name to look up (sent as `company__icontains`, matched exactly client-side). |
 | `id`       | String | Optional/Computed | Contact ID. |
 | `company`  | String | Computed | Company name. |
 | `firstname` | String | Computed | First name. |
@@ -1102,9 +1125,10 @@ data "mcs_customer" "prod" {
 
 | Attribute        | Type         | Mode     | Description |
 |-----------------|-------------|----------|-------------|
-| `name`          | String       | Optional | Exact customer name. |
+| `name`          | String       | Optional | Exact customer name (sent as `name__icontains`, matched exactly client-side). |
 | `id`            | String       | Optional/Computed | Customer ID. |
 | `contractid`    | String       | Computed | Contract identifier. |
+| `sdm`           | Number       | Computed | Service Delivery Manager user ID; null when not set. |
 | `admin_contacts` | List(Number) | Computed | Administrative contact IDs. |
 | `tech_contacts` | List(Number) | Computed | Technical contact IDs. |
 | `customers`     | List         | Computed | All customers (populated when neither `name` nor `id` is set). |
@@ -1201,12 +1225,14 @@ resource "mcs_contact" "admin" {
 
 | Attribute   | Type   | Required | Description |
 |------------|--------|----------|-------------|
-| `company`  | String | **Yes**  | Company name. |
+| `company`  | String | **Yes**  | Company name (max 255 characters). |
 | `firstname` | String | No      | First name. |
 | `lastname` | String | No       | Last name. |
 | `email`    | String | No       | Email address. |
 | `phone`    | String | No       | Phone number. |
 | `address`  | String | No       | Address. |
+
+All optional fields are at most 255 characters. When omitted, the value stored by the API (usually `""`) is kept in state; removing a field from the configuration does not clear it — set it to `""` instead.
 
 **Read-only attributes:** `id` (String) — The contact ID.
 
@@ -1230,11 +1256,11 @@ resource "mcs_customer" "example" {
 
 | Attribute        | Type         | Required | Description |
 |-----------------|-------------|----------|-------------|
-| `name`          | String       | **Yes**  | Customer name. |
-| `contractid`    | String       | No       | Contract identifier. |
-| `sdm`           | Number       | No       | Service Delivery Manager ID. |
-| `tech_contacts` | List(Number) | No       | List of technical contact IDs. |
-| `admin_contacts` | List(Number) | No      | List of administrative contact IDs. |
+| `name`          | String       | **Yes**  | Customer name (max 255 characters). |
+| `contractid`    | String       | No       | Contract identifier (max 255 characters). Computed from the API when omitted. |
+| `sdm`           | Number       | No       | Service Delivery Manager user ID. Null when the API has none set. Computed from the API when omitted. |
+| `tech_contacts` | List(Number) | No       | List of technical contact IDs. Computed from the API when omitted; set `[]` to clear. |
+| `admin_contacts` | List(Number) | No      | List of administrative contact IDs. Computed from the API when omitted; set `[]` to clear. |
 
 **Read-only attributes:** `id` (String) — The customer ID.
 
@@ -1877,32 +1903,6 @@ resource "mcs_rewrite_policy" "rewrite_requests" {
 
 ---
 
-### Virtualization
-
-#### mcs_virtual_datacenter
-
-Manages a virtual datacenter.
-
-##### Example
-
-```hcl
-resource "mcs_virtual_datacenter" "production" {
-  name     = "production-vdc"
-  customer = mcs_customer.example.id
-}
-```
-
-##### Attributes
-
-| Attribute  | Type   | Required | Description |
-|-----------|--------|----------|-------------|
-| `name`    | String | **Yes**  | Virtual datacenter name. |
-| `customer` | String | No      | Customer identifier. |
-
-**Read-only attributes:** `id` (String).
-
----
-
 ### Monitoring
 
 #### mcs_monitor_ip
@@ -2002,6 +2002,8 @@ resource "mcs_dbl" "blocked_ip" {
   ipaddress  = "192.0.2.100"
   source     = "manual"
   persistent = true
+  blackholed = false
+  itsm       = "INC0012345"
 }
 ```
 
@@ -2009,9 +2011,12 @@ resource "mcs_dbl" "blocked_ip" {
 
 | Attribute    | Type   | Required | Description |
 |-------------|--------|----------|-------------|
-| `ipaddress` | String | **Yes**  | IP address to block. |
-| `source`    | String | No       | Source of the block entry (e.g. `manual`). |
-| `persistent` | Bool  | No       | Whether the entry persists across resets. |
+| `ipaddress` | String | **Yes**  | IP address to block (max 255 characters). Changing it forces a new entry. |
+| `source`    | String | No       | Source of the block entry (e.g. `manual`, max 255 characters). Computed from the API when omitted. |
+| `persistent` | Bool  | No       | Keep the entry instead of expiring it after the default time. Computed from the API when omitted. |
+| `blackholed` | Bool  | No       | Drop traffic from the IP early in the defense-in-depth model (logging is then not available). Computed from the API when omitted. |
+| `itsm`      | String | No       | ITSM registration in which the block was requested and substantiated (max 255 characters). |
+| `reason`    | String | No       | Why the IP is added when no ITSM ticket exists. |
 
 **Read-only attributes:**
 
@@ -2021,6 +2026,7 @@ resource "mcs_dbl" "blocked_ip" {
 | `timestamp` | String | Creation timestamp. |
 | `occurrence` | Number | Number of occurrences. |
 | `hostname`  | String | Resolved hostname. |
+| `meta`      | String | Server-provided metadata about the IP address. |
 
 > **Note:** Read, update, and delete operations use the `ipaddress` as the lookup key, not the `id`.
 
@@ -2037,6 +2043,7 @@ resource "mcs_domain_dbl" "blocked_domain" {
   domainname = "malicious-site.example"
   source     = "manual"
   persistent = true
+  labels     = ["malware"]
 }
 ```
 
@@ -2044,9 +2051,10 @@ resource "mcs_domain_dbl" "blocked_domain" {
 
 | Attribute    | Type   | Required | Description |
 |-------------|--------|----------|-------------|
-| `domainname` | String | **Yes** | Domain name to block. |
-| `source`    | String | **Yes**  | Source of the block entry. |
-| `persistent` | Bool  | No       | Whether the entry persists across resets. |
+| `domainname` | String | **Yes** | Domain name to block (5–255 characters). |
+| `source`    | String | No       | Source of the block entry (5–255 characters). Computed from the API when omitted. |
+| `persistent` | Bool  | No       | Keep the entry instead of expiring it after the default time. Computed from the API when omitted. |
+| `labels`    | List(String) | No | Names of DBL labels to attach (sent as nested `{"name": ...}` objects). Computed from the API when omitted; set `[]` to clear. |
 
 **Read-only attributes:**
 
@@ -2160,13 +2168,6 @@ resource "mcs_firewall_rule" "allow_https" {
   service  = ["HTTPS"]
   action   = true
   comment  = "Allow HTTPS to web server"
-}
-
-# --- Virtual Datacenter ---
-
-resource "mcs_virtual_datacenter" "production" {
-  name     = "production-vdc"
-  customer = mcs_customer.production.id
 }
 
 # --- Outputs ---

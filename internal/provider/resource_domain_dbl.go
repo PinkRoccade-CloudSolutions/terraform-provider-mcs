@@ -5,13 +5,17 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ resource.Resource = &DomainDblResource{}
@@ -27,15 +31,23 @@ type domainDblModel struct {
 	Source     types.String `tfsdk:"source"`
 	Persistent types.Bool   `tfsdk:"persistent"`
 	Occurrence types.Int64  `tfsdk:"occurrence"`
+	Labels     types.List   `tfsdk:"labels"`
+}
+
+// dblLabelAPIModel is the nested Label object ({id, name}) used by the DBL endpoints.
+type dblLabelAPIModel struct {
+	Id   int    `json:"id,omitempty"`
+	Name string `json:"name"`
 }
 
 type domainDblAPIModel struct {
-	Id         int    `json:"id,omitempty"`
-	DomainName string `json:"domainname"`
-	Timestamp  string `json:"timestamp,omitempty"`
-	Source     string `json:"source"`
-	Persistent *bool  `json:"persistent,omitempty"`
-	Occurrence int    `json:"occurrence,omitempty"`
+	Id         int                `json:"id,omitempty"`
+	DomainName string             `json:"domainname"`
+	Timestamp  string             `json:"timestamp,omitempty"`
+	Source     *string            `json:"source,omitempty"`
+	Persistent *bool              `json:"persistent,omitempty"`
+	Occurrence int                `json:"occurrence,omitempty"`
+	Labels     []dblLabelAPIModel `json:"labels"`
 }
 
 func NewDomainDblResource() resource.Resource {
@@ -56,7 +68,8 @@ func (r *DomainDblResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				},
 			},
 			"domainname": schema.StringAttribute{
-				Required: true,
+				Required:   true,
+				Validators: []validator.String{stringvalidator.LengthBetween(5, 255)},
 			},
 			"timestamp": schema.StringAttribute{
 				Computed: true,
@@ -65,15 +78,30 @@ func (r *DomainDblResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				},
 			},
 			"source": schema.StringAttribute{
-				Required: true,
+				Optional:   true,
+				Computed:   true,
+				Validators: []validator.String{stringvalidator.LengthBetween(5, 255)},
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"persistent": schema.BoolAttribute{
 				Optional: true,
+				Computed: true,
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"occurrence": schema.Int64Attribute{
 				Computed: true,
-				PlanModifiers: []planmodifier.Int64{
-					int64planmodifier.UseStateForUnknown(),
+			},
+			"labels": schema.ListAttribute{
+				Optional:    true,
+				Computed:    true,
+				ElementType: types.StringType,
+				Description: "Names of the DBL labels attached to the entry.",
+				PlanModifiers: []planmodifier.List{
+					listplanmodifier.UseStateForUnknown(),
 				},
 			},
 		},
@@ -95,29 +123,37 @@ func (r *DomainDblResource) Configure(_ context.Context, req resource.ConfigureR
 	r.client = client
 }
 
-func domainDblBodyFromPlan(plan *domainDblModel) domainDblAPIModel {
+func domainDblBodyFromPlan(ctx context.Context, plan *domainDblModel, diags *diag.Diagnostics) domainDblAPIModel {
 	body := domainDblAPIModel{
 		DomainName: plan.DomainName.ValueString(),
-		Source:     plan.Source.ValueString(),
+		Source:     stringPtr(plan.Source),
+		Persistent: boolPtr(plan.Persistent),
+		Labels:     []dblLabelAPIModel{},
 	}
-	if !plan.Persistent.IsNull() && !plan.Persistent.IsUnknown() {
-		v := plan.Persistent.ValueBool()
-		body.Persistent = &v
+	if names := listElems[string](ctx, plan.Labels, diags); names != nil {
+		for _, n := range *names {
+			body.Labels = append(body.Labels, dblLabelAPIModel{Name: n})
+		}
 	}
 	return body
 }
 
-func domainDblStateFromAPI(result *domainDblAPIModel, state *domainDblModel) {
+func dblLabelNames(labels []dblLabelAPIModel) []string {
+	names := make([]string, 0, len(labels))
+	for _, l := range labels {
+		names = append(names, l.Name)
+	}
+	return names
+}
+
+func domainDblStateFromAPI(ctx context.Context, result *domainDblAPIModel, state *domainDblModel, diags *diag.Diagnostics) {
 	state.Id = types.StringValue(strconv.Itoa(result.Id))
 	state.DomainName = types.StringValue(result.DomainName)
 	state.Timestamp = types.StringValue(result.Timestamp)
-	state.Source = types.StringValue(result.Source)
-	if result.Persistent != nil {
-		state.Persistent = types.BoolValue(*result.Persistent)
-	} else {
-		state.Persistent = types.BoolNull()
-	}
+	state.Source = types.StringPointerValue(result.Source)
+	state.Persistent = types.BoolPointerValue(result.Persistent)
 	state.Occurrence = types.Int64Value(int64(result.Occurrence))
+	state.Labels = computedListValue(ctx, types.StringType, dblLabelNames(result.Labels), diags)
 }
 
 func (r *DomainDblResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -127,7 +163,10 @@ func (r *DomainDblResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	body := domainDblBodyFromPlan(&plan)
+	body := domainDblBodyFromPlan(ctx, &plan, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	var result domainDblAPIModel
 	err := r.client.Post(ctx, "/api/dbl/domaindbl/", body, &result)
@@ -136,7 +175,7 @@ func (r *DomainDblResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	domainDblStateFromAPI(&result, &plan)
+	domainDblStateFromAPI(ctx, &result, &plan, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -158,7 +197,7 @@ func (r *DomainDblResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	domainDblStateFromAPI(&result, &state)
+	domainDblStateFromAPI(ctx, &result, &state, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -169,7 +208,10 @@ func (r *DomainDblResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	body := domainDblBodyFromPlan(&plan)
+	body := domainDblBodyFromPlan(ctx, &plan, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	var result domainDblAPIModel
 	err := r.client.Put(ctx, fmt.Sprintf("/api/dbl/domaindbl/%s/", plan.Id.ValueString()), body, &result)
@@ -178,7 +220,7 @@ func (r *DomainDblResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	domainDblStateFromAPI(&result, &plan)
+	domainDblStateFromAPI(ctx, &result, &plan, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 

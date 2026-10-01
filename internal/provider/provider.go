@@ -121,7 +121,6 @@ func (p *MCSProvider) Resources(_ context.Context) []func() resource.Resource {
 		NewRewritePolicyResource,
 		NewSecureIngressFirewallResource,
 		NewSiteToSiteVPNResource,
-		NewVirtualDatacenterResource,
 	}
 }
 
