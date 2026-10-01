@@ -4,40 +4,55 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
-var _ resource.Resource = &LbServicegroupResource{}
+var (
+	_ resource.Resource                = &LbServicegroupResource{}
+	_ resource.ResourceWithImportState = &LbServicegroupResource{}
+)
 
 type LbServicegroupResource struct {
 	client *apiclient.Client
 }
 
 type LbServicegroupResourceModel struct {
-	Id            types.String `tfsdk:"id"`
-	Name          types.String `tfsdk:"name"`
-	Type          types.String `tfsdk:"type"`
-	State         types.String `tfsdk:"state"`
-	Members       types.List   `tfsdk:"members"`
-	Healthmonitor types.String `tfsdk:"healthmonitor"`
-	Customer      types.String `tfsdk:"customer"`
-	Loadbalancer  types.String `tfsdk:"loadbalancer"`
+	Id                types.String `tfsdk:"id"`
+	Name              types.String `tfsdk:"name"`
+	Type              types.String `tfsdk:"type"`
+	State             types.String `tfsdk:"state"`
+	Members           types.List   `tfsdk:"members"`
+	Monitors          types.List   `tfsdk:"monitors"`
+	Healthmonitor     types.String `tfsdk:"healthmonitor"`
+	ClientCertificate types.String `tfsdk:"client_certificate"`
+	Cip               types.String `tfsdk:"cip"`
+	Cipheader         types.String `tfsdk:"cipheader"`
+	Customer          types.String `tfsdk:"customer"`
+	Loadbalancer      types.String `tfsdk:"loadbalancer"`
 }
 
 type lbServicegroupAPIModel struct {
-	Id            string   `json:"id,omitempty"`
-	Name          string   `json:"name"`
-	Type          string   `json:"type"`
-	State         *string  `json:"state,omitempty"`
-	Members       []string `json:"members,omitempty"`
-	Healthmonitor *string  `json:"healthmonitor,omitempty"`
-	Customer      *string  `json:"customer,omitempty"`
-	Loadbalancer  *string  `json:"loadbalancer,omitempty"`
+	Id                string    `json:"id,omitempty"`
+	Name              string    `json:"name"`
+	Type              string    `json:"type"`
+	State             *string   `json:"state,omitempty"`
+	Members           *[]string `json:"members,omitempty"`
+	Monitors          *[]string `json:"monitors,omitempty"`
+	Healthmonitor     *string   `json:"healthmonitor,omitempty"`
+	ClientCertificate *string   `json:"client_certificate"`
+	Cip               *string   `json:"cip,omitempty"`
+	Cipheader         *string   `json:"cipheader,omitempty"`
+	Customer          *string   `json:"customer,omitempty"`
+	Loadbalancer      *string   `json:"loadbalancer,omitempty"`
 }
 
 func NewLbServicegroupResource() resource.Resource {
@@ -59,23 +74,60 @@ func (r *LbServicegroupResource) Schema(_ context.Context, _ resource.SchemaRequ
 				Required: true,
 			},
 			"type": schema.StringAttribute{
-				Required: true,
+				Required:    true,
+				Description: "One of `HTTP`, `SSL`, `ssl_bridge`, `tcp`, `udp`.",
+				Validators:  []validator.String{stringvalidator.OneOf("HTTP", "SSL", "ssl_bridge", "tcp", "udp")},
 			},
 			"state": schema.StringAttribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				Description:   "Service group state: `enable` or `disable`.",
+				Validators:    []validator.String{stringvalidator.OneOf("enable", "disable")},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"members": schema.ListAttribute{
 				ElementType: types.StringType,
 				Optional:    true,
 			},
+			"monitors": schema.ListAttribute{
+				ElementType: types.StringType,
+				Optional:    true,
+				Description: "UUIDs of the load balancing monitors bound to the service group.",
+			},
 			"healthmonitor": schema.StringAttribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				Description:   "`YES` or `NO`.",
+				Validators:    []validator.String{stringvalidator.OneOf("YES", "NO")},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"client_certificate": schema.StringAttribute{
+				Optional:    true,
+				Description: "UUID of the certificate presented to backend servers when they request client authentication.",
+			},
+			"cip": schema.StringAttribute{
+				Optional:      true,
+				Computed:      true,
+				Description:   "Insert the client IP in a header: `ENABLED` or `DISABLED`.",
+				Validators:    []validator.String{stringvalidator.OneOf("ENABLED", "DISABLED")},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"cipheader": schema.StringAttribute{
+				Optional:      true,
+				Computed:      true,
+				Description:   "Header name for the client IP. The server defaults it to `X-Forwarded-For`.",
+				Validators:    []validator.String{stringvalidator.LengthAtMost(255)},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"customer": schema.StringAttribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"loadbalancer": schema.StringAttribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 		},
 	}
@@ -96,6 +148,35 @@ func (r *LbServicegroupResource) Configure(_ context.Context, req resource.Confi
 	r.client = client
 }
 
+func lbServicegroupToAPI(plan *LbServicegroupResourceModel) lbServicegroupAPIModel {
+	return lbServicegroupAPIModel{
+		Name:              plan.Name.ValueString(),
+		Type:              plan.Type.ValueString(),
+		State:             stringPtr(plan.State),
+		Healthmonitor:     stringPtr(plan.Healthmonitor),
+		ClientCertificate: stringPtr(plan.ClientCertificate),
+		Cip:               stringPtr(plan.Cip),
+		Cipheader:         stringPtr(plan.Cipheader),
+		Customer:          stringPtr(plan.Customer),
+		Loadbalancer:      stringPtr(plan.Loadbalancer),
+	}
+}
+
+func lbServicegroupFromAPI(ctx context.Context, m *LbServicegroupResourceModel, api *lbServicegroupAPIModel, diags *diag.Diagnostics) {
+	m.Id = types.StringValue(api.Id)
+	m.Name = types.StringValue(api.Name)
+	m.Type = types.StringValue(api.Type)
+	m.State = types.StringPointerValue(api.State)
+	m.Members = listValue(ctx, types.StringType, m.Members, lbStringSlice(api.Members), diags)
+	m.Monitors = listValue(ctx, types.StringType, m.Monitors, lbStringSlice(api.Monitors), diags)
+	m.Healthmonitor = types.StringPointerValue(api.Healthmonitor)
+	m.ClientCertificate = types.StringPointerValue(api.ClientCertificate)
+	m.Cip = types.StringPointerValue(api.Cip)
+	m.Cipheader = types.StringPointerValue(api.Cipheader)
+	m.Customer = types.StringPointerValue(api.Customer)
+	m.Loadbalancer = types.StringPointerValue(api.Loadbalancer)
+}
+
 func (r *LbServicegroupResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan LbServicegroupResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -104,25 +185,10 @@ func (r *LbServicegroupResource) Create(ctx context.Context, req resource.Create
 	}
 
 	// Stage 1: create the service group without members
-	apiModel := lbServicegroupAPIModel{
-		Name: plan.Name.ValueString(),
-		Type: plan.Type.ValueString(),
-	}
-	if !plan.State.IsNull() {
-		v := plan.State.ValueString()
-		apiModel.State = &v
-	}
-	if !plan.Healthmonitor.IsNull() {
-		v := plan.Healthmonitor.ValueString()
-		apiModel.Healthmonitor = &v
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
+	apiModel := lbServicegroupToAPI(&plan)
+	apiModel.Monitors = listElems[string](ctx, plan.Monitors, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	var createResp lbServicegroupAPIModel
@@ -135,12 +201,10 @@ func (r *LbServicegroupResource) Create(ctx context.Context, req resource.Create
 	// Stage 2: set members via PUT once the service group exists
 	finalResp := createResp
 	if !plan.Members.IsNull() && len(plan.Members.Elements()) > 0 {
-		var members []string
-		resp.Diagnostics.Append(plan.Members.ElementsAs(ctx, &members, false)...)
+		apiModel.Members = listElems[string](ctx, plan.Members, &resp.Diagnostics)
 		if resp.Diagnostics.HasError() {
 			return
 		}
-		apiModel.Members = members
 
 		var updateResp lbServicegroupAPIModel
 		err := r.client.Put(ctx, fmt.Sprintf("/api/loadbalancing/lbservicegroup/%s/", createResp.Id), apiModel, &updateResp)
@@ -151,23 +215,7 @@ func (r *LbServicegroupResource) Create(ctx context.Context, req resource.Create
 		finalResp = updateResp
 	}
 
-	plan.Id = types.StringValue(finalResp.Id)
-	plan.Name = types.StringValue(finalResp.Name)
-	plan.Type = types.StringValue(finalResp.Type)
-	plan.State = types.StringPointerValue(finalResp.State)
-
-	if plan.Members.IsNull() && len(finalResp.Members) == 0 {
-		plan.Members = types.ListNull(types.StringType)
-	} else {
-		listVal, diags := types.ListValueFrom(ctx, types.StringType, finalResp.Members)
-		resp.Diagnostics.Append(diags...)
-		plan.Members = listVal
-	}
-
-	plan.Healthmonitor = types.StringPointerValue(finalResp.Healthmonitor)
-	plan.Customer = types.StringPointerValue(finalResp.Customer)
-	plan.Loadbalancer = types.StringPointerValue(finalResp.Loadbalancer)
-
+	lbServicegroupFromAPI(ctx, &plan, &finalResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -189,23 +237,7 @@ func (r *LbServicegroupResource) Read(ctx context.Context, req resource.ReadRequ
 		return
 	}
 
-	state.Id = types.StringValue(apiResp.Id)
-	state.Name = types.StringValue(apiResp.Name)
-	state.Type = types.StringValue(apiResp.Type)
-	state.State = types.StringPointerValue(apiResp.State)
-
-	if state.Members.IsNull() && len(apiResp.Members) == 0 {
-		state.Members = types.ListNull(types.StringType)
-	} else {
-		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Members)
-		resp.Diagnostics.Append(diags...)
-		state.Members = listVal
-	}
-
-	state.Healthmonitor = types.StringPointerValue(apiResp.Healthmonitor)
-	state.Customer = types.StringPointerValue(apiResp.Customer)
-	state.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	lbServicegroupFromAPI(ctx, &state, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -222,30 +254,11 @@ func (r *LbServicegroupResource) Update(ctx context.Context, req resource.Update
 		return
 	}
 
-	apiModel := lbServicegroupAPIModel{
-		Name: plan.Name.ValueString(),
-		Type: plan.Type.ValueString(),
-	}
-	if !plan.State.IsNull() {
-		v := plan.State.ValueString()
-		apiModel.State = &v
-	}
-	if !plan.Members.IsNull() {
-		var members []string
-		resp.Diagnostics.Append(plan.Members.ElementsAs(ctx, &members, false)...)
-		apiModel.Members = members
-	}
-	if !plan.Healthmonitor.IsNull() {
-		v := plan.Healthmonitor.ValueString()
-		apiModel.Healthmonitor = &v
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
+	apiModel := lbServicegroupToAPI(&plan)
+	apiModel.Members = listElemsForUpdate[string](ctx, plan.Members, state.Members, &resp.Diagnostics)
+	apiModel.Monitors = listElemsForUpdate[string](ctx, plan.Monitors, state.Monitors, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	var apiResp lbServicegroupAPIModel
@@ -255,23 +268,7 @@ func (r *LbServicegroupResource) Update(ctx context.Context, req resource.Update
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringValue(apiResp.Name)
-	plan.Type = types.StringValue(apiResp.Type)
-	plan.State = types.StringPointerValue(apiResp.State)
-
-	if plan.Members.IsNull() && len(apiResp.Members) == 0 {
-		plan.Members = types.ListNull(types.StringType)
-	} else {
-		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Members)
-		resp.Diagnostics.Append(diags...)
-		plan.Members = listVal
-	}
-
-	plan.Healthmonitor = types.StringPointerValue(apiResp.Healthmonitor)
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	lbServicegroupFromAPI(ctx, &plan, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -289,4 +286,8 @@ func (r *LbServicegroupResource) Delete(ctx context.Context, req resource.Delete
 		}
 		resp.Diagnostics.AddError("Error deleting lb_servicegroup", err.Error())
 	}
+}
+
+func (r *LbServicegroupResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

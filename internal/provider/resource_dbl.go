@@ -5,16 +5,22 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
-var _ resource.Resource = &DblResource{}
+var (
+	_ resource.Resource                = &DblResource{}
+	_ resource.ResourceWithImportState = &DblResource{}
+)
 
 type DblResource struct {
 	client *apiclient.Client
@@ -27,7 +33,11 @@ type dblModel struct {
 	Source     types.String `tfsdk:"source"`
 	Occurrence types.Int64  `tfsdk:"occurrence"`
 	Persistent types.Bool   `tfsdk:"persistent"`
+	Blackholed types.Bool   `tfsdk:"blackholed"`
 	Hostname   types.String `tfsdk:"hostname"`
+	Meta       types.String `tfsdk:"meta"`
+	Itsm       types.String `tfsdk:"itsm"`
+	Reason     types.String `tfsdk:"reason"`
 }
 
 type dblAPIModel struct {
@@ -37,7 +47,11 @@ type dblAPIModel struct {
 	Source     *string `json:"source,omitempty"`
 	Occurrence int     `json:"occurrence,omitempty"`
 	Persistent *bool   `json:"persistent,omitempty"`
+	Blackholed *bool   `json:"blackholed,omitempty"`
 	Hostname   string  `json:"hostname,omitempty"`
+	Meta       *string `json:"meta,omitempty"`
+	Itsm       *string `json:"itsm,omitempty"`
+	Reason     *string `json:"reason,omitempty"`
 }
 
 func NewDblResource() resource.Resource {
@@ -58,7 +72,12 @@ func (r *DblResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 				},
 			},
 			"ipaddress": schema.StringAttribute{
-				Required: true,
+				Required:    true,
+				Description: "IP address to block. The API addresses entries by IP, so changing it replaces the entry.",
+				Validators:  []validator.String{stringvalidator.LengthBetween(1, 255)},
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"timestamp": schema.StringAttribute{
 				Computed: true,
@@ -67,19 +86,53 @@ func (r *DblResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 				},
 			},
 			"source": schema.StringAttribute{
-				Optional: true,
+				Optional:   true,
+				Computed:   true,
+				Validators: []validator.String{stringvalidator.LengthAtMost(255)},
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"occurrence": schema.Int64Attribute{
 				Computed: true,
-				PlanModifiers: []planmodifier.Int64{
-					int64planmodifier.UseStateForUnknown(),
-				},
 			},
 			"persistent": schema.BoolAttribute{
 				Optional: true,
+				Computed: true,
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"blackholed": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Drop traffic from the IP address early in the defense-in-depth model.",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"hostname": schema.StringAttribute{
 				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"meta": schema.StringAttribute{
+				Computed: true,
+			},
+			"itsm": schema.StringAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "ITSM registration in which the block was requested. If none exists, set `reason`.",
+				Validators:  []validator.String{stringvalidator.LengthAtMost(255)},
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"reason": schema.StringAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Why the IP address is added when no ITSM ticket exists.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
@@ -104,36 +157,28 @@ func (r *DblResource) Configure(_ context.Context, req resource.ConfigureRequest
 }
 
 func dblBodyFromPlan(plan *dblModel) dblAPIModel {
-	body := dblAPIModel{
-		IpAddress: plan.IpAddress.ValueString(),
+	return dblAPIModel{
+		IpAddress:  plan.IpAddress.ValueString(),
+		Source:     stringPtr(plan.Source),
+		Persistent: boolPtr(plan.Persistent),
+		Blackholed: boolPtr(plan.Blackholed),
+		Itsm:       stringPtr(plan.Itsm),
+		Reason:     stringPtr(plan.Reason),
 	}
-	if !plan.Source.IsNull() && !plan.Source.IsUnknown() {
-		v := plan.Source.ValueString()
-		body.Source = &v
-	}
-	if !plan.Persistent.IsNull() && !plan.Persistent.IsUnknown() {
-		v := plan.Persistent.ValueBool()
-		body.Persistent = &v
-	}
-	return body
 }
 
 func dblStateFromAPI(result *dblAPIModel, state *dblModel) {
 	state.Id = types.StringValue(strconv.Itoa(result.Id))
 	state.IpAddress = types.StringValue(result.IpAddress)
 	state.Timestamp = types.StringValue(result.Timestamp)
-	if result.Source != nil {
-		state.Source = types.StringValue(*result.Source)
-	} else {
-		state.Source = types.StringNull()
-	}
+	state.Source = types.StringPointerValue(result.Source)
 	state.Occurrence = types.Int64Value(int64(result.Occurrence))
-	if result.Persistent != nil {
-		state.Persistent = types.BoolValue(*result.Persistent)
-	} else {
-		state.Persistent = types.BoolNull()
-	}
+	state.Persistent = types.BoolPointerValue(result.Persistent)
+	state.Blackholed = types.BoolPointerValue(result.Blackholed)
 	state.Hostname = types.StringValue(result.Hostname)
+	state.Meta = types.StringPointerValue(result.Meta)
+	state.Itsm = types.StringPointerValue(result.Itsm)
+	state.Reason = types.StringPointerValue(result.Reason)
 }
 
 func (r *DblResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -212,4 +257,9 @@ func (r *DblResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 		}
 		resp.Diagnostics.AddError("Error deleting dbl entry", err.Error())
 	}
+}
+
+// ImportState takes the IP address, because the API addresses DBL entries by IP rather than by id.
+func (r *DblResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("ipaddress"), req, resp)
 }

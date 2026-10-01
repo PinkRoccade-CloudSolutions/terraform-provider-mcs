@@ -4,15 +4,23 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
-var _ resource.Resource = &LbMonitorResource{}
+var (
+	_ resource.Resource                = &LbMonitorResource{}
+	_ resource.ResourceWithImportState = &LbMonitorResource{}
+)
 
 type LbMonitorResource struct {
 	client *apiclient.Client
@@ -52,6 +60,38 @@ func NewLbMonitorResource() resource.Resource {
 	return &LbMonitorResource{}
 }
 
+// lbOptString is an Optional+Computed string attribute for values the server fills in or defaults.
+func lbOptString(description string, validators ...validator.String) schema.StringAttribute {
+	return schema.StringAttribute{
+		Optional:      true,
+		Computed:      true,
+		Description:   description,
+		Validators:    validators,
+		PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+	}
+}
+
+// lbOptInt64 is an Optional+Computed int64 attribute for values the server fills in or defaults.
+func lbOptInt64(description string, validators ...validator.Int64) schema.Int64Attribute {
+	return schema.Int64Attribute{
+		Optional:      true,
+		Computed:      true,
+		Description:   description,
+		Validators:    validators,
+		PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
+	}
+}
+
+// lbOptBool is an Optional+Computed bool attribute for values the server fills in or defaults.
+func lbOptBool(description string) schema.BoolAttribute {
+	return schema.BoolAttribute{
+		Optional:      true,
+		Computed:      true,
+		Description:   description,
+		PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+	}
+}
+
 func (r *LbMonitorResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_lb_monitor"
 }
@@ -66,36 +106,19 @@ func (r *LbMonitorResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			"name": schema.StringAttribute{
 				Required: true,
 			},
-			"type": schema.StringAttribute{
-				Optional: true,
-			},
-			"interval": schema.Int64Attribute{
-				Optional: true,
-			},
-			"resptimeout": schema.Int64Attribute{
-				Optional: true,
-			},
-			"downtime": schema.Int64Attribute{
-				Optional: true,
-			},
-			"respcode": schema.StringAttribute{
-				Optional: true,
-			},
-			"secure": schema.StringAttribute{
-				Optional: true,
-			},
-			"httprequest": schema.StringAttribute{
-				Optional: true,
-			},
-			"loadbalancer": schema.StringAttribute{
-				Optional: true,
-			},
-			"protected": schema.BoolAttribute{
-				Optional: true,
-			},
-			"customer": schema.StringAttribute{
-				Optional: true,
-			},
+			"type": lbOptString("One of `HTTP`, `TCP`, `ssl_bridge`, `tcp`, `udp`.",
+				stringvalidator.OneOf("HTTP", "TCP", "ssl_bridge", "tcp", "udp")),
+			"interval":    lbOptInt64("Probe interval."),
+			"resptimeout": lbOptInt64("Response timeout."),
+			"downtime":    lbOptInt64("Downtime."),
+			"respcode": lbOptString("Accepted response codes: `[\"200\"]` or `[\"200\", \"403\", \"500\"]` (or empty).",
+				stringvalidator.OneOf(`["200"]`, `["200", "403", "500"]`, "")),
+			"secure": lbOptString("`YES`, `NO` or empty.",
+				stringvalidator.OneOf("YES", "NO", "")),
+			"httprequest":  lbOptString("HTTP request sent by the monitor.", stringvalidator.LengthAtMost(255)),
+			"loadbalancer": lbOptString(""),
+			"protected":    lbOptBool("Whether the monitor is protected from changes."),
+			"customer":     lbOptString(""),
 		},
 	}
 }
@@ -115,6 +138,37 @@ func (r *LbMonitorResource) Configure(_ context.Context, req resource.ConfigureR
 	r.client = client
 }
 
+func lbMonitorToAPI(plan *LbMonitorResourceModel) lbMonitorAPIModel {
+	return lbMonitorAPIModel{
+		Name:         plan.Name.ValueString(),
+		Type:         stringPtr(plan.Type),
+		Interval:     int64Ptr(plan.Interval),
+		Resptimeout:  int64Ptr(plan.Resptimeout),
+		Downtime:     int64Ptr(plan.Downtime),
+		Respcode:     stringPtr(plan.Respcode),
+		Secure:       stringPtr(plan.Secure),
+		Httprequest:  stringPtr(plan.Httprequest),
+		Loadbalancer: stringPtr(plan.Loadbalancer),
+		Protected:    boolPtr(plan.Protected),
+		Customer:     stringPtr(plan.Customer),
+	}
+}
+
+func lbMonitorFromAPI(m *LbMonitorResourceModel, api *lbMonitorAPIModel) {
+	m.Id = types.StringValue(api.Id)
+	m.Name = types.StringValue(api.Name)
+	m.Type = types.StringPointerValue(api.Type)
+	m.Interval = types.Int64PointerValue(api.Interval)
+	m.Resptimeout = types.Int64PointerValue(api.Resptimeout)
+	m.Downtime = types.Int64PointerValue(api.Downtime)
+	m.Respcode = types.StringPointerValue(api.Respcode)
+	m.Secure = types.StringPointerValue(api.Secure)
+	m.Httprequest = types.StringPointerValue(api.Httprequest)
+	m.Loadbalancer = types.StringPointerValue(api.Loadbalancer)
+	m.Protected = types.BoolPointerValue(api.Protected)
+	m.Customer = types.StringPointerValue(api.Customer)
+}
+
 func (r *LbMonitorResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan LbMonitorResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -122,70 +176,14 @@ func (r *LbMonitorResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	apiModel := lbMonitorAPIModel{
-		Name: plan.Name.ValueString(),
-	}
-	if !plan.Type.IsNull() {
-		v := plan.Type.ValueString()
-		apiModel.Type = &v
-	}
-	if !plan.Interval.IsNull() {
-		v := plan.Interval.ValueInt64()
-		apiModel.Interval = &v
-	}
-	if !plan.Resptimeout.IsNull() {
-		v := plan.Resptimeout.ValueInt64()
-		apiModel.Resptimeout = &v
-	}
-	if !plan.Downtime.IsNull() {
-		v := plan.Downtime.ValueInt64()
-		apiModel.Downtime = &v
-	}
-	if !plan.Respcode.IsNull() {
-		v := plan.Respcode.ValueString()
-		apiModel.Respcode = &v
-	}
-	if !plan.Secure.IsNull() {
-		v := plan.Secure.ValueString()
-		apiModel.Secure = &v
-	}
-	if !plan.Httprequest.IsNull() {
-		v := plan.Httprequest.ValueString()
-		apiModel.Httprequest = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
-	}
-	if !plan.Protected.IsNull() {
-		v := plan.Protected.ValueBool()
-		apiModel.Protected = &v
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-
 	var apiResp lbMonitorAPIModel
-	err := r.client.Post(ctx, "/api/loadbalancing/monitor/", apiModel, &apiResp)
+	err := r.client.Post(ctx, "/api/loadbalancing/monitor/", lbMonitorToAPI(&plan), &apiResp)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating lb_monitor", err.Error())
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringValue(apiResp.Name)
-	plan.Type = types.StringPointerValue(apiResp.Type)
-	plan.Interval = types.Int64PointerValue(apiResp.Interval)
-	plan.Resptimeout = types.Int64PointerValue(apiResp.Resptimeout)
-	plan.Downtime = types.Int64PointerValue(apiResp.Downtime)
-	plan.Respcode = types.StringPointerValue(apiResp.Respcode)
-	plan.Secure = types.StringPointerValue(apiResp.Secure)
-	plan.Httprequest = types.StringPointerValue(apiResp.Httprequest)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-	plan.Protected = types.BoolPointerValue(apiResp.Protected)
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-
+	lbMonitorFromAPI(&plan, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -207,19 +205,7 @@ func (r *LbMonitorResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	state.Id = types.StringValue(apiResp.Id)
-	state.Name = types.StringValue(apiResp.Name)
-	state.Type = types.StringPointerValue(apiResp.Type)
-	state.Interval = types.Int64PointerValue(apiResp.Interval)
-	state.Resptimeout = types.Int64PointerValue(apiResp.Resptimeout)
-	state.Downtime = types.Int64PointerValue(apiResp.Downtime)
-	state.Respcode = types.StringPointerValue(apiResp.Respcode)
-	state.Secure = types.StringPointerValue(apiResp.Secure)
-	state.Httprequest = types.StringPointerValue(apiResp.Httprequest)
-	state.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-	state.Protected = types.BoolPointerValue(apiResp.Protected)
-	state.Customer = types.StringPointerValue(apiResp.Customer)
-
+	lbMonitorFromAPI(&state, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -236,70 +222,14 @@ func (r *LbMonitorResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	apiModel := lbMonitorAPIModel{
-		Name: plan.Name.ValueString(),
-	}
-	if !plan.Type.IsNull() {
-		v := plan.Type.ValueString()
-		apiModel.Type = &v
-	}
-	if !plan.Interval.IsNull() {
-		v := plan.Interval.ValueInt64()
-		apiModel.Interval = &v
-	}
-	if !plan.Resptimeout.IsNull() {
-		v := plan.Resptimeout.ValueInt64()
-		apiModel.Resptimeout = &v
-	}
-	if !plan.Downtime.IsNull() {
-		v := plan.Downtime.ValueInt64()
-		apiModel.Downtime = &v
-	}
-	if !plan.Respcode.IsNull() {
-		v := plan.Respcode.ValueString()
-		apiModel.Respcode = &v
-	}
-	if !plan.Secure.IsNull() {
-		v := plan.Secure.ValueString()
-		apiModel.Secure = &v
-	}
-	if !plan.Httprequest.IsNull() {
-		v := plan.Httprequest.ValueString()
-		apiModel.Httprequest = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
-	}
-	if !plan.Protected.IsNull() {
-		v := plan.Protected.ValueBool()
-		apiModel.Protected = &v
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-
 	var apiResp lbMonitorAPIModel
-	err := r.client.Put(ctx, fmt.Sprintf("/api/loadbalancing/monitor/%s/", state.Id.ValueString()), apiModel, &apiResp)
+	err := r.client.Put(ctx, fmt.Sprintf("/api/loadbalancing/monitor/%s/", state.Id.ValueString()), lbMonitorToAPI(&plan), &apiResp)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating lb_monitor", err.Error())
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringValue(apiResp.Name)
-	plan.Type = types.StringPointerValue(apiResp.Type)
-	plan.Interval = types.Int64PointerValue(apiResp.Interval)
-	plan.Resptimeout = types.Int64PointerValue(apiResp.Resptimeout)
-	plan.Downtime = types.Int64PointerValue(apiResp.Downtime)
-	plan.Respcode = types.StringPointerValue(apiResp.Respcode)
-	plan.Secure = types.StringPointerValue(apiResp.Secure)
-	plan.Httprequest = types.StringPointerValue(apiResp.Httprequest)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-	plan.Protected = types.BoolPointerValue(apiResp.Protected)
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-
+	lbMonitorFromAPI(&plan, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -317,4 +247,8 @@ func (r *LbMonitorResource) Delete(ctx context.Context, req resource.DeleteReque
 		}
 		resp.Diagnostics.AddError("Error deleting lb_monitor", err.Error())
 	}
+}
+
+func (r *LbMonitorResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

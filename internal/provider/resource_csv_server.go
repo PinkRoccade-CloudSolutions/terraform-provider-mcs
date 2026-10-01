@@ -4,44 +4,59 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
-var _ resource.Resource = &CsvServerResource{}
+var (
+	_ resource.Resource                = &CsvServerResource{}
+	_ resource.ResourceWithImportState = &CsvServerResource{}
+)
 
 type CsvServerResource struct {
 	client *apiclient.Client
 }
 
 type CsvServerResourceModel struct {
-	Id           types.String `tfsdk:"id"`
-	Name         types.String `tfsdk:"name"`
-	Ufname       types.String `tfsdk:"ufname"`
-	Ipaddress    types.String `tfsdk:"ipaddress"`
-	Port         types.Int64  `tfsdk:"port"`
-	Type         types.String `tfsdk:"type"`
-	Policies     types.List   `tfsdk:"policies"`
-	Customer     types.String `tfsdk:"customer"`
-	Certificate  types.List   `tfsdk:"certificate"`
-	Loadbalancer types.String `tfsdk:"loadbalancer"`
+	Id            types.String `tfsdk:"id"`
+	Name          types.String `tfsdk:"name"`
+	Ufname        types.String `tfsdk:"ufname"`
+	Ipaddress     types.String `tfsdk:"ipaddress"`
+	Port          types.Int64  `tfsdk:"port"`
+	Type          types.String `tfsdk:"type"`
+	Policies      types.List   `tfsdk:"policies"`
+	Customer      types.String `tfsdk:"customer"`
+	Certificate   types.List   `tfsdk:"certificate"`
+	CaCertificate types.List   `tfsdk:"ca_certificate"`
+	Loadbalancer  types.String `tfsdk:"loadbalancer"`
+	Clientauth    types.Bool   `tfsdk:"clientauth"`
+	Clientcert    types.String `tfsdk:"clientcert"`
 }
 
 type csvServerAPIModel struct {
-	Id           string   `json:"id,omitempty"`
-	Name         string   `json:"name"`
-	Ufname       string   `json:"ufname"`
-	Ipaddress    *string  `json:"ipaddress,omitempty"`
-	Port         *int64   `json:"port,omitempty"`
-	Type         string   `json:"type"`
-	Policies     []string `json:"policies,omitempty"`
-	Customer     *string  `json:"customer,omitempty"`
-	Certificate  []string `json:"certificate,omitempty"`
-	Loadbalancer *string  `json:"loadbalancer,omitempty"`
+	Id            string    `json:"id,omitempty"`
+	Name          string    `json:"name"`
+	Ufname        string    `json:"ufname"`
+	Ipaddress     *string   `json:"ipaddress"`
+	Port          *int64    `json:"port,omitempty"`
+	Type          string    `json:"type"`
+	Policies      *[]string `json:"policies,omitempty"`
+	Customer      *string   `json:"customer,omitempty"`
+	Certificate   *[]string `json:"certificate,omitempty"`
+	CaCertificate *[]string `json:"ca_certificate,omitempty"`
+	Loadbalancer  *string   `json:"loadbalancer,omitempty"`
+	Clientauth    *bool     `json:"clientauth,omitempty"`
+	Clientcert    *string   `json:"clientcert,omitempty"`
 }
 
 func NewCsvServerResource() resource.Resource {
@@ -71,23 +86,48 @@ func (r *CsvServerResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			},
 			"port": schema.Int64Attribute{
 				Optional: true,
+				Computed: true,
+				Default:  int64default.StaticInt64(443),
 			},
 			"type": schema.StringAttribute{
-				Required: true,
+				Required:   true,
+				Validators: []validator.String{stringvalidator.OneOf("http", "ssl")},
 			},
 			"policies": schema.ListAttribute{
 				ElementType: types.StringType,
 				Optional:    true,
 			},
 			"customer": schema.StringAttribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"certificate": schema.ListAttribute{
 				ElementType: types.StringType,
 				Optional:    true,
 			},
+			"ca_certificate": schema.ListAttribute{
+				ElementType: types.StringType,
+				Optional:    true,
+				Description: "UUIDs of CA certificates used to verify client certificates.",
+			},
 			"loadbalancer": schema.StringAttribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"clientauth": schema.BoolAttribute{
+				Optional:      true,
+				Computed:      true,
+				Description:   "Enable client certificate authentication.",
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+			},
+			"clientcert": schema.StringAttribute{
+				Optional:      true,
+				Computed:      true,
+				Description:   "Client certificate requirement: `Mandatory` or `Optional`.",
+				Validators:    []validator.String{stringvalidator.OneOf("Mandatory", "Optional")},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 		},
 	}
@@ -108,6 +148,58 @@ func (r *CsvServerResource) Configure(_ context.Context, req resource.ConfigureR
 	r.client = client
 }
 
+// lbStringSlice dereferences an optional API list.
+func lbStringSlice(p *[]string) []string {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func csvServerToAPI(ctx context.Context, plan, state *CsvServerResourceModel, diags *diag.Diagnostics) csvServerAPIModel {
+	m := csvServerAPIModel{
+		Name:         plan.Name.ValueString(),
+		Ufname:       plan.Ufname.ValueString(),
+		Ipaddress:    stringPtr(plan.Ipaddress),
+		Port:         int64Ptr(plan.Port),
+		Type:         plan.Type.ValueString(),
+		Customer:     stringPtr(plan.Customer),
+		Loadbalancer: stringPtr(plan.Loadbalancer),
+		Clientauth:   boolPtr(plan.Clientauth),
+		Clientcert:   stringPtr(plan.Clientcert),
+	}
+	if state == nil {
+		m.Policies = listElems[string](ctx, plan.Policies, diags)
+		m.Certificate = listElems[string](ctx, plan.Certificate, diags)
+		m.CaCertificate = listElems[string](ctx, plan.CaCertificate, diags)
+	} else {
+		m.Policies = listElemsForUpdate[string](ctx, plan.Policies, state.Policies, diags)
+		m.Certificate = listElemsForUpdate[string](ctx, plan.Certificate, state.Certificate, diags)
+		m.CaCertificate = listElemsForUpdate[string](ctx, plan.CaCertificate, state.CaCertificate, diags)
+	}
+	return m
+}
+
+func csvServerFromAPI(ctx context.Context, m *CsvServerResourceModel, api *csvServerAPIModel, diags *diag.Diagnostics) {
+	m.Id = types.StringValue(api.Id)
+	m.Name = types.StringValue(api.Name)
+	m.Ufname = types.StringValue(api.Ufname)
+	m.Ipaddress = types.StringPointerValue(api.Ipaddress)
+	if api.Port != nil {
+		m.Port = types.Int64Value(*api.Port)
+	} else if m.Port.IsUnknown() {
+		m.Port = types.Int64Null()
+	}
+	m.Type = types.StringValue(api.Type)
+	m.Policies = listValue(ctx, types.StringType, m.Policies, lbStringSlice(api.Policies), diags)
+	m.Customer = types.StringPointerValue(api.Customer)
+	m.Certificate = listValue(ctx, types.StringType, m.Certificate, lbStringSlice(api.Certificate), diags)
+	m.CaCertificate = listValue(ctx, types.StringType, m.CaCertificate, lbStringSlice(api.CaCertificate), diags)
+	m.Loadbalancer = types.StringPointerValue(api.Loadbalancer)
+	m.Clientauth = types.BoolPointerValue(api.Clientauth)
+	m.Clientcert = types.StringPointerValue(api.Clientcert)
+}
+
 func (r *CsvServerResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan CsvServerResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -115,36 +207,9 @@ func (r *CsvServerResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	apiModel := csvServerAPIModel{
-		Name:   plan.Name.ValueString(),
-		Ufname: plan.Ufname.ValueString(),
-		Type:   plan.Type.ValueString(),
-	}
-	if !plan.Ipaddress.IsNull() {
-		v := plan.Ipaddress.ValueString()
-		apiModel.Ipaddress = &v
-	}
-	if !plan.Port.IsNull() {
-		v := plan.Port.ValueInt64()
-		apiModel.Port = &v
-	}
-	if !plan.Policies.IsNull() {
-		var policies []string
-		resp.Diagnostics.Append(plan.Policies.ElementsAs(ctx, &policies, false)...)
-		apiModel.Policies = policies
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-	if !plan.Certificate.IsNull() {
-		var certificate []string
-		resp.Diagnostics.Append(plan.Certificate.ElementsAs(ctx, &certificate, false)...)
-		apiModel.Certificate = certificate
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
+	apiModel := csvServerToAPI(ctx, &plan, nil, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	var apiResp csvServerAPIModel
@@ -154,35 +219,7 @@ func (r *CsvServerResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringValue(apiResp.Name)
-	plan.Ufname = types.StringValue(apiResp.Ufname)
-	if apiResp.Ipaddress != nil {
-		plan.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
-	}
-	plan.Port = types.Int64PointerValue(apiResp.Port)
-	plan.Type = types.StringValue(apiResp.Type)
-
-	if plan.Policies.IsNull() && len(apiResp.Policies) == 0 {
-		plan.Policies = types.ListNull(types.StringType)
-	} else {
-		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Policies)
-		resp.Diagnostics.Append(diags...)
-		plan.Policies = listVal
-	}
-
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-
-	if plan.Certificate.IsNull() && len(apiResp.Certificate) == 0 {
-		plan.Certificate = types.ListNull(types.StringType)
-	} else {
-		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Certificate)
-		resp.Diagnostics.Append(diags...)
-		plan.Certificate = listVal
-	}
-
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	csvServerFromAPI(ctx, &plan, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -204,35 +241,7 @@ func (r *CsvServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	state.Id = types.StringValue(apiResp.Id)
-	state.Name = types.StringValue(apiResp.Name)
-	state.Ufname = types.StringValue(apiResp.Ufname)
-	if apiResp.Ipaddress != nil {
-		state.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
-	}
-	state.Port = types.Int64PointerValue(apiResp.Port)
-	state.Type = types.StringValue(apiResp.Type)
-
-	if state.Policies.IsNull() && len(apiResp.Policies) == 0 {
-		state.Policies = types.ListNull(types.StringType)
-	} else {
-		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Policies)
-		resp.Diagnostics.Append(diags...)
-		state.Policies = listVal
-	}
-
-	state.Customer = types.StringPointerValue(apiResp.Customer)
-
-	if state.Certificate.IsNull() && len(apiResp.Certificate) == 0 {
-		state.Certificate = types.ListNull(types.StringType)
-	} else {
-		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Certificate)
-		resp.Diagnostics.Append(diags...)
-		state.Certificate = listVal
-	}
-
-	state.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	csvServerFromAPI(ctx, &state, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -249,36 +258,9 @@ func (r *CsvServerResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	apiModel := csvServerAPIModel{
-		Name:   plan.Name.ValueString(),
-		Ufname: plan.Ufname.ValueString(),
-		Type:   plan.Type.ValueString(),
-	}
-	if !plan.Ipaddress.IsNull() {
-		v := plan.Ipaddress.ValueString()
-		apiModel.Ipaddress = &v
-	}
-	if !plan.Port.IsNull() {
-		v := plan.Port.ValueInt64()
-		apiModel.Port = &v
-	}
-	if !plan.Policies.IsNull() {
-		var policies []string
-		resp.Diagnostics.Append(plan.Policies.ElementsAs(ctx, &policies, false)...)
-		apiModel.Policies = policies
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-	if !plan.Certificate.IsNull() {
-		var certificate []string
-		resp.Diagnostics.Append(plan.Certificate.ElementsAs(ctx, &certificate, false)...)
-		apiModel.Certificate = certificate
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
+	apiModel := csvServerToAPI(ctx, &plan, &state, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	var apiResp csvServerAPIModel
@@ -288,35 +270,7 @@ func (r *CsvServerResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringValue(apiResp.Name)
-	plan.Ufname = types.StringValue(apiResp.Ufname)
-	if apiResp.Ipaddress != nil {
-		plan.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
-	}
-	plan.Port = types.Int64PointerValue(apiResp.Port)
-	plan.Type = types.StringValue(apiResp.Type)
-
-	if plan.Policies.IsNull() && len(apiResp.Policies) == 0 {
-		plan.Policies = types.ListNull(types.StringType)
-	} else {
-		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Policies)
-		resp.Diagnostics.Append(diags...)
-		plan.Policies = listVal
-	}
-
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-
-	if plan.Certificate.IsNull() && len(apiResp.Certificate) == 0 {
-		plan.Certificate = types.ListNull(types.StringType)
-	} else {
-		listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Certificate)
-		resp.Diagnostics.Append(diags...)
-		plan.Certificate = listVal
-	}
-
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	csvServerFromAPI(ctx, &plan, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -334,4 +288,8 @@ func (r *CsvServerResource) Delete(ctx context.Context, req resource.DeleteReque
 		}
 		resp.Diagnostics.AddError("Error deleting csv_server", err.Error())
 	}
+}
+
+func (r *CsvServerResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

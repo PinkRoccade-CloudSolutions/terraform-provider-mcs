@@ -1,6 +1,9 @@
 package apiclient
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 type APIError struct {
 	StatusCode int
@@ -14,14 +17,16 @@ func (e *APIError) Error() string {
 }
 
 func IsNotFound(err error) bool {
-	if apiErr, ok := err.(*APIError); ok {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
 		return apiErr.StatusCode == 404
 	}
 	return false
 }
 
 func IsConflict(err error) bool {
-	if apiErr, ok := err.(*APIError); ok {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
 		return apiErr.StatusCode == 409
 	}
 	return false

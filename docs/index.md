@@ -15,6 +15,7 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
   - [mcs_domain](#mcs_domain)
   - [mcs_zone](#mcs_zone)
   - [mcs_network](#mcs_network)
+  - [mcs_network_products](#mcs_network_products-data-source)
   - [mcs_networkpool](#mcs_networkpool)
   - [mcs_firewall](#mcs_firewall)
   - [mcs_interface](#mcs_interface)
@@ -27,6 +28,7 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
   - [mcs_certificate](#mcs_certificate-data-source)
   - [mcs_cs_action](#mcs_cs_action-data-source)
   - [mcs_cs_policy](#mcs_cs_policy-data-source)
+  - [mcs_application](#mcs_application-data-source)
   - [mcs_rewrite_action](#mcs_rewrite_action-data-source)
   - [mcs_rewrite_policy](#mcs_rewrite_policy-data-source)
   - [mcs_csv_server](#mcs_csv_server-data-source)
@@ -42,21 +44,31 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
   - [mcs_customer](#mcs_customer-data-source)
   - [mcs_nat_translation](#mcs_nat_translation-data-source)
   - [mcs_site_to_site_vpn](#mcs_site_to_site_vpn-data-source)
+  - [mcs_secureingress_firewall](#mcs_secureingress_firewall-data-source)
+  - [mcs_ingress_cluster](#mcs_ingress_cluster-data-source)
 - [Resources](#resources)
   - [Tenant & Customer Management](#tenant--customer-management)
     - [mcs_contact](#mcs_contact)
     - [mcs_customer](#mcs_customer)
   - [Networking](#networking)
+    - [mcs_ippool](#mcs_ippool-resource)
+    - [mcs_network](#mcs_network-resource)
+    - [mcs_networkpool](#mcs_networkpool-resource)
     - [mcs_public_ip_address](#mcs_public_ip_address)
     - [mcs_nat_translation](#mcs_nat_translation)
     - [mcs_site_to_site_vpn](#mcs_site_to_site_vpn)
+  - [Secure Ingress](#secure-ingress)
+    - [mcs_secureingress_firewall](#mcs_secureingress_firewall)
+    - [mcs_ingress_cluster](#mcs_ingress_cluster)
   - [Firewall](#firewall)
+    - [mcs_firewall](#mcs_firewall-resource)
     - [mcs_firewall_object](#mcs_firewall_object)
     - [mcs_firewall_object_group](#mcs_firewall_object_group)
     - [mcs_firewall_rule](#mcs_firewall_rule)
     - [mcs_firewall_service](#mcs_firewall_service)
     - [mcs_firewall_service_group](#mcs_firewall_service_group)
   - [Load Balancing](#load-balancing)
+    - [mcs_application](#mcs_application)
     - [mcs_certificate](#mcs_certificate)
     - [mcs_lb_monitor](#mcs_lb_monitor)
     - [mcs_lb_servicegroup](#mcs_lb_servicegroup)
@@ -67,11 +79,10 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
     - [mcs_cs_policy](#mcs_cs_policy)
     - [mcs_rewrite_action](#mcs_rewrite_action)
     - [mcs_rewrite_policy](#mcs_rewrite_policy)
-  - [Virtualization](#virtualization)
-    - [mcs_virtual_datacenter](#mcs_virtual_datacenter)
   - [Monitoring](#monitoring)
     - [mcs_monitor_ip](#mcs_monitor_ip)
   - [DNS](#dns)
+    - [mcs_dns_domain](#mcs_dns_domain)
     - [mcs_dns_entry](#mcs_dns_entry)
   - [Deny/Block Lists](#denyblock-lists)
     - [mcs_dbl](#mcs_dbl)
@@ -210,14 +221,23 @@ output "all_domains" {
 | Attribute   | Type   | Mode     | Description |
 |------------|--------|----------|-------------|
 | `name`     | String | Optional | Exact domain name to look up. |
-| `id`       | String | Computed | Domain ID (set when a single domain is matched). |
+| `id`       | Number | Computed | Domain ID (set when a single domain is matched). |
 | `uuid`     | String | Computed | Domain UUID. |
+| `vdom_id`  | String | Computed | VDOM ID of the domain. |
 | `description` | String | Computed | Domain description. |
 | `adom`     | String | Computed | Administrative domain. |
-| `zone`     | String | Computed | Associated zone. |
+| `zone_id`  | Number | Computed | ID of the associated network zone. |
+| `zone_name` | String | Computed | Name of the associated network zone. |
+| `customer` | String | Computed | Customer ID. |
+| `customer_name` | String | Computed | Customer name. |
+| `tag`      | List(Number) | Computed | Tag IDs. |
+| `comp_errors` | Number | Computed | Number of compliance errors. |
+| `max_networks` | Number | Computed | Maximum number of networks in the domain. |
 | `domains`  | List   | Computed | List of all domains (populated when `name` is not set). |
 
-**Nested `domains` attributes:** `id`, `uuid`, `name`, `description`, `adom`, `zone` — all String, Computed.
+**Nested `domains` attributes:** `id`, `uuid`, `vdom_id`, `name`, `description`, `adom`, `zone_id`, `zone_name`, `customer`, `customer_name`, `tag`, `comp_errors`, `max_networks` — all Computed.
+
+> The former `zone` attribute was removed: the API now returns the zone as an object, exposed as `zone_id` and `zone_name`.
 
 ---
 
@@ -255,12 +275,14 @@ locals {
 
 | Attribute       | Type   | Mode     | Description |
 |----------------|--------|----------|-------------|
-| `name`         | String | Optional | Exact zone name to look up. |
+| `name`         | String | Optional | Exact zone name to look up (filtered server-side with `name__icontains`, then matched exactly). |
+| `id`           | Number | Computed | Numeric zone ID. |
 | `uuid`         | String | Computed | Zone UUID. |
 | `description`  | String | Computed | Zone description. |
 | `adom`         | String | Computed | Administrative domain. |
 | `transit_vrf`  | String | Computed | Transit VRF identifier. |
 | `loadbalancers` | List   | Computed | Load balancers available in the matched zone (only set when `name` is provided). |
+| `edge_root_networks` | List(String) | Computed | UUIDs of the zone's edge root networks. |
 | `zones`        | List   | Computed | List of all zones (populated when `name` is not set). |
 
 **Nested `loadbalancers` attributes:**
@@ -268,15 +290,15 @@ locals {
 | Attribute | Type   | Mode     | Description |
 |-----------|--------|----------|-------------|
 | `id`      | String | Computed | Load balancer identifier. |
-| `name`    | String | Computed | Load balancer name. |
+| `name`    | String | Computed | Load balancer name (the device `alias`). |
 
-**Nested `zones` attributes:** `uuid`, `name`, `description`, `adom`, `transit_vrf` — all String, Computed. Each zone also contains a nested `loadbalancers` list with the same attributes as above.
+**Nested `zones` attributes:** `id` (Number), `uuid`, `name`, `description`, `adom`, `transit_vrf` (String), `edge_root_networks` (List(String)) — all Computed. Each zone also contains a nested `loadbalancers` list with the same attributes as above.
 
 ---
 
 ### mcs_network
 
-Look up networks. Provide `name` for a single match, or omit to list all.
+Look up networks (v3 networking API). Provide `name` for a single match, or omit to list all (optionally filtered by `domain`).
 
 #### Example
 
@@ -295,12 +317,53 @@ output "network_vlan" {
 | Attribute     | Type   | Mode     | Description |
 |--------------|--------|----------|-------------|
 | `name`       | String | Optional | Exact network name to look up. |
-| `id`         | String | Computed | Network ID. |
+| `domain`     | Number | Optional/Computed | Filter by domain ID; set to the matched network's domain. |
+| `id`         | String | Computed | Network UUID. |
+| `domain_name` | String | Computed | Name of the network's domain (from `domain_detail`). |
+| `domain_vdom_id` | String | Computed | VDOM ID of the network's domain (from `domain_detail`). |
+| `description` | String | Computed | Network description. |
 | `ipv4_prefix` | String | Computed | IPv4 CIDR prefix. |
-| `vlan_id`    | String | Computed | VLAN identifier. |
+| `ipv4_address` | String | Computed | IPv4 address. |
+| `vlan_id`    | Number | Computed | VLAN identifier (API field `vlanid`). |
+| `customer`   | String | Computed | Customer that owns the network. |
+| `customer_name` | String | Computed | Name of the customer that owns the network. |
+| `type`       | String | Computed | Interface type: `vlan`, `tunnel`, `lacp` or `physical`. |
+| `parent`     | String | Computed | Parent LACP interface. |
+| `ipv6_prefix` | String | Computed | IPv6 prefix. |
+| `ipv6_address` | String | Computed | IPv6 address. |
+| `dhcp_server` | Bool  | Computed | Whether a DHCP server is enabled on the interface. |
+| `dhcp_server_address_pool` | String | Computed | DHCP server address pool. |
+| `dhcp_server_netmask` | String | Computed | DHCP server netmask. |
+| `dhcp_server_dns_servers` | String | Computed | Comma-separated DNS servers handed out by the DHCP server. |
+| `dhcp_server_lease_time` | Number | Computed | DHCP lease time. |
+| `visible`    | Bool   | Computed | Whether the interface is visible to end users. |
+| `created_at` | String | Computed | Creation timestamp. |
+| `updated_at` | String | Computed | Last update timestamp. |
 | `networks`   | List   | Computed | List of all networks (populated when `name` is not set). |
 
-**Nested `networks` attributes:** `id`, `name`, `ipv4_prefix`, `vlan_id` — all String, Computed.
+**Nested `networks` attributes:** the same attributes as the single-network attributes above (`id`, `name`, `domain`, `domain_name`, …, `updated_at`) — all Computed.
+
+---
+
+### mcs_network_products (Data Source)
+
+Lists the products a network can be created under — the allowed values of the `product` argument of the [`mcs_network`](#mcs_network-resource) resource. Each product owns a PRODID band.
+
+#### Example
+
+```hcl
+data "mcs_network_products" "all" {}
+
+output "network_products" {
+  value = data.mcs_network_products.all.names
+}
+```
+
+#### Attributes
+
+| Attribute | Type         | Mode     | Description |
+|-----------|--------------|----------|-------------|
+| `names`   | List(String) | Computed | Names of the available network products. |
 
 ---
 
@@ -334,7 +397,7 @@ data "mcs_networkpool" "lan_pool" {
 
 ### mcs_firewall
 
-Look up firewalls. Provide `name` or `id` for a single match, or omit both to list all.
+Look up firewalls. Provide `name` or `id` for a single match, or omit both to list all (optionally filtered by `customer`).
 
 #### Example
 
@@ -354,12 +417,25 @@ output "firewall_id" {
 |-------------|--------|----------|-------------|
 | `name`      | String | Optional | Exact firewall name. |
 | `id`        | String | Optional/Computed | Firewall ID (use as filter or read from result). |
+| `customer`  | String | Optional/Computed | Customer filter for name and list lookups; the customer of the matched firewall. |
 | `description` | String | Computed | Firewall description. |
-| `customer`  | String | Computed | Associated customer. |
-| `type`      | String | Computed | Firewall type (e.g. `internet`, `wan`). |
+| `customer_name` | String | Computed | Customer name. |
+| `type`      | String | Computed | Firewall type (`internet` or `wan`). |
+| `device`    | String | Computed | Firewall device. |
+| `device_name` | String | Computed | Device name. |
+| `platform`  | String | Computed | Device platform. |
+| `supports_threat_protection` | Bool | Computed | Whether the device supports threat protection. |
+| `context`   | String | Computed | VDOM on Fortimanager or Device Group on Panorama. |
+| `external_interface` | String | Computed | External (internet or WAN facing) interface. |
+| `internal_interface` | String | Computed | Internal (VDOM or transit facing) interface. |
+| `default_log_profile` | String | Computed | Default log profile for new rules. |
+| `default_protect_profile` | String | Computed | Default protect group profile for new rules. |
+| `multi_tenant` | Bool | Computed | Whether the device is multi tenant. |
+| `tag_name`  | String | Computed | TAG name for object lookups on multi tenant firewalls (PaloAlto only). |
+| `nat_ip_sync_enabled` | Bool | Computed | Whether the daily Panorama NAT public IP import is enabled. |
 | `firewalls` | List   | Computed | List of all firewalls (populated when `name` and `id` are not set). |
 
-**Nested `firewalls` attributes:** `id`, `name`, `description`, `customer`, `type` — all String, Computed.
+**Nested `firewalls` attributes:** all of the attributes above except `firewalls` — all Computed.
 
 ---
 
@@ -398,7 +474,7 @@ output "interface_ip" {
 
 ### mcs_ippool
 
-Look up IP pools. Provide `name` or `id` for a single match, or omit both to list all.
+Look up IP pools. Provide `name` or `id` for a single match, or omit both to list all (optionally filtered by `customer` and `type`).
 
 #### Example
 
@@ -419,10 +495,13 @@ output "pool_id" {
 | `name`    | String | Optional | Exact pool name. |
 | `id`      | String | Optional/Computed | Pool ID. |
 | `subnet`  | String | Computed | Pool subnet. |
-| `customer` | String | Computed | Associated customer. |
+| `customer` | String | Optional/Computed | Filter by customer; set to the matched pool's customer. |
+| `type`    | String | Optional/Computed | Filter by type (`nat`, `vip`, `loadbalancer`); set to the matched pool's type. |
+| `total_ips` | String | Computed | Total number of addresses in the pool. |
+| `free_ips` | String | Computed | Number of free addresses in the pool. |
 | `ip_pools` | List  | Computed | List of all IP pools (populated when `name` and `id` are not set). |
 
-**Nested `ip_pools` attributes:** `id`, `name`, `subnet`, `customer` — all String, Computed.
+**Nested `ip_pools` attributes:** `id`, `name`, `subnet`, `customer`, `type`, `total_ips`, `free_ips` — all String, Computed.
 
 ---
 
@@ -469,7 +548,7 @@ output "all_public_ips" {
 | `pool`               | String | Computed          | UUID of the IP pool (set when a single address is matched). |
 | `description`        | String | Computed          | Description (set when a single address is matched). |
 | `status`             | String | Computed          | Status: `available`, `assigned`, or `reserved`. |
-| `type`               | String | Computed          | Type: `nat`, `vip`, or `loadbalancer`. |
+| `type`               | String | Computed          | Type: `nat`, `vip`, `loadbalancer`, or `secureingress`. |
 | `customer`           | String | Computed          | Customer identifier (set when a single address is matched). |
 | `public_ip_addresses` | List  | Computed          | All public IP addresses (populated when neither `ip_address` nor `id` is set). |
 
@@ -507,18 +586,28 @@ output "vm_names" {
 }
 ```
 
+#### Example — VMs in a domain
+
+```hcl
+data "mcs_virtualmachine" "in_domain" {
+  domain_id = data.mcs_domain.production.id
+}
+```
+
 #### Attributes
 
 | Attribute          | Type   | Mode     | Description |
 |-------------------|--------|----------|-------------|
-| `name`            | String | Optional | Exact VM name to look up. |
+| `name`            | String | Optional | Exact VM name to look up (sent as `name__icontains`, matched exactly client-side). |
 | `id`              | String | Optional/Computed | VM UUID. |
+| `domain_id`       | Number | Optional | Only consider VMs with an interface in a network of this domain (`interfaces__network__domain__id`). Combines with `name`. |
 | `cpu`             | Number | Computed | Number of vCPUs (set when a single VM is matched). |
 | `memory`          | Number | Computed | Memory in MB (set when a single VM is matched). |
 | `os`              | String | Computed | Operating system (set when a single VM is matched). |
+| `state`           | String | Computed | Power state (set when a single VM is matched). |
 | `disks`           | List   | Computed | Disks attached to the matched VM. |
 | `interfaces`      | List   | Computed | Network interfaces of the matched VM. |
-| `virtual_machines` | List  | Computed | All VMs (populated when neither `name` nor `id` is set). |
+| `virtual_machines` | List  | Computed | All VMs (populated when neither `name` nor `id` is set). Each item has `id`, `name`, `cpu`, `memory`, `os`, `state`, `disks`, `interfaces`. |
 
 **Nested `disks` attributes:**
 
@@ -538,8 +627,9 @@ output "vm_names" {
 | `name`       | String | Interface name. |
 | `ipaddress`  | String | IPv4 address. |
 | `ipv6address` | String | IPv6 address. |
-| `network`    | String | Associated network. |
+| `network`    | String | Associated network UUID (null when not connected). |
 | `mac_address` | String | MAC address. |
+| `vm_name`    | String | Name of the VM the interface belongs to. |
 
 ---
 
@@ -555,7 +645,7 @@ data "mcs_job" "deployment" {
 }
 
 output "job_status" {
-  value = data.mcs_job.deployment.message
+  value = "${data.mcs_job.deployment.status}: ${data.mcs_job.deployment.result}"
 }
 ```
 
@@ -565,11 +655,20 @@ output "job_status" {
 |---------------------|--------|----------|-------------|
 | `id`                | Number | **Required** | Job ID. |
 | `jobname`           | String | Computed | Name of the job. |
+| `status`            | String | Computed | Job status name (flattened from the API's nested `status` object). |
+| `result`            | String | Computed | Job result name (flattened from the API's nested `result` object). |
 | `timestamp`         | String | Computed | Job start timestamp. |
-| `endtime`           | String | Computed | Job end timestamp. |
+| `endtime`           | String | Computed | Job end timestamp; null while the job is still running. |
 | `message`           | String | Computed | Job status message. |
 | `dryrun`            | Bool   | Computed | Whether this was a dry run. |
 | `continue_on_failure` | Bool | Computed | Whether the job continues on failure. |
+| `can_force_continue_transit` | String | Computed | Whether the job can be forced to continue a transit step. |
+| `parent`            | Number | Computed | ID of the parent job, if chained. |
+| `sub_jobs`          | List of Number | Computed | IDs of the sub jobs. |
+| `created_at_timestamp` | String | Computed | Creation time. |
+| `updated_at_timestamp` | String | Computed | Last update time. |
+| `created_by_user`   | Number | Computed | ID of the user who created the job (may be null). |
+| `updated_by_user`   | Number | Computed | ID of the user who last updated the job (may be null). |
 
 ---
 
@@ -593,7 +692,7 @@ output "disk_size" {
 
 | Attribute | Type   | Mode     | Description |
 |----------|--------|----------|-------------|
-| `name`   | String | Optional | Exact disk name to look up. |
+| `name`   | String | Optional | Exact disk name to look up (the API has no name filter, so all disks are listed and matched client-side). |
 | `id`     | String | Optional/Computed | Disk UUID. |
 | `size`   | Number | Computed | Size in GB. |
 | `path`   | String | Computed | Disk path. |
@@ -620,12 +719,12 @@ data "mcs_virtual_datacenter" "prod" {
 
 | Attribute             | Type   | Mode     | Description |
 |----------------------|--------|----------|-------------|
-| `name`               | String | Optional | Exact virtual datacenter name. |
+| `name`               | String | Optional | Exact virtual datacenter name (sent as `name__icontains`, matched exactly client-side). |
 | `id`                 | String | Optional/Computed | Virtual datacenter UUID. |
-| `customer`           | String | Computed | Customer identifier. |
+| `cluster`            | String | Computed | UUID of the cluster the VDC deploys VMs on. |
 | `virtual_datacenters` | List  | Computed | All virtual datacenters (populated when neither `name` nor `id` is set). |
 
-**Nested `virtual_datacenters` attributes:** `id`, `name`, `customer` — all String, Computed.
+**Nested `virtual_datacenters` attributes:** `id`, `name`, `cluster` — all String, Computed.
 
 ---
 
@@ -650,9 +749,11 @@ data "mcs_certificate" "web_cert" {
 | `ca`                | Bool   | Computed | Whether this is a CA certificate. |
 | `valid_to_timestamp` | String | Computed | Certificate expiry timestamp. |
 | `loadbalancer`      | String | Computed | UUID of the load balancer. |
+| `customer`          | String | Computed | Customer identifier. |
+| `protected`         | Bool   | Computed | Whether the certificate is protected from changes. |
 | `certificates`      | List   | Computed | All certificates (populated when neither `name` nor `id` is set). |
 
-**Nested `certificates` attributes:** `id`, `name`, `valid_to_timestamp`, `loadbalancer` (String); `ca` (Bool) — all Computed.
+**Nested `certificates` attributes:** `id`, `name`, `valid_to_timestamp`, `loadbalancer`, `customer` (String); `ca`, `protected` (Bool) — all Computed.
 
 ---
 
@@ -712,6 +813,39 @@ data "mcs_cs_policy" "routing" {
 
 ---
 
+### mcs_application (Data Source)
+
+Look up applications in the tenant's application catalogue. Provide `name` or `id` for a single match, or omit both to list all. The API offers no list filters, so `name` is matched exactly client-side.
+
+#### Example
+
+```hcl
+data "mcs_application" "webshop" {
+  name = "webshop"
+}
+
+resource "mcs_cs_policy" "webshop" {
+  # ...
+  application = data.mcs_application.webshop.id
+}
+```
+
+#### Attributes
+
+| Attribute | Type | Mode | Description |
+|-----------|------|------|-------------|
+| `name` | String | Optional/Computed | Exact application name. |
+| `id` | String | Optional/Computed | Application UUID. |
+| `pentested` | Bool | Computed | Whether the application has been pentested. |
+| `pentest_type` | String | Computed | Type of pentest: `blackbox`, `graybox`, `whitebox` or `unknown`. |
+| `pentest_date` | String | Computed | Date of the pentest (`YYYY-MM-DD`). |
+| `pentest_findings` | Number | Computed | Number of findings in the pentest. |
+| `applications` | List | Computed | All applications (populated when neither `name` nor `id` is set). |
+
+**Nested `applications` attributes:** `id`, `name`, `pentested` (Bool), `pentest_type`, `pentest_date`, `pentest_findings` (Number) — all Computed.
+
+---
+
 ### mcs_rewrite_action (Data Source)
 
 Look up rewrite actions. Provide `name` or `id` for a single match, or omit both to list all.
@@ -765,7 +899,7 @@ data "mcs_rewrite_policy" "request_rules" {
 | `action` | String | Computed | Rewrite action UUID. |
 | `undefaction` | String | Computed | Action used when the rule result is undefined. |
 | `comment` | String | Computed | Rewrite policy comment. |
-| `priority` | Number | Computed | Rewrite policy priority. |
+| `priority` | Number (integer) | Computed | Rewrite policy priority. |
 | `bindpoint` | String | Computed | Rewrite bind point. |
 | `gotopriorityexpression` | String | Computed | Priority expression after evaluation. |
 | `customer` | String | Computed | Customer identifier. |
@@ -800,9 +934,12 @@ data "mcs_csv_server" "frontend" {
 | `type`        | String       | Computed | Protocol type. |
 | `policies`    | List(String) | Computed | CS policy IDs. |
 | `certificate` | List(String) | Computed | SSL certificate IDs. |
+| `ca_certificate` | List(String) | Computed | CA certificate IDs used to verify client certificates. |
+| `clientauth`  | Bool         | Computed | Whether client certificate authentication is enabled. |
+| `clientcert`  | String       | Computed | Client certificate requirement: `Mandatory` or `Optional`. |
 | `customer`    | String       | Computed | Customer identifier. |
 | `loadbalancer` | String      | Computed | UUID of the load balancer. |
-| `csv_servers` | List         | Computed | All CS vServers (populated when neither `name` nor `id` is set). |
+| `csv_servers` | List         | Computed | All CS vServers (populated when neither `name` nor `id` is set). Items have the same attributes as above. |
 
 ---
 
@@ -827,10 +964,14 @@ data "mcs_lb_servicegroup" "backend" {
 | `type`          | String       | Computed | Service type. |
 | `state`         | String       | Computed | State: `enable` or `disable`. |
 | `members`       | List(String) | Computed | Member IDs. |
+| `monitors`      | List(String) | Computed | Bound monitor IDs. |
 | `healthmonitor` | String       | Computed | Health monitor setting. |
+| `client_certificate` | String  | Computed | Certificate presented to backend servers for client authentication. |
+| `cip`           | String       | Computed | Client IP header insertion: `ENABLED` or `DISABLED`. |
+| `cipheader`     | String       | Computed | Client IP header name. |
 | `customer`      | String       | Computed | Customer identifier. |
 | `loadbalancer`  | String       | Computed | UUID of the load balancer. |
-| `lb_servicegroups` | List      | Computed | All service groups (populated when neither `name` nor `id` is set). |
+| `lb_servicegroups` | List      | Computed | All service groups (populated when neither `name` nor `id` is set). Items have the same attributes as above. |
 
 ---
 
@@ -853,6 +994,7 @@ data "mcs_lb_servicegroup_member" "all" {}
 | `port`                 | Number | Computed | Port number. |
 | `servername`           | String | Computed | Server name. |
 | `weight`               | Number | Computed | Load balancing weight. |
+| `state`                | String | Computed | Member state: `UP` or `DOWN`. |
 | `customer`             | String | Computed | Customer identifier. |
 | `loadbalancer`         | String | Computed | UUID of the load balancer. |
 | `lb_servicegroup_members` | List | Computed | All members (populated when `id` is not set). |
@@ -882,9 +1024,10 @@ data "mcs_lbv_server" "web_lb" {
 | `type`        | String       | Computed | Protocol type. |
 | `servicegroup` | List(String) | Computed | Service group IDs. |
 | `certificate` | List(String) | Computed | SSL certificate IDs. |
+| `ca_certificate` | List(String) | Computed | CA certificate IDs. |
 | `customer`    | String       | Computed | Customer identifier. |
 | `loadbalancer` | String      | Computed | UUID of the load balancer. |
-| `lbv_servers` | List         | Computed | All LB vServers (populated when neither `name` nor `id` is set). |
+| `lbv_servers` | List         | Computed | All LB vServers (populated when neither `name` nor `id` is set). Items have the same attributes as above. |
 
 ---
 
@@ -942,14 +1085,18 @@ data "mcs_dbl" "blocked" {
 | `source`    | String | Computed | Source of the block entry. |
 | `occurrence` | Number | Computed | Number of occurrences. |
 | `persistent` | Bool  | Computed | Whether the entry persists. |
+| `blackholed` | Bool  | Computed | Whether traffic from the IP is dropped early (blackholed). |
 | `hostname`  | String | Computed | Resolved hostname. |
-| `dbls`      | List   | Computed | All DBL entries (populated when `ipaddress` is not set). |
+| `meta`      | String | Computed | Server-provided metadata about the IP address. |
+| `itsm`      | String | Computed | ITSM registration for the block. |
+| `reason`    | String | Computed | Reason for the block when no ITSM ticket exists. |
+| `dbls`      | List   | Computed | All DBL entries (populated when `ipaddress` is not set); items have the same attributes. |
 
 ---
 
 ### mcs_dns_domain (Data Source)
 
-Look up DNS domains managed by MCS. Optionally filter by name or type, or omit filters to list all.
+Look up DNS domains managed by MCS. Optionally filter by name, type, zone type, customer or DNS provider, or omit filters to list all.
 
 #### Example
 
@@ -963,6 +1110,11 @@ data "mcs_dns_domain" "external" {
 data "mcs_dns_domain" "search" {
   name = "example"
 }
+
+data "mcs_dns_domain" "reverse_zones" {
+  zone_type   = "reverse"
+  provider_id = 3
+}
 ```
 
 #### Attributes
@@ -971,6 +1123,9 @@ data "mcs_dns_domain" "search" {
 |-----------|--------|----------|-------------|
 | `name`    | String | Optional | Filter by domain name (case-insensitive contains match). |
 | `type`    | String | Optional | Filter by domain type: `external` or `internal`. |
+| `zone_type` | String | Optional | Filter by zone type: `forward` or `reverse`. |
+| `customer` | String | Optional | Filter by customer. |
+| `provider_id` | Number | Optional | Filter by DNS provider integration ID. |
 | `domains` | List   | Computed | List of matching DNS domains. |
 
 Each item in `domains` has the following attributes:
@@ -982,8 +1137,10 @@ Each item in `domains` has the following attributes:
 | `comment`      | String | Comment for the domain. |
 | `enddate`      | String | End date for the domain (if known). |
 | `customer`     | String | Customer associated with the domain. |
+| `provider_id`  | Number | ID of the DNS provider integration. |
 | `provider_name` | String | Name of the DNS provider integration. |
 | `type`         | String | Domain type: `external` or `internal`. |
+| `zone_type`    | String | Zone type: `forward` or `reverse`. |
 
 ---
 
@@ -1007,7 +1164,8 @@ data "mcs_domain_dbl" "all" {}
 | `source`    | String | Computed | Source of the block entry. |
 | `persistent` | Bool  | Computed | Whether the entry persists. |
 | `occurrence` | Number | Computed | Number of occurrences. |
-| `domain_dbls` | List | Computed | All domain DBL entries (populated when `id` is not set). |
+| `labels`    | List(String) | Computed | Names of the attached DBL labels. |
+| `domain_dbls` | List | Computed | All domain DBL entries (populated when `id` is not set); items have the same attributes. |
 
 ---
 
@@ -1052,7 +1210,7 @@ data "mcs_contact" "admin" {
 
 | Attribute   | Type   | Mode     | Description |
 |------------|--------|----------|-------------|
-| `name`     | String | Optional | Company name to look up. |
+| `name`     | String | Optional | Exact company name to look up (sent as `company__icontains`, matched exactly client-side). |
 | `id`       | String | Optional/Computed | Contact ID. |
 | `company`  | String | Computed | Company name. |
 | `firstname` | String | Computed | First name. |
@@ -1080,9 +1238,10 @@ data "mcs_customer" "prod" {
 
 | Attribute        | Type         | Mode     | Description |
 |-----------------|-------------|----------|-------------|
-| `name`          | String       | Optional | Exact customer name. |
+| `name`          | String       | Optional | Exact customer name (sent as `name__icontains`, matched exactly client-side). |
 | `id`            | String       | Optional/Computed | Customer ID. |
 | `contractid`    | String       | Computed | Contract identifier. |
+| `sdm`           | Number       | Computed | Service Delivery Manager user ID; null when not set. |
 | `admin_contacts` | List(Number) | Computed | Administrative contact IDs. |
 | `tech_contacts` | List(Number) | Computed | Technical contact IDs. |
 | `customers`     | List         | Computed | All customers (populated when neither `name` nor `id` is set). |
@@ -1104,8 +1263,8 @@ data "mcs_nat_translation" "all" {}
 | Attribute          | Type   | Mode     | Description |
 |-------------------|--------|----------|-------------|
 | `id`              | String | Optional/Computed | NAT translation UUID. |
-| `public_ip`       | String | Computed | Public IP UUID. |
-| `interface`       | String | Computed | Private interface UUID. |
+| `public_ip`       | String | Computed | Public IP UUID (null when unset). |
+| `interface`       | String | Computed | Private interface UUID (null when unset). |
 | `firewall`        | String | Computed | Firewall UUID. |
 | `translation`     | String | Computed | Translation description. |
 | `private_ip`      | String | Computed | Private IP address. |
@@ -1115,15 +1274,17 @@ data "mcs_nat_translation" "all" {}
 | `protocol`        | String | Computed | Protocol. |
 | `customer`        | String | Computed | Customer identifier. |
 | `description`     | String | Computed | Description. |
-| `state`           | String | Computed | Sync state. |
+| `state`           | String | Computed | Sync state: `synced`, `unsynced`, `error`, or `deleted`. |
 | `enabled`         | Bool   | Computed | Whether enabled. |
+| `snat_source_addresses` | List(String) | Computed | SNAT source addresses/subnets (`snat` only). |
+| `snat_translated_addresses` | List(String) | Computed | SNAT translation pool addresses (`snat` only). |
 | `nat_translations` | List  | Computed | All NAT translations (populated when `id` is not set). |
 
 ---
 
 ### mcs_site_to_site_vpn (Data Source)
 
-Look up site-to-site VPN tunnels. Provide `name` or `id` for a single match, or omit both to list all.
+Look up site-to-site VPN tunnels. Provide `name` (exact match, sent as the API's `name` filter) or `id` for a single match, or omit both to list all.
 
 #### Example
 
@@ -1140,14 +1301,95 @@ data "mcs_site_to_site_vpn" "office" {
 | `name`                | String | Optional | Exact VPN tunnel name. |
 | `id`                  | String | Optional/Computed | VPN ID. |
 | `uuid`                | String | Computed | VPN UUID. |
+| `domain`              | Number | Computed | Domain ID. |
+| `tenant`              | Number | Computed | Tenant ID. |
+| `customer`            | String | Computed | Customer identifier. |
+| `firewall`            | String | Computed | Firewall UUID. |
+| `contact`             | List(Number) | Computed | Contact IDs. |
 | `state`               | String | Computed | Tunnel state. |
 | `last_status`         | String | Computed | Last known status. |
 | `resets`              | Number | Computed | Number of resets. |
-| `last_check`          | String | Computed | Last health check timestamp. |
-| `last_reset`          | String | Computed | Last reset timestamp. |
+| `last_check`          | String | Computed | Last health check timestamp (null if never checked). |
+| `last_reset`          | String | Computed | Last reset timestamp (null if never reset). |
 | `created_at_timestamp` | String | Computed | Creation timestamp. |
 | `updated_at_timestamp` | String | Computed | Last update timestamp. |
+| `created_by_user`     | Number | Computed | ID of the user who created the VPN. |
+| `updated_by_user`     | Number | Computed | ID of the user who last updated the VPN. |
 | `vpns`                | List   | Computed | All VPN tunnels (populated when neither `name` nor `id` is set). |
+
+---
+
+### mcs_secureingress_firewall (Data Source)
+
+Look up secure ingress (XDP) firewalls. Provide `name` or `id` for a single match, or omit both to list all. `name` is sent as the `name__icontains` filter and then matched exactly.
+
+#### Example
+
+```hcl
+data "mcs_secureingress_firewall" "edge" {
+  name = "edge-filter"
+}
+```
+
+#### Attributes
+
+| Attribute | Type | Mode | Description |
+|-----------|------|------|-------------|
+| `name` | String | Optional/Computed | Exact firewall name. |
+| `id` | String | Optional/Computed | Firewall UUID. |
+| `description` | String | Computed | Description of the firewall. |
+| `filter_json` | String (JSON) | Computed | Firewall filter definition as a JSON document. Use `jsondecode()` to read it. |
+| `customer` | String | Computed | Customer identifier. |
+| `created_at_timestamp` | String | Computed | Time when the firewall was created. |
+| `updated_at_timestamp` | String | Computed | Time when the firewall was last updated. |
+| `created_by_user` | Number | Computed | ID of the user who created the firewall. |
+| `updated_by_user` | Number | Computed | ID of the user who last updated the firewall. |
+| `secureingress_firewalls` | List | Computed | All secure ingress firewalls (populated when neither `name` nor `id` is set). |
+
+**Nested `secureingress_firewalls` attributes:** `id`, `name`, `description`, `filter_json`, `customer`, `created_at_timestamp`, `updated_at_timestamp` (String), `created_by_user`, `updated_by_user` (Number) — all Computed.
+
+---
+
+### mcs_ingress_cluster (Data Source)
+
+Look up secure ingress clusters. Provide `name` or `id` for a single match; otherwise all clusters matching the optional `ipaddress`, `sla` and `bandwidth` filters are listed. `name` is sent as the `name__icontains` filter and then matched exactly.
+
+#### Example
+
+```hcl
+data "mcs_ingress_cluster" "webshop" {
+  name = "webshop"
+}
+
+data "mcs_ingress_cluster" "gold" {
+  sla = "gold"
+}
+```
+
+#### Attributes
+
+| Attribute | Type | Mode | Description |
+|-----------|------|------|-------------|
+| `name` | String | Optional/Computed | Exact ingress cluster name. |
+| `id` | String | Optional/Computed | Ingress cluster UUID. |
+| `sla` | String | Optional/Computed | Filter by service level (`bronze`, `silver`, `gold`, `platinum`); the cluster's SLA for a single lookup. |
+| `bandwidth` | Number | Optional/Computed | Filter by bandwidth in Mbps (`50`, `100`, `500`, `1000`, `5000`); the cluster's bandwidth for a single lookup. |
+| `ipaddress` | String | Optional/Computed | Filter by public IP address UUID; the cluster's public IP UUID for a single lookup. |
+| `customer` | String | Computed | Customer identifier. |
+| `firewall` | String | Computed | UUID of the secure ingress firewall. |
+| `slug` | String | Computed | URL-safe identifier derived by the API. |
+| `state` | String | Computed | Synchronisation state: `synced`, `unsynced`, `error` or `deleted`. |
+| `reverse_proxy` | Number | Computed | ID of the reverse proxy integration. |
+| `reverse_proxy_name` | String | Computed | Name of the reverse proxy integration. |
+| `ipaddress_address` | String | Computed | The public IP address the cluster listens on. |
+| `ipaddress_type` | String | Computed | Type of the public IP address. |
+| `created_at_timestamp` | String | Computed | Time when the cluster was created. |
+| `updated_at_timestamp` | String | Computed | Time when the cluster was last updated. |
+| `created_by_user` | Number | Computed | ID of the user who created the cluster. |
+| `updated_by_user` | Number | Computed | ID of the user who last updated the cluster. |
+| `ingress_clusters` | List | Computed | All matching ingress clusters (populated when neither `name` nor `id` is set). |
+
+**Nested `ingress_clusters` attributes:** the same attributes as the single-lookup attributes above (`id`, `name`, `sla`, `bandwidth`, `customer`, `ipaddress`, `firewall`, `slug`, `state`, `reverse_proxy`, `reverse_proxy_name`, `ipaddress_address`, `ipaddress_type`, `created_at_timestamp`, `updated_at_timestamp`, `created_by_user`, `updated_by_user`) — all Computed.
 
 ---
 
@@ -1179,14 +1421,22 @@ resource "mcs_contact" "admin" {
 
 | Attribute   | Type   | Required | Description |
 |------------|--------|----------|-------------|
-| `company`  | String | **Yes**  | Company name. |
+| `company`  | String | **Yes**  | Company name (max 255 characters). |
 | `firstname` | String | No      | First name. |
 | `lastname` | String | No       | Last name. |
 | `email`    | String | No       | Email address. |
 | `phone`    | String | No       | Phone number. |
 | `address`  | String | No       | Address. |
 
+All optional fields are at most 255 characters. When omitted, the value stored by the API (usually `""`) is kept in state; removing a field from the configuration does not clear it — set it to `""` instead.
+
 **Read-only attributes:** `id` (String) — The contact ID.
+
+##### Import
+
+```shell
+terraform import mcs_contact.admin <contact-id>
+```
 
 ---
 
@@ -1208,17 +1458,192 @@ resource "mcs_customer" "example" {
 
 | Attribute        | Type         | Required | Description |
 |-----------------|-------------|----------|-------------|
-| `name`          | String       | **Yes**  | Customer name. |
-| `contractid`    | String       | No       | Contract identifier. |
-| `sdm`           | Number       | No       | Service Delivery Manager ID. |
-| `tech_contacts` | List(Number) | No       | List of technical contact IDs. |
-| `admin_contacts` | List(Number) | No      | List of administrative contact IDs. |
+| `name`          | String       | **Yes**  | Customer name (max 255 characters). |
+| `contractid`    | String       | No       | Contract identifier (max 255 characters). Computed from the API when omitted. |
+| `sdm`           | Number       | No       | Service Delivery Manager user ID. Null when the API has none set. Computed from the API when omitted. |
+| `tech_contacts` | List(Number) | No       | List of technical contact IDs. Computed from the API when omitted; set `[]` to clear. |
+| `admin_contacts` | List(Number) | No      | List of administrative contact IDs. Computed from the API when omitted; set `[]` to clear. |
 
 **Read-only attributes:** `id` (String) — The customer ID.
+
+##### Import
+
+```shell
+terraform import mcs_customer.example <customer-id>
+```
 
 ---
 
 ### Networking
+
+#### mcs_ippool (Resource)
+
+Manages an IP pool from which public IP addresses are allocated.
+
+##### Example
+
+```hcl
+resource "mcs_ippool" "nat" {
+  name     = "NAT pool"
+  subnet   = "203.0.113.0/28"
+  type     = "nat"
+  customer = mcs_customer.example.id
+}
+
+output "nat_pool_free_ips" {
+  value = mcs_ippool.nat.free_ips
+}
+```
+
+##### Attributes
+
+| Attribute  | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `name`    | String | **Yes**  | Pool name (1–100 characters). |
+| `subnet`  | String | **Yes**  | Pool subnet in CIDR notation (max 50). Changing it forces a new resource, because the addresses allocated from the pool depend on it. |
+| `type`    | String | No       | Pool type: `nat`, `vip`, `loadbalancer`, or `""`. Computed by the API when omitted. |
+| `customer` | String | No      | Customer owning the pool. Computed by the API when omitted. |
+
+**Read-only attributes:**
+
+| Attribute   | Type   | Description |
+|------------|--------|-------------|
+| `id`       | String | UUID of the IP pool. |
+| `total_ips` | String | Total number of addresses in the pool. |
+| `free_ips` | String | Number of free addresses in the pool. |
+
+##### Import
+
+```shell
+terraform import mcs_ippool.nat <pool-uuid>
+```
+
+---
+
+#### mcs_network (Resource)
+
+Deploys a network (VLAN, prefix and interface) in a domain through the v3 networking API.
+
+Creating the resource queues a deploy job and waits until it has finished; destroying it queues a teardown and waits until the network is gone. The deploy request is sent exactly once (it is never retried automatically, so a flaky connection cannot queue a second network). If the job fails after MCS has already written the network, the network is kept in state as tainted and is replaced on the next apply.
+
+Networks cannot be changed in place: changing any argument destroys the network and deploys a new one.
+
+##### Example
+
+```hcl
+data "mcs_domain" "production" {
+  name = "production"
+}
+
+data "mcs_networkpool" "lan" {
+  name = "Production LAN Pool"
+}
+
+resource "mcs_network" "web" {
+  domain_uuid     = data.mcs_domain.production.uuid
+  product         = "DMZ"
+  bitmask         = 26
+  description     = "Web tier"
+  network_pool_id = data.mcs_networkpool.lan.id
+
+  timeouts {
+    create = "45m"
+  }
+}
+
+output "web_vlan" {
+  value = mcs_network.web.vlan_id
+}
+```
+
+##### Attributes
+
+| Attribute         | Type   | Required | Description |
+|-------------------|--------|----------|-------------|
+| `domain_uuid`     | String | **Yes**  | UUID of the domain (VDOM) to attach the network to, e.g. `data.mcs_domain.x.uuid`. |
+| `product`         | String | **Yes**  | Product that owns the network; picks the PRODID band. One of `Algemeen`, `CareCTRL`, `Caress`, `CreAim`, `DMZ`, `Geniq - Planywhere`, `MyHealthOnline`, `NPQ`, `PQConnect`, `PRLG`, `Quarant`, `ValueCare`, `Windex` (see [`mcs_network_products`](#mcs_network_products-data-source)). |
+| `bitmask`         | Number | **Yes**  | Prefix length of the network (24–29). |
+| `description`     | String | **Yes**  | What the network is for (max 4096 characters). |
+| `network_pool_id` | String | No       | UUID of the root network pool to allocate the prefix from. Conflicts with `prefix`. |
+| `prefix`          | String | No       | Explicit network address to use instead of allocating from a pool, e.g. `10.0.0.0`. Conflicts with `network_pool_id`. |
+| `timeouts`        | Block  | No       | `create` and `delete` durations (e.g. `"45m"`). Both default to 30 minutes. |
+
+All arguments except `timeouts` force a new network when changed.
+
+**Read-only attributes:**
+
+| Attribute         | Type   | Description |
+|-------------------|--------|-------------|
+| `id`              | String | UUID of the network. |
+| `name`            | String | Network name, assigned by MCS. |
+| `domain_id`       | Number | Integer ID of the network's domain. |
+| `domain_name`     | String | Name of the network's domain. |
+| `domain_vdom_id`  | String | VDOM ID of the network's domain. |
+| `customer`        | String | Customer that owns the network. |
+| `customer_name`   | String | Name of the customer that owns the network. |
+| `type`            | String | Interface type: `vlan`, `tunnel`, `lacp` or `physical`. |
+| `parent`          | String | Parent LACP interface. |
+| `vlan_id`         | Number | VLAN ID assigned to the network. |
+| `ipv4_prefix`     | String | IPv4 prefix (CIDR). |
+| `ipv4_address`    | String | IPv4 address. |
+| `ipv6_prefix`     | String | IPv6 prefix. |
+| `ipv6_address`    | String | IPv6 address. |
+| `dhcp_server`     | Bool   | Whether a DHCP server is enabled on the interface. |
+| `dhcp_server_address_pool` | String | DHCP server address pool. |
+| `dhcp_server_netmask` | String | DHCP server netmask. |
+| `dhcp_server_dns_servers` | String | Comma-separated DNS servers handed out by the DHCP server. |
+| `dhcp_server_lease_time` | Number | DHCP lease time. |
+| `visible`         | Bool   | Whether the interface is visible to end users. |
+| `created_at`      | String | Creation timestamp. |
+| `updated_at`      | String | Last update timestamp. |
+
+##### Import
+
+```shell
+terraform import mcs_network.web <network-uuid>
+```
+
+The API does not return `product`, `network_pool_id` or `prefix`, so after an import they are taken from your configuration on the next apply as an in-place update, without recreating the network. `domain_uuid` is looked up from the network's domain and `bitmask` is derived from `ipv4_prefix`.
+
+---
+
+#### mcs_networkpool (Resource)
+
+Manages a network pool that end users can pick networks from.
+
+##### Example
+
+```hcl
+resource "mcs_networkpool" "lan" {
+  name        = "Production LAN Pool"
+  network     = "10.0.0.0/8"
+  description = "Internal LAN networks"
+  type        = "lan"
+  enabled     = true
+}
+```
+
+##### Attributes
+
+All arguments are optional. Omitted values are taken from the API response; set a string to `""` to clear it.
+
+| Attribute     | Type   | Required | Description |
+|--------------|--------|----------|-------------|
+| `name`       | String | No       | Pool name (max 255). |
+| `network`    | String | No       | Pool network in CIDR notation, e.g. `10.0.0.0/8` (max 255). |
+| `description` | String | No      | Description to help end users pick a pool (max 2048). |
+| `type`       | String | No       | Pool type: `lan`, `wan`, `transit`, or `""`. |
+| `enabled`    | Bool   | No       | Whether the pool is usable by end users. |
+
+**Read-only attributes:** `id` (String) — UUID of the network pool.
+
+##### Import
+
+```shell
+terraform import mcs_networkpool.lan <pool-uuid>
+```
+
+---
 
 #### mcs_public_ip_address
 
@@ -1239,23 +1664,30 @@ resource "mcs_public_ip_address" "web" {
 
 | Attribute    | Type   | Required | Description |
 |-------------|--------|----------|-------------|
-| `pool`      | String | No       | UUID of the IP pool to allocate from. |
-| `description` | String | No     | Description of the public IP address. |
-| `type`      | String | No       | Type: `nat`, `vip`, or `loadbalancer`. |
-| `customer`  | String | No       | Customer identifier. |
+| `pool`      | String | No       | UUID of the IP pool to allocate from. Computed by the API when omitted. Changing it forces a new resource. |
+| `ip_address` | String | No      | Specific public IP address to claim. Assigned by the API when omitted. |
+| `description` | String | No     | Description of the public IP address (max 255). Defaults to `""`; removing it clears the description. |
+| `type`      | String | No       | Type: `nat`, `vip`, `loadbalancer`, or `secureingress`. |
+| `customer`  | String | No       | Customer identifier. Computed by the API when omitted. |
 
 **Read-only attributes:**
 
 | Attribute    | Type   | Description |
 |-------------|--------|-------------|
 | `id`        | String | UUID of the public IP address. |
-| `ip_address` | String | The assigned public IP address (determined by the API). |
+| `status`    | String | Allocation status: `available`, `assigned`, or `reserved`. |
+
+##### Import
+
+```shell
+terraform import mcs_public_ip_address.web <public-ip-uuid>
+```
 
 ---
 
 #### mcs_nat_translation
 
-Manages a NAT translation between a public IP and a private interface. Supports both 1:1 NAT and port forwarding.
+Manages a NAT translation between a public IP and a private interface. Supports 1:1 NAT, port forwarding and SNAT.
 
 ##### Example — 1:1 NAT
 
@@ -1286,20 +1718,35 @@ resource "mcs_nat_translation" "https_forward" {
 }
 ```
 
+##### Example — SNAT
+
+```hcl
+resource "mcs_nat_translation" "outbound" {
+  interface                 = data.mcs_interface.eth0.id
+  firewall                  = data.mcs_firewall.internet.id
+  translation_type          = "snat"
+  customer                  = mcs_customer.example.id
+  snat_source_addresses     = ["10.0.0.0/24"]
+  snat_translated_addresses = [mcs_public_ip_address.web.ip_address]
+}
+```
+
 ##### Attributes
 
 | Attribute          | Type   | Required | Description |
 |-------------------|--------|----------|-------------|
-| `public_ip`       | String | **Yes**  | UUID of the public IP address. |
-| `interface`       | String | **Yes**  | UUID of the private interface. |
-| `firewall`        | String | **Yes**  | UUID of the firewall. |
-| `translation_type` | String | **Yes** | Translation type: `one_to_one` or `port_forward`. |
-| `customer`        | String | **Yes**  | Customer identifier. |
-| `public_port`     | Number | No       | Public port (required for port forwarding). |
-| `private_port`    | Number | No       | Private port (required for port forwarding). |
-| `protocol`        | String | No       | Protocol: `tcp` or `udp`. |
-| `description`     | String | No       | Description of the NAT translation. |
-| `enabled`         | Bool   | No       | Whether the NAT translation is enabled. Defaults to `true`. |
+| `firewall`        | String | **Yes**  | UUID of the firewall. Changing it forces a new resource. |
+| `translation_type` | String | **Yes** | Translation type: `one_to_one`, `port_forward`, or `snat`. |
+| `customer`        | String | **Yes**  | Customer identifier. Changing it forces a new resource. |
+| `public_ip`       | String | No       | UUID of the public IP address. Removing it sends `null`. |
+| `interface`       | String | No       | UUID of the private interface. Removing it sends `null`. |
+| `public_port`     | Number | No       | Public port, 0–4294967295 (required for port forwarding). |
+| `private_port`    | Number | No       | Private port, 0–4294967295 (required for port forwarding). |
+| `protocol`        | String | No       | Protocol: `tcp`, `udp`, or `""`. |
+| `description`     | String | No       | Description of the NAT translation (max 255). |
+| `enabled`         | Bool   | No       | Whether the NAT translation is enabled. Defaults to `true` on create. |
+| `snat_source_addresses` | List(String) | No | Source IPs/subnets to apply SNAT to (`snat` only). Removing it clears the list. |
+| `snat_translated_addresses` | List(String) | No | Addresses used as the SNAT translation pool (`snat` only). Removing it clears the list. |
 
 **Read-only attributes:**
 
@@ -1307,6 +1754,14 @@ resource "mcs_nat_translation" "https_forward" {
 |-------------|--------|-------------|
 | `id`        | String | UUID of the NAT translation. |
 | `private_ip` | String | Resolved private IP address. |
+| `translation` | String | Human-readable translation summary. |
+| `state`     | String | Sync state: `synced`, `unsynced`, `error`, or `deleted`. |
+
+##### Import
+
+```shell
+terraform import mcs_nat_translation.web_nat <nat-translation-uuid>
+```
 
 ---
 
@@ -1318,8 +1773,11 @@ Manages a site-to-site VPN tunnel.
 
 ```hcl
 resource "mcs_site_to_site_vpn" "office" {
-  name  = "office-vpn-tunnel"
-  state = "up"
+  name     = "office-vpn-tunnel"
+  domain   = 42
+  tenant   = 7
+  firewall = data.mcs_firewall.internet.id
+  contact  = [mcs_contact.admin.id]
 }
 ```
 
@@ -1327,18 +1785,161 @@ resource "mcs_site_to_site_vpn" "office" {
 
 | Attribute     | Type   | Required | Description |
 |--------------|--------|----------|-------------|
-| `name`       | String | **Yes**  | VPN tunnel name. |
-| `state`      | String | No       | Desired tunnel state. |
-| `last_status` | String | No      | Last known status. |
-| `resets`     | Number | No       | Number of tunnel resets. |
-| `last_check` | String | No       | Timestamp of the last health check. |
-| `last_reset` | String | No       | Timestamp of the last reset. |
+| `domain`     | Number | **Yes**  | Domain ID. Changing it forces a new resource. |
+| `tenant`     | Number | **Yes**  | Tenant ID. Changing it forces a new resource. |
+| `name`       | String | No       | VPN tunnel name (max 255). Defaults to `""`. |
+| `customer`   | String | No       | Customer identifier. Computed by the API when omitted. |
+| `firewall`   | String | No       | UUID of the firewall terminating the tunnel. |
+| `contact`    | List(Number) | No | Contact IDs. Removing it clears the list. |
+| `state`      | String | No       | Tunnel state. Computed when omitted. |
+| `last_status` | String | No      | Last known status. Computed when omitted. |
+| `resets`     | Number | No       | Number of tunnel resets. Computed when omitted. |
+| `last_check` | String | No       | Timestamp of the last health check. Computed when omitted (may be null). |
+| `last_reset` | String | No       | Timestamp of the last reset. Computed when omitted (may be null). |
 
-**Read-only attributes:** `id` (String), `uuid` (String).
+**Read-only attributes:** `id` (String), `uuid` (String), `created_at_timestamp` (String), `updated_at_timestamp` (String), `created_by_user` (Number), `updated_by_user` (Number).
+
+##### Import
+
+```shell
+terraform import mcs_site_to_site_vpn.office <vpn-id>
+```
+
+---
+
+### Secure Ingress
+
+#### mcs_secureingress_firewall
+
+Manages a secure ingress (XDP) firewall filter. Referenced by `mcs_ingress_cluster.firewall`.
+
+The API stores `filter_json` as a JSON-encoded string. Write it with `jsonencode()`; differences in whitespace or key order between your configuration and the API's response do not cause a diff.
+
+##### Example
+
+```hcl
+resource "mcs_secureingress_firewall" "edge" {
+  name        = "edge-filter"
+  description = "Blocks unwanted traffic"
+  customer    = mcs_customer.example.id
+  filter_json = jsonencode({
+    allow = ["10.0.0.0/8"]
+  })
+}
+```
+
+##### Attributes
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | String | **Yes** | Name of the firewall (max 200 characters). |
+| `filter_json` | String (JSON) | **Yes** | Firewall filter definition as a JSON document. |
+| `customer` | String | **Yes** | Customer identifier. Changing this forces a new resource. |
+| `description` | String | No | Description of the firewall (max 200 characters). |
+
+**Read-only attributes:** `id`, `created_at_timestamp`, `updated_at_timestamp` (String), `created_by_user`, `updated_by_user` (Number).
+
+##### Import
+
+```shell
+terraform import mcs_secureingress_firewall.edge <firewall-uuid>
+```
+
+---
+
+#### mcs_ingress_cluster
+
+Manages a secure ingress cluster: a public IP address protected by a secure ingress (XDP) firewall and fronted by a reverse proxy. Instances, routes and upstream targets are not managed by this resource.
+
+##### Example
+
+```hcl
+resource "mcs_public_ip_address" "ingress" {
+  type     = "secureingress"
+  customer = mcs_customer.example.id
+}
+
+resource "mcs_ingress_cluster" "webshop" {
+  name      = "webshop"
+  sla       = "gold"
+  bandwidth = 1000
+  customer  = mcs_customer.example.id
+  ipaddress = mcs_public_ip_address.ingress.id
+  firewall  = mcs_secureingress_firewall.edge.id
+}
+```
+
+##### Attributes
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | String | **Yes** | Name of the ingress cluster (max 200 characters). |
+| `customer` | String | **Yes** | Customer identifier. Changing this forces a new resource. |
+| `ipaddress` | String | **Yes** | UUID of the public IP address (`mcs_public_ip_address`) the cluster listens on. |
+| `firewall` | String | **Yes** | UUID of the secure ingress firewall (`mcs_secureingress_firewall`). |
+| `sla` | String | No | Service level: `bronze`, `silver`, `gold` or `platinum`. Server default when unset. |
+| `bandwidth` | Number | No | Bandwidth in Mbps: `50`, `100`, `500`, `1000` or `5000`. Server default when unset. |
+
+**Read-only attributes:** `id`, `slug`, `state`, `reverse_proxy_name`, `ipaddress_address`, `ipaddress_type`, `created_at_timestamp`, `updated_at_timestamp` (String), `reverse_proxy`, `created_by_user`, `updated_by_user` (Number).
+
+##### Import
+
+```shell
+terraform import mcs_ingress_cluster.webshop <ingress-cluster-uuid>
+```
 
 ---
 
 ### Firewall
+
+#### mcs_firewall (Resource)
+
+Manages a firewall (`/api/networking/firewalls/`). Updates use PATCH.
+
+##### Example
+
+```hcl
+resource "mcs_firewall" "edge" {
+  customer            = mcs_customer.example.id
+  device              = "fmg-01"
+  name                = "edge-fw"
+  type                = "internet"
+  context             = "VDOM-PROD"
+  external_interface  = "port1"
+  internal_interface  = "port2"
+  nat_ip_sync_enabled = false
+}
+```
+
+##### Attributes
+
+| Attribute                 | Type   | Required | Description |
+|--------------------------|--------|----------|-------------|
+| `customer`               | String | **Yes**  | Customer the firewall belongs to. Changing this forces a new resource. |
+| `device`                 | String | **Yes**  | Firewall device (see `/api/networking/firewalls/device-options/`). Changing this forces a new resource. |
+| `name`                   | String | No       | Firewall name. |
+| `description`            | String | No       | Firewall description. |
+| `type`                   | String | No       | `internet` or `wan`. |
+| `context`                | String | No       | VDOM on Fortimanager or Device Group on Panorama. |
+| `external_interface`     | String | No       | Name of the external (internet or WAN facing) interface. |
+| `internal_interface`     | String | No       | Name of the internal (VDOM or transit facing) interface. |
+| `default_log_profile`    | String | No       | Default log profile used when creating firewall rules. |
+| `default_protect_profile` | String | No      | Default protect group profile used when creating firewall rules. |
+| `multi_tenant`           | Bool   | No       | Whether the device is multi tenant; `tag_name` is then used for rule separation. |
+| `tag_name`               | String | No       | TAG name for object lookups on a multi tenant firewall (PaloAlto only). |
+| `nat_ip_sync_enabled`    | Bool   | No       | Opt in to the daily Panorama NAT public IP import job for this device group. |
+
+Optional attributes that are not set take the value assigned by the API.
+
+**Read-only attributes:** `id` (String — firewall UUID), `customer_name` (String), `device_name` (String), `platform` (String), `supports_threat_protection` (Bool).
+
+##### Import
+
+```shell
+terraform import mcs_firewall.edge <firewall-uuid>
+```
+
+---
 
 #### mcs_firewall_object
 
@@ -1360,13 +1961,21 @@ resource "mcs_firewall_object" "web_server" {
 
 | Attribute | Type   | Required | Description |
 |----------|--------|----------|-------------|
-| `domain` | String | **Yes**  | Firewall domain (VDOM). |
-| `name`   | String | **Yes**  | Object name. |
+| `domain` | String | **Yes**  | Firewall domain (VDOM). Changing this forces a new resource. |
+| `name`   | String | **Yes**  | Object name. Renaming updates in place. |
 | `address` | String | **Yes** | IP address. |
 | `subnet` | String | **Yes**  | Subnet mask. |
-| `comment` | String | No      | Comment / description. |
+| `comment` | String | No      | Comment / description. Server value is kept when omitted. |
 
-**Read-only attributes:** `id` (String), `uuid` (String — firewall UUID), `used` (Bool — whether the object is in use by a policy).
+**Read-only attributes:** `id` (String), `uuid` (String — firewall UUID), `used` (Bool — whether the object is in use by a policy), `managed` (Bool — whether the object is managed by MCS).
+
+##### Import
+
+Import by firewall domain and name, separated by `/`:
+
+```shell
+terraform import mcs_firewall_object.web_server <domain>/<name>
+```
 
 ---
 
@@ -1391,12 +2000,20 @@ resource "mcs_firewall_object_group" "web_servers" {
 
 | Attribute | Type         | Required | Description |
 |----------|-------------|----------|-------------|
-| `domain` | String       | **Yes**  | Firewall domain (VDOM). |
-| `name`   | String       | **Yes**  | Group name. |
-| `comment` | String      | No       | Comment / description. |
-| `member` | List(String) | No       | List of member object names. |
+| `domain` | String       | **Yes**  | Firewall domain (VDOM). Changing this forces a new resource. |
+| `name`   | String       | **Yes**  | Group name. Renaming updates in place. |
+| `comment` | String      | No       | Comment / description. Server value is kept when omitted. |
+| `member` | List(String) | No       | List of member object names. Removing the attribute clears the members. |
 
 **Read-only attributes:** `id` (String), `uuid` (String), `used` (Bool).
+
+##### Import
+
+Import by firewall domain and name, separated by `/`:
+
+```shell
+terraform import mcs_firewall_object_group.web_servers <domain>/<name>
+```
 
 ---
 
@@ -1424,15 +2041,15 @@ resource "mcs_firewall_rule" "allow_https" {
 
 | Attribute | Type         | Required | Description |
 |----------|-------------|----------|-------------|
-| `domain` | String       | **Yes**  | Firewall domain (VDOM). |
+| `domain` | String       | **Yes**  | Firewall domain (VDOM). Changing this forces a new resource. |
 | `enabled` | Bool        | **Yes**  | Whether the rule is enabled. |
 | `action` | Bool         | **Yes**  | `true` = allow, `false` = deny. |
-| `src`    | List(String) | No       | Source address objects/groups. |
-| `dst`    | List(String) | No       | Destination address objects/groups. |
-| `src_intf` | List(String) | No     | Source interfaces. |
-| `dst_intf` | List(String) | No     | Destination interfaces. |
-| `service` | List(String) | No      | Service objects/groups (e.g. `"HTTPS"`, `"SSH"`). |
-| `comment` | String      | No       | Comment / description. |
+| `src`    | List(String) | No       | Source address objects/groups. Removing the attribute clears it. |
+| `dst`    | List(String) | No       | Destination address objects/groups. Removing the attribute clears it. |
+| `src_intf` | List(String) | No     | Source interfaces. Removing the attribute clears it. |
+| `dst_intf` | List(String) | No     | Destination interfaces. Removing the attribute clears it. |
+| `service` | List(String) | No      | Service objects/groups (e.g. `"HTTPS"`, `"SSH"`). Removing the attribute clears it. |
+| `comment` | String      | No       | Comment / description. Server value is kept when omitted. |
 
 **Read-only attributes:**
 
@@ -1442,6 +2059,20 @@ resource "mcs_firewall_rule" "allow_https" {
 | `uuid`             | String       | Firewall UUID. |
 | `policyid`         | Number       | Policy ID (used internally for API operations). |
 | `group`            | String       | Rule group. |
+| `origin`           | String       | Origin of the rule. |
+| `used`             | Bool         | Whether the rule is in use. |
+| `compliant`        | Bool         | Whether the rule is compliant. |
+| `hit_count`        | Number       | Number of hits on the rule. |
+| `last_hit`         | String       | Timestamp of the last hit. |
+| `compliancy_errors` | List(String) | Compliancy errors reported for the rule. |
+
+##### Import
+
+Import by firewall domain and numeric policy ID, separated by `/`:
+
+```shell
+terraform import mcs_firewall_rule.allow_https <domain>/<policyid>
+```
 
 ---
 
@@ -1465,14 +2096,22 @@ resource "mcs_firewall_service" "custom_app" {
 
 | Attribute       | Type         | Required | Description |
 |----------------|-------------|----------|-------------|
-| `domain`       | String       | **Yes**  | Firewall domain (VDOM). |
-| `name`         | String       | **Yes**  | Service name. |
+| `domain`       | String       | **Yes**  | Firewall domain (VDOM). Changing this forces a new resource. |
+| `name`         | String       | **Yes**  | Service name. Renaming updates in place. |
 | `protocol`     | String       | **Yes**  | Protocol type (e.g. `TCP/UDP/SCTP`). |
-| `tcp_portrange` | List(String) | No      | TCP port ranges (e.g. `["80", "443", "8000-8999"]`). |
-| `udp_portrange` | List(String) | No      | UDP port ranges. |
-| `comment`      | String       | No       | Comment / description. |
+| `tcp_portrange` | List(String) | No      | TCP port ranges (e.g. `["80", "443", "8000-8999"]`). Removing the attribute clears it. |
+| `udp_portrange` | List(String) | No      | UDP port ranges. Removing the attribute clears it. |
+| `comment`      | String       | No       | Comment / description. Server value is kept when omitted. |
 
 **Read-only attributes:** `id` (String), `uuid` (String), `used` (Bool).
+
+##### Import
+
+Import by firewall domain and name, separated by `/`:
+
+```shell
+terraform import mcs_firewall_service.custom_app <domain>/<name>
+```
 
 ---
 
@@ -1495,12 +2134,20 @@ resource "mcs_firewall_service_group" "web_services" {
 
 | Attribute | Type         | Required | Description |
 |----------|-------------|----------|-------------|
-| `domain` | String       | **Yes**  | Firewall domain (VDOM). |
-| `name`   | String       | **Yes**  | Service group name. |
-| `comment` | String      | No       | Comment / description. |
-| `member` | List(String) | No       | List of member service names. |
+| `domain` | String       | **Yes**  | Firewall domain (VDOM). Changing this forces a new resource. |
+| `name`   | String       | **Yes**  | Service group name. Renaming updates in place. |
+| `comment` | String      | No       | Comment / description. Server value is kept when omitted. |
+| `member` | List(String) | No       | List of member service names. Removing the attribute clears the members. |
 
 **Read-only attributes:** `id` (String), `uuid` (String), `used` (Bool).
+
+##### Import
+
+Import by firewall domain and name, separated by `/`:
+
+```shell
+terraform import mcs_firewall_service_group.web_services <domain>/<name>
+```
 
 ---
 
@@ -1524,12 +2171,19 @@ resource "mcs_certificate" "web_cert" {
 
 | Attribute          | Type   | Required | Description |
 |-------------------|--------|----------|-------------|
-| `name`            | String | No       | Certificate name. |
-| `ca`              | Bool   | No       | Whether this is a CA certificate. |
-| `valid_to_timestamp` | String | No    | Certificate expiry timestamp. |
-| `loadbalancer`    | String | No       | UUID of the load balancer. |
+| `name`            | String | **Yes**  | Certificate name. |
+| `loadbalancer`    | String | **Yes**  | UUID of the load balancer. |
+| `ca`              | Bool   | No       | Whether this is a CA certificate. Computed by the server when omitted. |
+| `valid_to_timestamp` | String | No    | Certificate expiry timestamp. Computed by the server when omitted. |
+| `customer`        | String | No       | Customer identifier. Computed by the server when omitted. |
 
-**Read-only attributes:** `id` (String).
+**Read-only attributes:** `id` (String), `protected` (Bool, whether the certificate is protected from changes).
+
+##### Import
+
+```shell
+terraform import mcs_certificate.web_cert <certificate-uuid>
+```
 
 ---
 
@@ -1546,7 +2200,7 @@ resource "mcs_lb_monitor" "http_monitor" {
   interval     = 5
   resptimeout  = 2
   downtime     = 30
-  respcode     = "200"
+  respcode     = "[\"200\"]"
   httprequest  = "GET /health"
   loadbalancer = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
   customer     = mcs_customer.example.id
@@ -1555,21 +2209,29 @@ resource "mcs_lb_monitor" "http_monitor" {
 
 ##### Attributes
 
+All optional attributes are also computed: when omitted, the value set by the server is kept in state.
+
 | Attribute      | Type   | Required | Description |
 |---------------|--------|----------|-------------|
 | `name`        | String | **Yes**  | Monitor name. |
-| `type`        | String | No       | Monitor type (e.g. `HTTP`, `TCP`). |
+| `type`        | String | No       | Monitor type: `HTTP`, `TCP`, `ssl_bridge`, `tcp` or `udp`. |
 | `interval`    | Number | No       | Check interval in seconds. |
 | `resptimeout` | Number | No       | Response timeout in seconds. |
 | `downtime`    | Number | No       | Downtime threshold in seconds. |
-| `respcode`    | String | No       | Expected response code (e.g. `"200"`). |
-| `secure`      | String | No       | Whether to use secure connections. |
+| `respcode`    | String | No       | Accepted response codes: `["200"]`, `["200", "403", "500"]` or empty. |
+| `secure`      | String | No       | Use secure connections: `YES`, `NO` or empty. |
 | `httprequest` | String | No       | HTTP request string (e.g. `"GET /health"`). |
 | `loadbalancer` | String | No      | UUID of the load balancer. |
 | `protected`   | Bool   | No       | Whether the monitor is protected. |
 | `customer`    | String | No       | Customer identifier. |
 
 **Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_lb_monitor.http_monitor <monitor-uuid>
+```
 
 ---
 
@@ -1587,7 +2249,10 @@ resource "mcs_lb_servicegroup" "web_backend" {
   type          = "HTTP"
   state         = "enable"
   members       = [mcs_lb_servicegroup_member.web1.id, mcs_lb_servicegroup_member.web2.id]
+  monitors      = [mcs_lb_monitor.http_monitor.id]
   healthmonitor = "YES"
+  cip           = "ENABLED"
+  cipheader     = "X-Forwarded-For"
   customer      = mcs_customer.example.id
   loadbalancer  = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
 }
@@ -1598,14 +2263,24 @@ resource "mcs_lb_servicegroup" "web_backend" {
 | Attribute       | Type         | Required | Description |
 |----------------|-------------|----------|-------------|
 | `name`         | String       | **Yes**  | Service group name. |
-| `type`         | String       | **Yes**  | Service type (e.g. `HTTP`, `SSL`, `TCP`). |
-| `state`        | String       | No       | State (e.g. `enable`, `disable`). |
-| `members`      | List(String) | No       | List of member IDs. Set after creation via a separate API call. |
-| `healthmonitor` | String      | No       | Health monitor setting. |
-| `customer`     | String       | No       | Customer identifier. |
-| `loadbalancer` | String       | No       | UUID of the load balancer. |
+| `type`         | String       | **Yes**  | Service type: `HTTP`, `SSL`, `ssl_bridge`, `tcp` or `udp`. |
+| `state`        | String       | No       | State: `enable` or `disable`. Computed by the server when omitted. |
+| `members`      | List(String) | No       | List of member IDs. Set after creation via a separate API call. Removing the attribute clears the members. |
+| `monitors`     | List(String) | No       | List of monitor IDs bound to the service group. Removing the attribute clears the monitors. |
+| `healthmonitor` | String      | No       | Health monitoring: `YES` or `NO`. Computed by the server when omitted. |
+| `client_certificate` | String | No       | UUID of the certificate presented to backend servers that request client authentication. |
+| `cip`          | String       | No       | Insert the client IP in a request header: `ENABLED` or `DISABLED`. Computed by the server when omitted. |
+| `cipheader`    | String       | No       | Header name for the client IP. The server defaults it to `X-Forwarded-For`. |
+| `customer`     | String       | No       | Customer identifier. Computed by the server when omitted. |
+| `loadbalancer` | String       | No       | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_lb_servicegroup.web_backend <servicegroup-uuid>
+```
 
 ---
 
@@ -1621,6 +2296,7 @@ resource "mcs_lb_servicegroup_member" "web1" {
   port         = 8080
   servername   = "web-server-01"
   weight       = 100
+  state        = "UP"
   customer     = mcs_customer.example.id
   loadbalancer = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
 }
@@ -1633,11 +2309,18 @@ resource "mcs_lb_servicegroup_member" "web1" {
 | `address`     | String | **Yes**  | IP address of the backend server. |
 | `servername`  | String | **Yes**  | Server name. |
 | `port`        | Number | No       | Port number. Defaults to `0`. |
-| `weight`      | Number | No       | Load balancing weight. |
-| `customer`    | String | No       | Customer identifier. |
-| `loadbalancer` | String | No      | UUID of the load balancer. |
+| `weight`      | Number | No       | Load balancing weight. Computed by the server when omitted. |
+| `state`       | String | No       | Member state: `UP` or `DOWN`. Computed by the server when omitted. |
+| `customer`    | String | No       | Customer identifier. Computed by the server when omitted. |
+| `loadbalancer` | String | No      | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_lb_servicegroup_member.web1 <servicegroup-member-uuid>
+```
 
 ---
 
@@ -1666,13 +2349,20 @@ resource "mcs_lbv_server" "web_lb" {
 | `name`        | String       | **Yes**  | Virtual server name. |
 | `servicegroup` | List(String) | **Yes** | List of service group IDs to bind. |
 | `ipaddress`   | String       | No       | UUID of the associated PublicIPAddress. Leave empty if used as non routed loadbalancer. |
-| `port`        | Number       | No       | Listening port. |
-| `type`        | String       | No       | Protocol type (e.g. `ssl`, `http`, `tcp`). |
-| `certificate` | List(String) | No       | List of SSL certificate IDs. |
-| `customer`    | String       | No       | Customer identifier. |
-| `loadbalancer` | String      | No       | UUID of the load balancer. |
+| `port`        | Number       | No       | Listening port. Defaults to `0` (non routed loadbalancer); a null port returned by the API is shown as `0`. |
+| `type`        | String       | No       | Protocol type: `http`, `ssl`, `ssl_bridge`, `tcp` or `udp`. Defaults to `ssl`. |
+| `certificate` | List(String) | No       | List of SSL certificate IDs. Removing the attribute clears the certificates. |
+| `ca_certificate` | List(String) | No    | List of CA certificate IDs. Removing the attribute clears them. |
+| `customer`    | String       | No       | Customer identifier. Computed by the server when omitted. |
+| `loadbalancer` | String      | No       | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_lbv_server.web_lb <lbvserver-uuid>
+```
 
 ---
 
@@ -1684,15 +2374,18 @@ Manages a content switching virtual server (CS vServer).
 
 ```hcl
 resource "mcs_csv_server" "web_frontend" {
-  name         = "web-csvserver"
-  ufname       = "web-frontend"
-  type         = "ssl"
-  port         = 443
-  ipaddress    = mcs_public_ip_address.web.id
-  policies     = [mcs_cs_policy.routing.id]
-  certificate  = [mcs_certificate.web_cert.id]
-  customer     = mcs_customer.example.id
-  loadbalancer = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
+  name           = "web-csvserver"
+  ufname         = "web-frontend"
+  type           = "ssl"
+  port           = 443
+  ipaddress      = mcs_public_ip_address.web.id
+  policies       = [mcs_cs_policy.routing.id]
+  certificate    = [mcs_certificate.web_cert.id]
+  ca_certificate = [mcs_certificate.client_ca.id]
+  clientauth     = true
+  clientcert     = "Mandatory"
+  customer       = mcs_customer.example.id
+  loadbalancer   = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
 }
 ```
 
@@ -1702,15 +2395,24 @@ resource "mcs_csv_server" "web_frontend" {
 |---------------|-------------|----------|-------------|
 | `name`        | String       | **Yes**  | CS vServer name. |
 | `ufname`      | String       | **Yes**  | User-friendly name. |
-| `type`        | String       | **Yes**  | Protocol type (e.g. `ssl`, `http`). |
+| `type`        | String       | **Yes**  | Protocol type: `http` or `ssl`. |
 | `ipaddress`   | String       | No       | UUID of the associated PublicIPAddress. |
-| `port`        | Number       | No       | Listening port. |
-| `policies`    | List(String) | No       | List of CS policy IDs. |
-| `certificate` | List(String) | No       | List of SSL certificate IDs. |
-| `customer`    | String       | No       | Customer identifier. |
-| `loadbalancer` | String      | No       | UUID of the load balancer. |
+| `port`        | Number       | No       | Listening port. Defaults to `443`. |
+| `policies`    | List(String) | No       | List of CS policy IDs. Removing the attribute clears the policies. |
+| `certificate` | List(String) | No       | List of SSL certificate IDs. Removing the attribute clears the certificates. |
+| `ca_certificate` | List(String) | No    | List of CA certificate IDs used to verify client certificates. Removing the attribute clears them. |
+| `clientauth`  | Bool         | No       | Enable client certificate authentication. Computed by the server when omitted. |
+| `clientcert`  | String       | No       | Client certificate requirement: `Mandatory` or `Optional`. Computed by the server when omitted. |
+| `customer`    | String       | No       | Customer identifier. Computed by the server when omitted. |
+| `loadbalancer` | String      | No       | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_csv_server.web_frontend <csvserver-uuid>
+```
 
 ---
 
@@ -1723,7 +2425,7 @@ Manages a content switching action.
 ```hcl
 resource "mcs_cs_action" "route_to_backend" {
   name         = "route-to-web"
-  lbvserver    = mcs_lbv_server.web_lb.name
+  lbvserver    = mcs_lbv_server.web_lb.id
   customer     = mcs_customer.example.id
   loadbalancer = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
 }
@@ -1734,11 +2436,53 @@ resource "mcs_cs_action" "route_to_backend" {
 | Attribute      | Type   | Required | Description |
 |---------------|--------|----------|-------------|
 | `name`        | String | **Yes**  | Action name. |
-| `lbvserver`   | String | No       | Target LB vServer name. |
-| `customer`    | String | No       | Customer identifier. |
-| `loadbalancer` | String | No      | UUID of the load balancer. |
+| `lbvserver`   | String | No       | UUID of the target LB vServer. |
+| `customer`    | String | No       | Customer identifier. Computed by the server when omitted. |
+| `loadbalancer` | String | No      | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_cs_action.route_to_backend <csaction-uuid>
+```
+
+---
+
+#### mcs_application
+
+Manages an application in the tenant's application catalogue. Applications are referenced by `mcs_cs_policy.application`.
+
+##### Example
+
+```hcl
+resource "mcs_application" "webshop" {
+  name             = "webshop"
+  pentested        = true
+  pentest_type     = "graybox"
+  pentest_date     = "2026-03-15"
+  pentest_findings = 4
+}
+```
+
+##### Attributes
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | String | **Yes** | Name of the application (max 255 characters). |
+| `pentested` | Bool | No | Whether the application has been pentested. Server default when unset. |
+| `pentest_type` | String | No | Type of pentest: `blackbox`, `graybox`, `whitebox` or `unknown`. Server default when unset. |
+| `pentest_date` | String | No | Date of the pentest (`YYYY-MM-DD`). Removing it clears the value. |
+| `pentest_findings` | Number | No | Number of findings in the pentest. Removing it clears the value. |
+
+**Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_application.webshop <application-uuid>
+```
 
 ---
 
@@ -1751,7 +2495,7 @@ Manages a content switching policy.
 ```hcl
 resource "mcs_cs_policy" "by_url" {
   name         = "route-by-url"
-  action       = mcs_cs_action.route_to_backend.name
+  action       = mcs_cs_action.route_to_backend.id
   expression   = "HTTP.REQ.URL.PATH.STARTSWITH(\"/api\")"
   customer     = mcs_customer.example.id
   loadbalancer = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
@@ -1763,13 +2507,19 @@ resource "mcs_cs_policy" "by_url" {
 | Attribute      | Type   | Required | Description |
 |---------------|--------|----------|-------------|
 | `name`        | String | **Yes**  | Policy name. |
-| `action`      | String | No       | CS action name to invoke. |
-| `expression`  | String | No       | Policy expression. |
-| `customer`    | String | No       | Customer identifier. |
-| `application` | String | No       | Application identifier. |
-| `loadbalancer` | String | No      | UUID of the load balancer. |
+| `action`      | String | No       | UUID of the CS action to invoke. |
+| `expression`  | String | No       | Policy expression. Computed by the server when omitted. |
+| `customer`    | String | No       | Customer identifier. Computed by the server when omitted. |
+| `application` | String | No       | UUID of the application. |
+| `loadbalancer` | String | No      | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_cs_policy.by_url <cspolicy-uuid>
+```
 
 ---
 
@@ -1794,10 +2544,12 @@ resource "mcs_rewrite_action" "replace_host" {
 
 ##### Attributes
 
+All optional attributes are also computed: when omitted, the value set by the server is kept in state.
+
 | Attribute | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | String | **Yes** | Rewrite action name. |
-| `type` | String | No | Rewrite action type. |
+| `type` | String | No | Rewrite action type: `replace`, `replace_all`, `replace_http_res`, `insert_http_header`, `delete_http_header`, `corrupt_http_header`, `insert_before`, `insert_before_all`, `insert_after`, `insert_after_all`, `delete`, `delete_all`, `clientless_vpn_encode`, `clientless_vpn_encode_all`, `clientless_vpn_decode`, `clientless_vpn_decode_all` or `replace_sip_res`. |
 | `target` | String | No | Rewrite target expression. |
 | `stringbuilderexpr` | String | No | String builder expression. |
 | `search` | String | No | Search expression. |
@@ -1806,6 +2558,12 @@ resource "mcs_rewrite_action" "replace_host" {
 | `loadbalancer` | String | No | UUID of the load balancer. |
 
 **Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_rewrite_action.replace_host <rewrite-action-uuid>
+```
 
 ---
 
@@ -1832,46 +2590,28 @@ resource "mcs_rewrite_policy" "rewrite_requests" {
 
 ##### Attributes
 
+All optional attributes except `action` are also computed: when omitted, the value set by the server is kept in state.
+
 | Attribute | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | String | **Yes** | Rewrite policy name. |
 | `rule` | String | No | Rewrite rule expression. |
 | `action` | String | No | Rewrite action UUID to invoke. |
-| `undefaction` | String | No | Action used when the rule result is undefined. |
+| `undefaction` | String | No | Action used when the rule result is undefined (`NOREWRITE`, `RESET`, `DROP`). |
 | `comment` | String | No | Rewrite policy comment. |
-| `priority` | Number | No | Rewrite policy priority. |
-| `bindpoint` | String | No | Rewrite bind point. |
-| `gotopriorityexpression` | String | No | Priority expression after evaluation. |
+| `priority` | Number | No | Rewrite policy priority (integer). Lower number = higher priority. |
+| `bindpoint` | String | No | Rewrite bind point: `REQUEST` or `RESPONSE`. |
+| `gotopriorityexpression` | String | No | Action after this policy: `NEXT`, `END` or `USE_INVOCATION_RESULT`. |
 | `customer` | String | No | Customer identifier. |
 | `loadbalancer` | String | No | UUID of the load balancer. |
 
 **Read-only attributes:** `id` (String).
 
----
+##### Import
 
-### Virtualization
-
-#### mcs_virtual_datacenter
-
-Manages a virtual datacenter.
-
-##### Example
-
-```hcl
-resource "mcs_virtual_datacenter" "production" {
-  name     = "production-vdc"
-  customer = mcs_customer.example.id
-}
+```shell
+terraform import mcs_rewrite_policy.rewrite_requests <rewrite-policy-uuid>
 ```
-
-##### Attributes
-
-| Attribute  | Type   | Required | Description |
-|-----------|--------|----------|-------------|
-| `name`    | String | **Yes**  | Virtual datacenter name. |
-| `customer` | String | No      | Customer identifier. |
-
-**Read-only attributes:** `id` (String).
 
 ---
 
@@ -1896,10 +2636,10 @@ resource "mcs_monitor_ip" "web_check" {
 
 | Attribute      | Type   | Required | Description |
 |---------------|--------|----------|-------------|
-| `ipaddress`   | String | **Yes**  | IP address to monitor. |
+| `ipaddress`   | String | **Yes**  | IP address to monitor (max 255). |
 | `customer`    | String | **Yes**  | Customer identifier. |
-| `notify_email` | String | No      | Email address for notifications. |
-| `comment`     | String | No       | Comment. |
+| `notify_email` | String | No      | Comma-separated email addresses for notifications (max 255). Defaults to `""`. |
+| `comment`     | String | No       | Comment. Defaults to `""`. |
 
 **Read-only attributes:**
 
@@ -1909,9 +2649,74 @@ resource "mcs_monitor_ip" "web_check" {
 | `timestamp`           | String | Creation timestamp. |
 | `last_check_timestamp` | String | Timestamp of the last check. |
 
+##### Import
+
+```shell
+terraform import mcs_monitor_ip.web_check <monitor-ip-uuid>
+```
+
 ---
 
 ### DNS
+
+#### mcs_dns_domain
+
+Manages the settings of an **existing** MCS DNS domain (zone).
+
+> **Important:** DNS zones cannot be created or deleted through the MCS API. They are synchronised from the DNS provider integration.
+>
+> - **Create adopts an existing zone.** The provider looks up the zone whose name exactly matches `name` and applies the configured settings to it (`PUT /api/dns/domains/{uuid}/`). If no zone with that name exists, the apply fails with "DNS domain not found" — make sure the zone exists at the DNS provider and has been synchronised into MCS first.
+> - **Destroy does not delete the zone.** Removing the resource (or running `terraform destroy`) only removes it from Terraform state and emits a warning. The zone and its records remain in MCS and at the DNS provider.
+> - Optional attributes that are not configured keep their current value in MCS; only configured attributes are sent.
+
+##### Example
+
+```hcl
+resource "mcs_dns_domain" "example" {
+  name      = "example.com"
+  comment   = "Managed by Terraform"
+  type      = "external"
+  zone_type = "forward"
+  customer  = mcs_customer.example.id
+}
+
+resource "mcs_dns_entry" "www" {
+  domain_uuid = mcs_dns_domain.example.id
+  name        = "www"
+  type        = "A"
+  content     = "192.0.2.1"
+  expire      = 300
+}
+```
+
+##### Attributes
+
+| Attribute   | Type   | Required | Description |
+|------------|--------|----------|-------------|
+| `name`      | String | **Yes**  | Full zone name as known by the DNS provider (e.g. `example.com`). Must match an existing zone exactly. Changing this forces a new resource (the old zone is released from state, the new one adopted). |
+| `comment`   | String | No       | Comment for the domain (max 255 characters). Computed from MCS when omitted. |
+| `enddate`   | String | No       | End date for the domain (`YYYY-MM-DD`), if known. Computed from MCS when omitted. |
+| `customer`  | String | No       | Customer associated with the domain. Computed from MCS when omitted. |
+| `type`      | String | No       | Domain use type: `external` or `internal`. Computed from MCS when omitted. |
+| `zone_type` | String | No       | Zone type: `forward` or `reverse`. Computed from MCS when omitted. |
+
+**Read-only attributes:**
+
+| Attribute       | Type   | Description |
+|----------------|--------|-------------|
+| `id`            | String | UUID of the DNS domain. |
+| `provider_id`   | Number | ID of the DNS provider integration. |
+| `provider_name` | String | Name of the DNS provider integration. |
+
+##### Import
+
+Existing zones can also be imported by UUID:
+
+```shell
+terraform import mcs_dns_domain.example 0b7c0f9e-1234-4cde-9abc-0123456789ab
+```
+
+---
 
 #### mcs_dns_entry
 
@@ -1951,13 +2756,21 @@ resource "mcs_dns_entry" "mail" {
 | `name`       | String | **Yes**  | DNS record name (e.g. www, mail). Changing this forces a new resource. |
 | `type`       | String | **Yes**  | DNS record type (e.g. A, AAAA, CNAME, MX, TXT). Changing this forces a new resource. |
 | `content`    | String | **Yes**  | DNS record content (e.g. IP address, hostname). Changing this forces a new resource. |
-| `expire`     | Number | **Yes**  | TTL in seconds (minimum 60, maximum 604800). Changing this forces a new resource. |
+| `expire`     | Number | **Yes**  | TTL in seconds, between 60 and 604800 (validated at plan time). Changing this forces a new resource. |
 
 **Read-only attributes:**
 
 | Attribute | Type   | Description |
 |-----------|--------|-------------|
 | `id`      | String | Composite identifier: `domain_uuid/name/type/content`. |
+
+##### Import
+
+Import by the composite ID `<domain_uuid>/<name>/<type>/<content>`. The entry is found by an exact match on name, type and content, so give each one exactly as MCS lists it for the zone. Depending on the zone, MCS returns names relative (`www`) or as an FQDN with a trailing dot (`www.example.com.`). Content is the last part and may itself contain `/`.
+
+```shell
+terraform import mcs_dns_entry.www 0b7c0f9e-1234-4cde-9abc-0123456789ab/www/A/192.0.2.1
+```
 
 ---
 
@@ -1974,6 +2787,8 @@ resource "mcs_dbl" "blocked_ip" {
   ipaddress  = "192.0.2.100"
   source     = "manual"
   persistent = true
+  blackholed = false
+  itsm       = "INC0012345"
 }
 ```
 
@@ -1981,9 +2796,12 @@ resource "mcs_dbl" "blocked_ip" {
 
 | Attribute    | Type   | Required | Description |
 |-------------|--------|----------|-------------|
-| `ipaddress` | String | **Yes**  | IP address to block. |
-| `source`    | String | No       | Source of the block entry (e.g. `manual`). |
-| `persistent` | Bool  | No       | Whether the entry persists across resets. |
+| `ipaddress` | String | **Yes**  | IP address to block (max 255 characters). Changing it forces a new entry. |
+| `source`    | String | No       | Source of the block entry (e.g. `manual`, max 255 characters). Computed from the API when omitted. |
+| `persistent` | Bool  | No       | Keep the entry instead of expiring it after the default time. Computed from the API when omitted. |
+| `blackholed` | Bool  | No       | Drop traffic from the IP early in the defense-in-depth model (logging is then not available). Computed from the API when omitted. |
+| `itsm`      | String | No       | ITSM registration in which the block was requested and substantiated (max 255 characters). |
+| `reason`    | String | No       | Why the IP is added when no ITSM ticket exists. |
 
 **Read-only attributes:**
 
@@ -1993,8 +2811,17 @@ resource "mcs_dbl" "blocked_ip" {
 | `timestamp` | String | Creation timestamp. |
 | `occurrence` | Number | Number of occurrences. |
 | `hostname`  | String | Resolved hostname. |
+| `meta`      | String | Server-provided metadata about the IP address. |
 
 > **Note:** Read, update, and delete operations use the `ipaddress` as the lookup key, not the `id`.
+
+##### Import
+
+Import by IP address, not by `id`:
+
+```shell
+terraform import mcs_dbl.blocked_ip 192.0.2.100
+```
 
 ---
 
@@ -2009,6 +2836,7 @@ resource "mcs_domain_dbl" "blocked_domain" {
   domainname = "malicious-site.example"
   source     = "manual"
   persistent = true
+  labels     = ["malware"]
 }
 ```
 
@@ -2016,9 +2844,10 @@ resource "mcs_domain_dbl" "blocked_domain" {
 
 | Attribute    | Type   | Required | Description |
 |-------------|--------|----------|-------------|
-| `domainname` | String | **Yes** | Domain name to block. |
-| `source`    | String | **Yes**  | Source of the block entry. |
-| `persistent` | Bool  | No       | Whether the entry persists across resets. |
+| `domainname` | String | **Yes** | Domain name to block (5–255 characters). |
+| `source`    | String | No       | Source of the block entry (5–255 characters). Computed from the API when omitted. |
+| `persistent` | Bool  | No       | Keep the entry instead of expiring it after the default time. Computed from the API when omitted. |
+| `labels`    | List(String) | No | Names of DBL labels to attach (sent as nested `{"name": ...}` objects). Computed from the API when omitted; set `[]` to clear. |
 
 **Read-only attributes:**
 
@@ -2027,6 +2856,12 @@ resource "mcs_domain_dbl" "blocked_domain" {
 | `id`        | String | Entry ID. |
 | `timestamp` | String | Creation timestamp. |
 | `occurrence` | Number | Number of occurrences. |
+
+##### Import
+
+```shell
+terraform import mcs_domain_dbl.blocked_domain <domain-dbl-id>
+```
 
 ---
 
@@ -2132,13 +2967,6 @@ resource "mcs_firewall_rule" "allow_https" {
   service  = ["HTTPS"]
   action   = true
   comment  = "Allow HTTPS to web server"
-}
-
-# --- Virtual Datacenter ---
-
-resource "mcs_virtual_datacenter" "production" {
-  name     = "production-vdc"
-  customer = mcs_customer.production.id
 }
 
 # --- Outputs ---

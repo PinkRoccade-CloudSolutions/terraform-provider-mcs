@@ -17,30 +17,28 @@ func TestAccCertificateResource_CRUD(t *testing.T) {
 	mock := newMockAPIServer()
 	defer mock.Close()
 
+	cert := map[string]interface{}{
+		"id": "cert-001", "ca": false, "valid_to_timestamp": nil,
+		"customer": "cust-001", "protected": true,
+	}
+	var bodies []map[string]interface{}
+
 	mock.On("/api/loadbalancing/certificate", func(w http.ResponseWriter, r *http.Request, body []byte) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method {
-		case http.MethodPost:
+		case http.MethodPost, http.MethodPut:
 			var req map[string]interface{}
 			_ = json.Unmarshal(body, &req)
-			resp := map[string]interface{}{"id": "cert-001"}
+			bodies = append(bodies, req)
 			for k, v := range req {
-				resp[k] = v
+				cert[k] = v
 			}
-			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(resp)
+			if r.Method == http.MethodPost {
+				w.WriteHeader(http.StatusCreated)
+			}
+			_ = json.NewEncoder(w).Encode(cert)
 		case http.MethodGet:
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"id": "cert-001", "name": "my-cert",
-			})
-		case http.MethodPut:
-			var req map[string]interface{}
-			_ = json.Unmarshal(body, &req)
-			resp := map[string]interface{}{"id": "cert-001"}
-			for k, v := range req {
-				resp[k] = v
-			}
-			_ = json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(cert)
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -52,15 +50,52 @@ func TestAccCertificateResource_CRUD(t *testing.T) {
 			{
 				Config: providerConfigBlock(mock.URL()) + `
 resource "mcs_certificate" "test" {
-  name = "my-cert"
+  name         = "my-cert"
+  loadbalancer = "lb-001"
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_certificate.test", "id", "cert-001"),
 					resource.TestCheckResourceAttr("mcs_certificate.test", "name", "my-cert"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "loadbalancer", "lb-001"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "customer", "cust-001"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "protected", "true"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "ca", "false"),
+					resource.TestCheckNoResourceAttr("mcs_certificate.test", "valid_to_timestamp"),
 				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_certificate" "test" {
+  name         = "my-cert"
+  loadbalancer = "lb-002"
+  customer     = "cust-002"
+  ca           = true
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("mcs_certificate.test", "loadbalancer", "lb-002"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "customer", "cust-002"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "ca", "true"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "protected", "true"),
+				),
+			},
+			{
+				ResourceName:      "mcs_certificate.test",
+				ImportState:       true,
+				ImportStateId:     "cert-001",
+				ImportStateVerify: true,
 			},
 		},
 	})
+
+	if len(bodies) == 0 {
+		t.Fatal("expected a POST body")
+	}
+	if _, ok := bodies[0]["customer"]; ok {
+		t.Errorf("unset customer must not be sent, got body %v", bodies[0])
+	}
+	if _, ok := bodies[0]["protected"]; ok {
+		t.Errorf("read-only protected must not be sent, got body %v", bodies[0])
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +163,12 @@ resource "mcs_contact" "test" {
 					resource.TestCheckResourceAttr("mcs_contact.test", "company", "ACME"),
 				),
 			},
+			{
+				ResourceName:      "mcs_contact.test",
+				ImportState:       true,
+				ImportStateId:     "10",
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -142,7 +183,7 @@ func TestAccCustomerResource_CRUD(t *testing.T) {
 
 	customerResponse := map[string]interface{}{
 		"id": "cust-001", "name": "Test Customer", "contractid": "",
-		"tenant": 1, "sdm": 0,
+		"tenant": 1, "sdm": nil,
 		"tech_contacts": []int{}, "admin_contacts": []int{},
 		"created_at_timestamp": "2025-01-01T00:00:00Z",
 		"updated_at_timestamp": "2025-01-01T00:00:00Z",
@@ -169,16 +210,32 @@ func TestAccCustomerResource_CRUD(t *testing.T) {
 			{
 				Config: providerConfigBlock(mock.URL()) + `
 resource "mcs_customer" "test" {
-  name           = "Test Customer"
-  contractid     = ""
-  sdm            = 0
-  tech_contacts  = []
-  admin_contacts = []
+  name = "Test Customer"
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_customer.test", "id", "cust-001"),
 					resource.TestCheckResourceAttr("mcs_customer.test", "name", "Test Customer"),
+					resource.TestCheckResourceAttr("mcs_customer.test", "contractid", ""),
+					resource.TestCheckNoResourceAttr("mcs_customer.test", "sdm"),
+					resource.TestCheckResourceAttr("mcs_customer.test", "tech_contacts.#", "0"),
+					resource.TestCheckResourceAttr("mcs_customer.test", "admin_contacts.#", "0"),
 				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_customer" "test" {
+  name           = "Test Customer"
+  contractid     = ""
+  tech_contacts  = []
+  admin_contacts = []
+}`,
+				PlanOnly: true,
+			},
+			{
+				ResourceName:      "mcs_customer.test",
+				ImportState:       true,
+				ImportStateId:     "cust-001",
+				ImportStateVerify: true,
 			},
 		},
 	})
@@ -241,6 +298,12 @@ resource "mcs_dbl" "test" {
 					resource.TestCheckResourceAttr("mcs_dbl.test", "ipaddress", "10.0.0.1"),
 				),
 			},
+			{
+				ResourceName:      "mcs_dbl.test",
+				ImportState:       true,
+				ImportStateId:     "10.0.0.1",
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -297,6 +360,12 @@ resource "mcs_domain_dbl" "test" {
 					resource.TestCheckResourceAttr("mcs_domain_dbl.test", "domainname", "evil.example.com"),
 				),
 			},
+			{
+				ResourceName:      "mcs_domain_dbl.test",
+				ImportState:       true,
+				ImportStateId:     "3",
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -346,6 +415,12 @@ resource "mcs_cs_action" "test" {
 					resource.TestCheckResourceAttr("mcs_cs_action.test", "name", "redirect-action"),
 				),
 			},
+			{
+				ResourceName:      "mcs_cs_action.test",
+				ImportState:       true,
+				ImportStateId:     "act-001",
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -394,6 +469,12 @@ resource "mcs_cs_policy" "test" {
 					resource.TestCheckResourceAttr("mcs_cs_policy.test", "id", "pol-001"),
 					resource.TestCheckResourceAttr("mcs_cs_policy.test", "name", "routing-policy"),
 				),
+			},
+			{
+				ResourceName:      "mcs_cs_policy.test",
+				ImportState:       true,
+				ImportStateId:     "pol-001",
+				ImportStateVerify: true,
 			},
 		},
 	})
@@ -491,6 +572,12 @@ resource "mcs_rewrite_action" "test" {
 					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "comment", "Replace request path"),
 					resource.TestCheckResourceAttr("mcs_rewrite_action.test", "loadbalancer", "lb-002"),
 				),
+			},
+			{
+				ResourceName:      "mcs_rewrite_action.test",
+				ImportState:       true,
+				ImportStateId:     "rw-act-001",
+				ImportStateVerify: true,
 			},
 		},
 	})
@@ -599,6 +686,12 @@ resource "mcs_rewrite_policy" "test" {
 					resource.TestCheckResourceAttr("mcs_rewrite_policy.test", "loadbalancer", "lb-002"),
 				),
 			},
+			{
+				ResourceName:      "mcs_rewrite_policy.test",
+				ImportState:       true,
+				ImportStateId:     "rw-pol-001",
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -627,7 +720,7 @@ func TestAccCsvServerResource_CRUD(t *testing.T) {
 			csv["name"] = req["name"]
 			csv["ufname"] = req["ufname"]
 			csv["type"] = req["type"]
-			for _, k := range []string{"ipaddress", "policies", "certificate"} {
+			for _, k := range []string{"ipaddress", "policies", "certificate", "port"} {
 				if v, ok := req[k]; ok {
 					csv[k] = v
 				} else {
@@ -644,7 +737,7 @@ func TestAccCsvServerResource_CRUD(t *testing.T) {
 			csv["name"] = req["name"]
 			csv["ufname"] = req["ufname"]
 			csv["type"] = req["type"]
-			for _, k := range []string{"ipaddress", "policies", "certificate"} {
+			for _, k := range []string{"ipaddress", "policies", "certificate", "port"} {
 				if v, ok := req[k]; ok {
 					csv[k] = v
 				} else {
@@ -665,7 +758,7 @@ func TestAccCsvServerResource_CRUD(t *testing.T) {
 resource "mcs_csv_server" "test" {
   name   = "my-csv"
   ufname = "my-csv-uf"
-  type   = "HTTP"
+  type   = "http"
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_csv_server.test", "id", "csv-001"),
@@ -679,7 +772,7 @@ resource "mcs_csv_server" "test" {
 resource "mcs_csv_server" "test" {
   name        = "my-csv"
   ufname      = "my-csv-uf"
-  type        = "HTTP"
+  type        = "http"
   ipaddress   = "pip-uuid-1"
   policies    = ["pol-1"]
   certificate = ["cert-1"]
@@ -690,6 +783,12 @@ resource "mcs_csv_server" "test" {
 					resource.TestCheckResourceAttr("mcs_csv_server.test", "certificate.#", "1"),
 					resource.TestCheckResourceAttr("mcs_csv_server.test", "certificate.0", "cert-1"),
 				),
+			},
+			{
+				ResourceName:      "mcs_csv_server.test",
+				ImportState:       true,
+				ImportStateId:     "csv-001",
+				ImportStateVerify: true,
 			},
 		},
 	})
@@ -780,6 +879,12 @@ resource "mcs_firewall_object" "test" {
 					resource.TestCheckResourceAttr("mcs_firewall_object.test", "subnet", "255.255.255.0"),
 				),
 			},
+			{
+				ResourceName:      "mcs_firewall_object.test",
+				ImportState:       true,
+				ImportStateId:     "test-domain/test-obj",
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -858,6 +963,12 @@ resource "mcs_firewall_object_group" "test" {
 					resource.TestCheckResourceAttr("mcs_firewall_object_group.test", "uuid", "grp-uuid-001"),
 					resource.TestCheckResourceAttr("mcs_firewall_object_group.test", "member.#", "2"),
 				),
+			},
+			{
+				ResourceName:      "mcs_firewall_object_group.test",
+				ImportState:       true,
+				ImportStateId:     "test-domain/test-group",
+				ImportStateVerify: true,
 			},
 		},
 	})
@@ -942,6 +1053,12 @@ resource "mcs_firewall_rule" "test" {
 					resource.TestCheckResourceAttr("mcs_firewall_rule.test", "policyid", "100"),
 					resource.TestCheckResourceAttr("mcs_firewall_rule.test", "service.0", "HTTPS"),
 				),
+			},
+			{
+				ResourceName:      "mcs_firewall_rule.test",
+				ImportState:       true,
+				ImportStateId:     "test-domain/100",
+				ImportStateVerify: true,
 			},
 		},
 	})
@@ -1042,6 +1159,12 @@ resource "mcs_firewall_service" "test" {
 					resource.TestCheckResourceAttr("mcs_firewall_service.test", "tcp_portrange.1", "8443"),
 				),
 			},
+			{
+				ResourceName:      "mcs_firewall_service.test",
+				ImportState:       true,
+				ImportStateId:     "test-domain/https-svc",
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -1121,6 +1244,12 @@ resource "mcs_firewall_service_group" "test" {
 					resource.TestCheckResourceAttr("mcs_firewall_service_group.test", "member.#", "2"),
 				),
 			},
+			{
+				ResourceName:      "mcs_firewall_service_group.test",
+				ImportState:       true,
+				ImportStateId:     "test-domain/web-services",
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -1169,6 +1298,12 @@ resource "mcs_lb_monitor" "test" {
 					resource.TestCheckResourceAttr("mcs_lb_monitor.test", "id", "mon-001"),
 					resource.TestCheckResourceAttr("mcs_lb_monitor.test", "name", "http-monitor"),
 				),
+			},
+			{
+				ResourceName:      "mcs_lb_monitor.test",
+				ImportState:       true,
+				ImportStateId:     "mon-001",
+				ImportStateVerify: true,
 			},
 		},
 	})
@@ -1258,6 +1393,12 @@ resource "mcs_lb_servicegroup" "test" {
 					resource.TestCheckResourceAttr("mcs_lb_servicegroup.test", "members.0", "member-ccc"),
 				),
 			},
+			{
+				ResourceName:      "mcs_lb_servicegroup.test",
+				ImportState:       true,
+				ImportStateId:     "sg-001",
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -1315,6 +1456,12 @@ resource "mcs_lb_servicegroup_member" "test" {
 					resource.TestCheckResourceAttr("mcs_lb_servicegroup_member.test", "address", "10.0.0.5"),
 				),
 			},
+			{
+				ResourceName:      "mcs_lb_servicegroup_member.test",
+				ImportState:       true,
+				ImportStateId:     "sgm-001",
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -1341,6 +1488,9 @@ func TestAccLbvServerResource_CRUD(t *testing.T) {
 			_ = json.Unmarshal(body, &req)
 			lbv["name"] = req["name"]
 			lbv["servicegroup"] = req["servicegroup"]
+			if v, ok := req["type"]; ok {
+				lbv["type"] = v
+			}
 			if v, ok := req["ipaddress"]; ok {
 				lbv["ipaddress"] = v
 			} else {
@@ -1360,6 +1510,9 @@ func TestAccLbvServerResource_CRUD(t *testing.T) {
 			_ = json.Unmarshal(body, &req)
 			lbv["name"] = req["name"]
 			lbv["servicegroup"] = req["servicegroup"]
+			if v, ok := req["type"]; ok {
+				lbv["type"] = v
+			}
 			if v, ok := req["ipaddress"]; ok {
 				lbv["ipaddress"] = v
 			} else {
@@ -1404,6 +1557,12 @@ resource "mcs_lbv_server" "test" {
 					resource.TestCheckResourceAttr("mcs_lbv_server.test", "certificate.#", "1"),
 					resource.TestCheckResourceAttr("mcs_lbv_server.test", "certificate.0", "cert-1"),
 				),
+			},
+			{
+				ResourceName:      "mcs_lbv_server.test",
+				ImportState:       true,
+				ImportStateId:     "lbv-001",
+				ImportStateVerify: true,
 			},
 		},
 	})
@@ -1457,6 +1616,12 @@ resource "mcs_monitor_ip" "test" {
 					resource.TestCheckResourceAttr("mcs_monitor_ip.test", "ipaddress", "10.0.0.100"),
 				),
 			},
+			{
+				ResourceName:      "mcs_monitor_ip.test",
+				ImportState:       true,
+				ImportStateId:     "mip-001",
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -1478,6 +1643,7 @@ func TestAccSiteToSiteVPNResource_CRUD(t *testing.T) {
 			resp := map[string]interface{}{
 				"id": 7, "uuid": "vpn-uuid-001", "name": req["name"],
 				"state": req["state"], "last_status": req["last_status"],
+				"domain": req["domain"], "tenant": req["tenant"],
 				"resets": req["resets"], "last_check": req["last_check"],
 				"last_reset":           req["last_reset"],
 				"created_at_timestamp": "2025-01-01T00:00:00Z",
@@ -1488,6 +1654,7 @@ func TestAccSiteToSiteVPNResource_CRUD(t *testing.T) {
 		case http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"id": 7, "uuid": "vpn-uuid-001", "name": "hq-to-branch",
+				"domain": 1, "tenant": 2,
 				"state": "up", "last_status": "ok", "resets": 0,
 				"last_check": "2025-01-01T12:00:00Z", "last_reset": "",
 				"created_at_timestamp": "2025-01-01T00:00:00Z",
@@ -1514,6 +1681,8 @@ func TestAccSiteToSiteVPNResource_CRUD(t *testing.T) {
 				Config: providerConfigBlock(mock.URL()) + `
 resource "mcs_site_to_site_vpn" "test" {
   name        = "hq-to-branch"
+  domain      = 1
+  tenant      = 2
   state       = "up"
   last_status = "ok"
   resets      = 0
@@ -1524,65 +1693,15 @@ resource "mcs_site_to_site_vpn" "test" {
 					resource.TestCheckResourceAttr("mcs_site_to_site_vpn.test", "id", "7"),
 					resource.TestCheckResourceAttr("mcs_site_to_site_vpn.test", "name", "hq-to-branch"),
 					resource.TestCheckResourceAttr("mcs_site_to_site_vpn.test", "uuid", "vpn-uuid-001"),
+					resource.TestCheckResourceAttr("mcs_site_to_site_vpn.test", "domain", "1"),
+					resource.TestCheckResourceAttr("mcs_site_to_site_vpn.test", "tenant", "2"),
 				),
 			},
-		},
-	})
-}
-
-// ---------------------------------------------------------------------------
-// mcs_virtual_datacenter
-// ---------------------------------------------------------------------------
-
-func TestAccVirtualDatacenterResource_CRUD(t *testing.T) {
-	mock := newMockAPIServer()
-	defer mock.Close()
-
-	mock.On("/api/virtualization/virtualdatacenter", func(w http.ResponseWriter, r *http.Request, body []byte) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.Method {
-		case http.MethodPost:
-			var req map[string]interface{}
-			_ = json.Unmarshal(body, &req)
-			resp := map[string]interface{}{
-				"id": "vdc-001", "name": req["name"], "customer": req["customer"],
-				"created_at_timestamp": "2025-01-01T00:00:00Z",
-				"updated_at_timestamp": "2025-01-01T00:00:00Z",
-			}
-			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(resp)
-		case http.MethodGet:
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"id": "vdc-001", "name": "prod-dc", "customer": "acme",
-				"created_at_timestamp": "2025-01-01T00:00:00Z",
-				"updated_at_timestamp": "2025-01-01T00:00:00Z",
-			})
-		case http.MethodPut:
-			var req map[string]interface{}
-			_ = json.Unmarshal(body, &req)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"id": "vdc-001", "name": req["name"], "customer": req["customer"],
-				"created_at_timestamp": "2025-01-01T00:00:00Z",
-				"updated_at_timestamp": "2025-01-01T00:00:00Z",
-			})
-		case http.MethodDelete:
-			w.WriteHeader(http.StatusNoContent)
-		}
-	})
-
-	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
-		Steps: []resource.TestStep{
 			{
-				Config: providerConfigBlock(mock.URL()) + `
-resource "mcs_virtual_datacenter" "test" {
-  name     = "prod-dc"
-  customer = "acme"
-}`,
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("mcs_virtual_datacenter.test", "id", "vdc-001"),
-					resource.TestCheckResourceAttr("mcs_virtual_datacenter.test", "name", "prod-dc"),
-				),
+				ResourceName:      "mcs_site_to_site_vpn.test",
+				ImportState:       true,
+				ImportStateId:     "7",
+				ImportStateVerify: true,
 			},
 		},
 	})
@@ -1641,6 +1760,12 @@ resource "mcs_nat_translation" "test" {
 					resource.TestCheckResourceAttr("mcs_nat_translation.test", "enabled", "true"),
 				),
 			},
+			{
+				ResourceName:      "mcs_nat_translation.test",
+				ImportState:       true,
+				ImportStateId:     "nat-001",
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
@@ -1691,6 +1816,12 @@ resource "mcs_public_ip_address" "test" {
 					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "pool", "pool-uuid-1"),
 					resource.TestCheckResourceAttr("mcs_public_ip_address.test", "type", "nat"),
 				),
+			},
+			{
+				ResourceName:      "mcs_public_ip_address.test",
+				ImportState:       true,
+				ImportStateId:     "pip-001",
+				ImportStateVerify: true,
 			},
 		},
 	})
@@ -1759,6 +1890,12 @@ resource "mcs_dns_entry" "test" {
 					resource.TestCheckResourceAttr("mcs_dns_entry.test", "content", "192.0.2.1"),
 					resource.TestCheckResourceAttr("mcs_dns_entry.test", "expire", "300"),
 				),
+			},
+			{
+				ResourceName:      "mcs_dns_entry.test",
+				ImportState:       true,
+				ImportStateId:     domainUUID + "/www/A/192.0.2.1",
+				ImportStateVerify: true,
 			},
 		},
 	})

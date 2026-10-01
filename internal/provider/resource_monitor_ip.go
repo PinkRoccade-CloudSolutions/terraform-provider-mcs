@@ -4,15 +4,22 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
-var _ resource.Resource = &MonitorIPResource{}
+var (
+	_ resource.Resource                = &MonitorIPResource{}
+	_ resource.ResourceWithImportState = &MonitorIPResource{}
+)
 
 type MonitorIPResource struct {
 	client *apiclient.Client
@@ -23,19 +30,19 @@ type monitorIPModel struct {
 	IpAddress          types.String `tfsdk:"ipaddress"`
 	Timestamp          types.String `tfsdk:"timestamp"`
 	NotifyEmail        types.String `tfsdk:"notify_email"`
-	LastCheckTimestamp  types.String `tfsdk:"last_check_timestamp"`
+	LastCheckTimestamp types.String `tfsdk:"last_check_timestamp"`
 	Customer           types.String `tfsdk:"customer"`
 	Comment            types.String `tfsdk:"comment"`
 }
 
 type monitorIPAPIModel struct {
-	Id                 string  `json:"id,omitempty"`
-	IpAddress          string  `json:"ipaddress"`
-	Timestamp          string  `json:"timestamp,omitempty"`
-	NotifyEmail        *string `json:"notify_email,omitempty"`
-	LastCheckTimestamp  string  `json:"last_check_timestamp,omitempty"`
-	Customer           string  `json:"customer"`
-	Comment            *string `json:"comment,omitempty"`
+	Id                 string `json:"id,omitempty"`
+	IpAddress          string `json:"ipaddress"`
+	Timestamp          string `json:"timestamp,omitempty"`
+	NotifyEmail        string `json:"notify_email"`
+	LastCheckTimestamp string `json:"last_check_timestamp,omitempty"`
+	Customer           string `json:"customer"`
+	Comment            string `json:"comment"`
 }
 
 func NewMonitorIPResource() resource.Resource {
@@ -56,7 +63,8 @@ func (r *MonitorIPResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				},
 			},
 			"ipaddress": schema.StringAttribute{
-				Required: true,
+				Required:   true,
+				Validators: []validator.String{stringvalidator.LengthAtMost(255)},
 			},
 			"timestamp": schema.StringAttribute{
 				Computed: true,
@@ -65,7 +73,11 @@ func (r *MonitorIPResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				},
 			},
 			"notify_email": schema.StringAttribute{
-				Optional: true,
+				Optional:    true,
+				Computed:    true,
+				Default:     stringdefault.StaticString(""),
+				Description: "Additional comma-separated email addresses to notify.",
+				Validators:  []validator.String{stringvalidator.LengthAtMost(255)},
 			},
 			"last_check_timestamp": schema.StringAttribute{
 				Computed: true,
@@ -78,6 +90,8 @@ func (r *MonitorIPResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			},
 			"comment": schema.StringAttribute{
 				Optional: true,
+				Computed: true,
+				Default:  stringdefault.StaticString(""),
 			},
 		},
 	}
@@ -100,16 +114,10 @@ func (r *MonitorIPResource) Configure(_ context.Context, req resource.ConfigureR
 
 func monitorIPBodyFromPlan(plan *monitorIPModel) monitorIPAPIModel {
 	body := monitorIPAPIModel{
-		IpAddress: plan.IpAddress.ValueString(),
-		Customer:  plan.Customer.ValueString(),
-	}
-	if !plan.NotifyEmail.IsNull() && !plan.NotifyEmail.IsUnknown() {
-		v := plan.NotifyEmail.ValueString()
-		body.NotifyEmail = &v
-	}
-	if !plan.Comment.IsNull() && !plan.Comment.IsUnknown() {
-		v := plan.Comment.ValueString()
-		body.Comment = &v
+		IpAddress:   plan.IpAddress.ValueString(),
+		Customer:    plan.Customer.ValueString(),
+		NotifyEmail: plan.NotifyEmail.ValueString(),
+		Comment:     plan.Comment.ValueString(),
 	}
 	return body
 }
@@ -118,18 +126,10 @@ func monitorIPStateFromAPI(result *monitorIPAPIModel, state *monitorIPModel) {
 	state.Id = types.StringValue(result.Id)
 	state.IpAddress = types.StringValue(result.IpAddress)
 	state.Timestamp = types.StringValue(result.Timestamp)
-	if result.NotifyEmail != nil {
-		state.NotifyEmail = types.StringValue(*result.NotifyEmail)
-	} else {
-		state.NotifyEmail = types.StringNull()
-	}
+	state.NotifyEmail = types.StringValue(result.NotifyEmail)
 	state.LastCheckTimestamp = types.StringValue(result.LastCheckTimestamp)
 	state.Customer = types.StringValue(result.Customer)
-	if result.Comment != nil {
-		state.Comment = types.StringValue(*result.Comment)
-	} else {
-		state.Comment = types.StringNull()
-	}
+	state.Comment = types.StringValue(result.Comment)
 }
 
 func (r *MonitorIPResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -208,4 +208,8 @@ func (r *MonitorIPResource) Delete(ctx context.Context, req resource.DeleteReque
 		}
 		resp.Diagnostics.AddError("Error deleting monitor IP entry", err.Error())
 	}
+}
+
+func (r *MonitorIPResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

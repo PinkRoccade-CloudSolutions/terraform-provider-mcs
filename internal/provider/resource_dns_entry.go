@@ -1,21 +1,28 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ resource.Resource = &DnsEntryResource{}
+var (
+	_ resource.Resource                = &DnsEntryResource{}
+	_ resource.ResourceWithImportState = &DnsEntryResource{}
+)
 
 type DnsEntryResource struct {
 	client *apiclient.Client
@@ -77,6 +84,7 @@ func (r *DnsEntryResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"expire": schema.Int64Attribute{
 				Required:      true,
 				Description:   "TTL in seconds (minimum 60, maximum 604800).",
+				Validators:    []validator.Int64{int64validator.Between(60, 604800)},
 				PlanModifiers: []planmodifier.Int64{int64planmodifier.RequiresReplace()},
 			},
 		},
@@ -106,7 +114,7 @@ func (r *DnsEntryResource) Create(ctx context.Context, req resource.CreateReques
 	apiReq := dnsEntryAPIModel{
 		Name:    plan.Name.ValueString(),
 		Type:    plan.Type.ValueString(),
-		Content: plan.Content.ValueString(),
+		Content: dnsEntryUnquote(plan.Type.ValueString(), plan.Content.ValueString()),
 		Expire:  int(plan.Expire.ValueInt64()),
 	}
 
@@ -118,7 +126,7 @@ func (r *DnsEntryResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	plan.Id = types.StringValue(buildDnsEntryID(domainUUID, apiResp.Name, apiResp.Type, apiResp.Content))
+	plan.Id = types.StringValue(buildDnsEntryID(domainUUID, plan.Name.ValueString(), plan.Type.ValueString(), plan.Content.ValueString()))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -131,7 +139,7 @@ func (r *DnsEntryResource) Read(ctx context.Context, req resource.ReadRequest, r
 	}
 
 	domainUUID := state.DomainUUID.ValueString()
-	raw, err := r.client.ListAll(ctx, fmt.Sprintf("/api/dns/domains/%s/entries/", domainUUID))
+	entries, err := r.listEntries(ctx, domainUUID)
 	if err != nil {
 		if apiclient.IsNotFound(err) {
 			resp.State.RemoveResource(ctx)
@@ -146,14 +154,10 @@ func (r *DnsEntryResource) Read(ctx context.Context, req resource.ReadRequest, r
 	wantContent := state.Content.ValueString()
 
 	var found *dnsEntryAPIModel
-	for _, item := range raw {
-		var entry dnsEntryAPIModel
-		if err := json.Unmarshal(item, &entry); err != nil {
-			resp.Diagnostics.AddError("Error parsing DNS entry", err.Error())
-			return
-		}
-		if entry.Name == wantName && entry.Type == wantType && entry.Content == wantContent {
-			found = &entry
+	for i := range entries {
+		if entries[i].Name == wantName && entries[i].Type == wantType &&
+			dnsEntryUnquote(wantType, entries[i].Content) == dnsEntryUnquote(wantType, wantContent) {
+			found = &entries[i]
 			break
 		}
 	}
@@ -165,9 +169,9 @@ func (r *DnsEntryResource) Read(ctx context.Context, req resource.ReadRequest, r
 
 	state.Name = types.StringValue(found.Name)
 	state.Type = types.StringValue(found.Type)
-	state.Content = types.StringValue(found.Content)
+	// Keep the content as configured: for TXT records it may differ from the API's only in quoting.
 	state.Expire = types.Int64Value(int64(found.Expire))
-	state.Id = types.StringValue(buildDnsEntryID(domainUUID, found.Name, found.Type, found.Content))
+	state.Id = types.StringValue(buildDnsEntryID(domainUUID, found.Name, found.Type, wantContent))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -189,7 +193,7 @@ func (r *DnsEntryResource) Delete(ctx context.Context, req resource.DeleteReques
 	apiReq := dnsEntryAPIModel{
 		Name:    state.Name.ValueString(),
 		Type:    state.Type.ValueString(),
-		Content: state.Content.ValueString(),
+		Content: dnsEntryUnquote(state.Type.ValueString(), state.Content.ValueString()),
 		Expire:  int(state.Expire.ValueInt64()),
 	}
 
@@ -204,6 +208,49 @@ func (r *DnsEntryResource) Delete(ctx context.Context, req resource.DeleteReques
 	}
 }
 
+// dnsEntryUnquote strips one surrounding pair of double quotes from TXT content. MCS adds the
+// quotes itself when writing to PowerDNS (pre-quoted content is rejected) and returns TXT content
+// quoted, so content is compared and sent without them.
+func dnsEntryUnquote(entryType, content string) string {
+	if strings.EqualFold(entryType, "TXT") && len(content) >= 2 && content[0] == '"' && content[len(content)-1] == '"' {
+		return content[1 : len(content)-1]
+	}
+	return content
+}
+
 func buildDnsEntryID(domainUUID, name, entryType, content string) string {
 	return strings.Join([]string{domainUUID, name, entryType, content}, "/")
+}
+
+// listEntries fetches the entries of a domain. The spec documents a bare JSON array, but the
+// paginated {results} envelope is accepted as well.
+func (r *DnsEntryResource) listEntries(ctx context.Context, domainUUID string) ([]dnsEntryAPIModel, error) {
+	path := fmt.Sprintf("/api/dns/domains/%s/entries/", domainUUID)
+	var raw json.RawMessage
+	if err := r.client.Get(ctx, path, &raw); err != nil {
+		return nil, err
+	}
+	if trimmed := bytes.TrimSpace(raw); len(trimmed) > 0 && trimmed[0] == '[' {
+		var entries []dnsEntryAPIModel
+		if err := json.Unmarshal(trimmed, &entries); err != nil {
+			return nil, fmt.Errorf("parsing DNS entries: %w", err)
+		}
+		return entries, nil
+	}
+	return listAll[dnsEntryAPIModel](ctx, r.client, path)
+}
+
+// ImportState takes the composite id "<domain_uuid>/<name>/<type>/<content>". There is no
+// single-entry GET, so Read matches name, type and content exactly against the zone's entries;
+// content is the last part and may itself contain slashes.
+func (r *DnsEntryResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	parts, ok := parseImportID(req.ID, 4, "<domain_uuid>/<name>/<type>/<content>", &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("domain_uuid"), parts[0])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), parts[1])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("type"), parts[2])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("content"), parts[3])...)
 }

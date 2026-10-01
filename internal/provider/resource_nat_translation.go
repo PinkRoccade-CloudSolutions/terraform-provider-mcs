@@ -2,52 +2,113 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
-var _ resource.Resource = &NATTranslationResource{}
+var (
+	_ resource.Resource                = &NATTranslationResource{}
+	_ resource.ResourceWithImportState = &NATTranslationResource{}
+)
 
 type NATTranslationResource struct {
 	client *apiclient.Client
 }
 
 type NATTranslationResourceModel struct {
-	Id              types.String `tfsdk:"id"`
-	PublicIP        types.String `tfsdk:"public_ip"`
-	Interface       types.String `tfsdk:"interface"`
-	Firewall        types.String `tfsdk:"firewall"`
-	PrivateIP       types.String `tfsdk:"private_ip"`
-	TranslationType types.String `tfsdk:"translation_type"`
-	PublicPort      types.Int64  `tfsdk:"public_port"`
-	PrivatePort     types.Int64  `tfsdk:"private_port"`
-	Protocol        types.String `tfsdk:"protocol"`
-	Customer        types.String `tfsdk:"customer"`
-	Description     types.String `tfsdk:"description"`
-	Enabled         types.Bool   `tfsdk:"enabled"`
+	Id                      types.String `tfsdk:"id"`
+	PublicIP                types.String `tfsdk:"public_ip"`
+	Interface               types.String `tfsdk:"interface"`
+	Firewall                types.String `tfsdk:"firewall"`
+	Translation             types.String `tfsdk:"translation"`
+	PrivateIP               types.String `tfsdk:"private_ip"`
+	TranslationType         types.String `tfsdk:"translation_type"`
+	PublicPort              types.Int64  `tfsdk:"public_port"`
+	PrivatePort             types.Int64  `tfsdk:"private_port"`
+	Protocol                types.String `tfsdk:"protocol"`
+	Customer                types.String `tfsdk:"customer"`
+	Description             types.String `tfsdk:"description"`
+	State                   types.String `tfsdk:"state"`
+	Enabled                 types.Bool   `tfsdk:"enabled"`
+	SnatSourceAddresses     types.List   `tfsdk:"snat_source_addresses"`
+	SnatTranslatedAddresses types.List   `tfsdk:"snat_translated_addresses"`
 }
 
 type natTranslationAPIModel struct {
-	Id              string `json:"id,omitempty"`
-	PublicIP        string `json:"public_ip"`
-	Interface       string `json:"interface"`
-	Firewall        string `json:"firewall"`
-	Translation     string `json:"translation,omitempty"`
-	PrivateIP       string `json:"private_ip,omitempty"`
-	TranslationType string `json:"translation_type"`
-	PublicPort      *int64 `json:"public_port"`
-	PrivatePort     *int64 `json:"private_port"`
-	Protocol        string `json:"protocol,omitempty"`
-	Customer        string `json:"customer"`
-	Description     string `json:"description,omitempty"`
-	State           string `json:"state,omitempty"`
-	Enabled         bool   `json:"enabled"`
+	Id                      string          `json:"id,omitempty"`
+	PublicIP                *string         `json:"public_ip"`
+	Interface               *string         `json:"interface"`
+	Firewall                string          `json:"firewall"`
+	Translation             string          `json:"translation,omitempty"`
+	PrivateIP               string          `json:"private_ip,omitempty"`
+	TranslationType         string          `json:"translation_type"`
+	PublicPort              *int64          `json:"public_port"`
+	PrivatePort             *int64          `json:"private_port"`
+	Protocol                *string         `json:"protocol,omitempty"`
+	Customer                string          `json:"customer"`
+	Description             *string         `json:"description,omitempty"`
+	State                   string          `json:"state,omitempty"`
+	Enabled                 *bool           `json:"enabled,omitempty"`
+	SnatSourceAddresses     *natAddressList `json:"snat_source_addresses,omitempty"`
+	SnatTranslatedAddresses *natAddressList `json:"snat_translated_addresses,omitempty"`
+}
+
+// natAddressList decodes the snat_* fields, which the spec leaves untyped: a JSON array of
+// strings, a single comma/whitespace separated string, or null.
+type natAddressList []string
+
+func (l *natAddressList) UnmarshalJSON(b []byte) error {
+	var arr []string
+	if err := json.Unmarshal(b, &arr); err == nil {
+		*l = arr
+		return nil
+	}
+	var s *string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("expected a list of strings or a string: %w", err)
+	}
+	if s == nil {
+		*l = nil
+		return nil
+	}
+	*l = strings.FieldsFunc(*s, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' })
+	return nil
+}
+
+func (l *natAddressList) values() []string {
+	if l == nil {
+		return nil
+	}
+	return *l
+}
+
+func natAddressListPtr(v *[]string) *natAddressList {
+	if v == nil {
+		return nil
+	}
+	l := natAddressList(*v)
+	return &l
+}
+
+func natStringValue(s *string) types.String {
+	if s == nil {
+		return types.StringValue("")
+	}
+	return types.StringValue(*s)
 }
 
 func NewNATTranslationResource() resource.Resource {
@@ -59,6 +120,8 @@ func (r *NATTranslationResource) Metadata(_ context.Context, req resource.Metada
 }
 
 func (r *NATTranslationResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	portValidators := []validator.Int64{int64validator.Between(0, 4294967295)}
+
 	resp.Schema = schema.Schema{
 		Description: "Manages a NAT translation in MCS.",
 		Attributes: map[string]schema.Attribute{
@@ -68,16 +131,21 @@ func (r *NATTranslationResource) Schema(_ context.Context, _ resource.SchemaRequ
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"public_ip": schema.StringAttribute{
-				Required:    true,
+				Optional:    true,
 				Description: "UUID of the public IP address.",
 			},
 			"interface": schema.StringAttribute{
-				Required:    true,
+				Optional:    true,
 				Description: "UUID of the private interface.",
 			},
 			"firewall": schema.StringAttribute{
-				Required:    true,
-				Description: "UUID of the firewall.",
+				Required:      true,
+				Description:   "UUID of the firewall. Changing this forces a new resource.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
+			"translation": schema.StringAttribute{
+				Computed:    true,
+				Description: "Human-readable translation summary (read-only).",
 			},
 			"private_ip": schema.StringAttribute{
 				Computed:    true,
@@ -85,34 +153,57 @@ func (r *NATTranslationResource) Schema(_ context.Context, _ resource.SchemaRequ
 			},
 			"translation_type": schema.StringAttribute{
 				Required:    true,
-				Description: "Translation type: one_to_one or port_forward.",
+				Description: "Translation type: one_to_one, port_forward or snat.",
+				Validators:  []validator.String{stringvalidator.OneOf("one_to_one", "port_forward", "snat")},
 			},
 			"public_port": schema.Int64Attribute{
 				Optional:    true,
 				Description: "Public port (required for port_forward).",
+				Validators:  portValidators,
 			},
 			"private_port": schema.Int64Attribute{
 				Optional:    true,
 				Description: "Private port (required for port_forward).",
+				Validators:  portValidators,
 			},
 			"protocol": schema.StringAttribute{
-				Optional:    true,
-				Computed:    true,
-				Description: "Protocol: tcp or udp.",
+				Optional:      true,
+				Computed:      true,
+				Description:   "Protocol: tcp, udp or empty.",
+				Validators:    []validator.String{stringvalidator.OneOf("tcp", "udp", "")},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"customer": schema.StringAttribute{
-				Required:    true,
-				Description: "Customer identifier.",
+				Required:      true,
+				Description:   "Customer identifier. Changing this forces a new resource.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"description": schema.StringAttribute{
-				Optional:    true,
+				Optional:      true,
+				Computed:      true,
+				Description:   "Description of the NAT translation.",
+				Validators:    []validator.String{stringvalidator.LengthAtMost(255)},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"state": schema.StringAttribute{
 				Computed:    true,
-				Description: "Description of the NAT translation.",
+				Description: "Synchronisation state: synced, unsynced, error or deleted.",
 			},
 			"enabled": schema.BoolAttribute{
+				Optional:      true,
+				Computed:      true,
+				Description:   "Whether the NAT translation is enabled. Defaults to true on create.",
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+			},
+			"snat_source_addresses": schema.ListAttribute{
+				ElementType: types.StringType,
 				Optional:    true,
-				Computed:    true,
-				Description: "Whether the NAT translation is enabled.",
+				Description: "Source IP addresses or subnets to apply SNAT to (translation_type snat only).",
+			},
+			"snat_translated_addresses": schema.ListAttribute{
+				ElementType: types.StringType,
+				Optional:    true,
+				Description: "IP addresses used as the SNAT translation pool (translation_type snat only).",
 			},
 		},
 	}
@@ -138,7 +229,10 @@ func (r *NATTranslationResource) Create(ctx context.Context, req resource.Create
 		return
 	}
 
-	apiReq := buildNATAPIRequest(&plan)
+	apiReq := buildNATAPIRequest(ctx, &plan, nil, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	var apiResp natTranslationAPIModel
 	err := r.client.Post(ctx, "/api/networking/nattranslations/", apiReq, &apiResp)
@@ -147,7 +241,7 @@ func (r *NATTranslationResource) Create(ctx context.Context, req resource.Create
 		return
 	}
 
-	mapNATToState(&plan, &apiResp)
+	mapNATToState(ctx, &plan, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -169,27 +263,31 @@ func (r *NATTranslationResource) Read(ctx context.Context, req resource.ReadRequ
 		return
 	}
 
-	mapNATToState(&state, &apiResp)
+	mapNATToState(ctx, &state, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *NATTranslationResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan NATTranslationResourceModel
+	var plan, state NATTranslationResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	apiReq := buildNATAPIRequest(&plan)
+	apiReq := buildNATAPIRequest(ctx, &plan, &state, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	var apiResp natTranslationAPIModel
-	err := r.client.Put(ctx, fmt.Sprintf("/api/networking/nattranslations/%s/", plan.Id.ValueString()), apiReq, &apiResp)
+	err := r.client.Put(ctx, fmt.Sprintf("/api/networking/nattranslations/%s/", state.Id.ValueString()), apiReq, &apiResp)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating NAT translation", err.Error())
 		return
 	}
 
-	mapNATToState(&plan, &apiResp)
+	mapNATToState(ctx, &plan, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -209,54 +307,58 @@ func (r *NATTranslationResource) Delete(ctx context.Context, req resource.Delete
 	}
 }
 
-func buildNATAPIRequest(plan *NATTranslationResourceModel) natTranslationAPIModel {
+// buildNATAPIRequest builds the request body; state is nil on create.
+func buildNATAPIRequest(ctx context.Context, plan, state *NATTranslationResourceModel, diags *diag.Diagnostics) natTranslationAPIModel {
 	apiReq := natTranslationAPIModel{
-		PublicIP:         plan.PublicIP.ValueString(),
-		Interface:        plan.Interface.ValueString(),
-		Firewall:         plan.Firewall.ValueString(),
-		TranslationType:  plan.TranslationType.ValueString(),
-		Customer:         plan.Customer.ValueString(),
-		Enabled:          true,
+		PublicIP:        stringPtr(plan.PublicIP),
+		Interface:       stringPtr(plan.Interface),
+		Firewall:        plan.Firewall.ValueString(),
+		TranslationType: plan.TranslationType.ValueString(),
+		PublicPort:      int64Ptr(plan.PublicPort),
+		PrivatePort:     int64Ptr(plan.PrivatePort),
+		Protocol:        stringPtr(plan.Protocol),
+		Customer:        plan.Customer.ValueString(),
+		Description:     stringPtr(plan.Description),
+		Enabled:         boolPtr(plan.Enabled),
 	}
-	if !plan.PublicPort.IsNull() {
-		v := plan.PublicPort.ValueInt64()
-		apiReq.PublicPort = &v
+	if apiReq.Enabled == nil && state == nil {
+		enabled := true
+		apiReq.Enabled = &enabled
 	}
-	if !plan.PrivatePort.IsNull() {
-		v := plan.PrivatePort.ValueInt64()
-		apiReq.PrivatePort = &v
-	}
-	if !plan.Protocol.IsNull() {
-		apiReq.Protocol = plan.Protocol.ValueString()
-	}
-	if !plan.Description.IsNull() {
-		apiReq.Description = plan.Description.ValueString()
-	}
-	if !plan.Enabled.IsNull() {
-		apiReq.Enabled = plan.Enabled.ValueBool()
+
+	if state == nil {
+		apiReq.SnatSourceAddresses = natAddressListPtr(listElems[string](ctx, plan.SnatSourceAddresses, diags))
+		apiReq.SnatTranslatedAddresses = natAddressListPtr(listElems[string](ctx, plan.SnatTranslatedAddresses, diags))
+	} else {
+		apiReq.SnatSourceAddresses = natAddressListPtr(listElemsForUpdate[string](ctx, plan.SnatSourceAddresses, state.SnatSourceAddresses, diags))
+		apiReq.SnatTranslatedAddresses = natAddressListPtr(listElemsForUpdate[string](ctx, plan.SnatTranslatedAddresses, state.SnatTranslatedAddresses, diags))
 	}
 	return apiReq
 }
 
-func mapNATToState(state *NATTranslationResourceModel, api *natTranslationAPIModel) {
+func mapNATToState(ctx context.Context, state *NATTranslationResourceModel, api *natTranslationAPIModel, diags *diag.Diagnostics) {
 	state.Id = types.StringValue(api.Id)
-	state.PublicIP = types.StringValue(api.PublicIP)
-	state.Interface = types.StringValue(api.Interface)
+	state.PublicIP = types.StringPointerValue(api.PublicIP)
+	state.Interface = types.StringPointerValue(api.Interface)
 	state.Firewall = types.StringValue(api.Firewall)
+	state.Translation = types.StringValue(api.Translation)
 	state.PrivateIP = types.StringValue(api.PrivateIP)
 	state.TranslationType = types.StringValue(api.TranslationType)
-	state.Protocol = types.StringValue(api.Protocol)
+	state.PublicPort = types.Int64PointerValue(api.PublicPort)
+	state.PrivatePort = types.Int64PointerValue(api.PrivatePort)
+	state.Protocol = natStringValue(api.Protocol)
 	state.Customer = types.StringValue(api.Customer)
-	state.Description = types.StringValue(api.Description)
-	state.Enabled = types.BoolValue(api.Enabled)
-	if api.PublicPort != nil {
-		state.PublicPort = types.Int64Value(*api.PublicPort)
-	} else {
-		state.PublicPort = types.Int64Null()
+	state.Description = natStringValue(api.Description)
+	state.State = types.StringValue(api.State)
+	if api.Enabled != nil {
+		state.Enabled = types.BoolValue(*api.Enabled)
+	} else if state.Enabled.IsUnknown() {
+		state.Enabled = types.BoolNull()
 	}
-	if api.PrivatePort != nil {
-		state.PrivatePort = types.Int64Value(*api.PrivatePort)
-	} else {
-		state.PrivatePort = types.Int64Null()
-	}
+	state.SnatSourceAddresses = listValue(ctx, types.StringType, state.SnatSourceAddresses, api.SnatSourceAddresses.values(), diags)
+	state.SnatTranslatedAddresses = listValue(ctx, types.StringType, state.SnatTranslatedAddresses, api.SnatTranslatedAddresses.values(), diags)
+}
+
+func (r *NATTranslationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

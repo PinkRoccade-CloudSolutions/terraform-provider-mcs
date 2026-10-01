@@ -2,13 +2,15 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -19,9 +21,12 @@ type DnsDomainDataSource struct {
 }
 
 type DnsDomainDataSourceModel struct {
-	Name    types.String       `tfsdk:"name"`
-	Type    types.String       `tfsdk:"type"`
-	Domains []DnsDomainListModel `tfsdk:"domains"`
+	Name     types.String         `tfsdk:"name"`
+	Type     types.String         `tfsdk:"type"`
+	Customer types.String         `tfsdk:"customer"`
+	Provider types.Int64          `tfsdk:"provider_id"`
+	ZoneType types.String         `tfsdk:"zone_type"`
+	Domains  []DnsDomainListModel `tfsdk:"domains"`
 }
 
 type DnsDomainListModel struct {
@@ -30,18 +35,21 @@ type DnsDomainListModel struct {
 	Comment      types.String `tfsdk:"comment"`
 	Enddate      types.String `tfsdk:"enddate"`
 	Customer     types.String `tfsdk:"customer"`
+	ProviderID   types.Int64  `tfsdk:"provider_id"`
 	ProviderName types.String `tfsdk:"provider_name"`
 	Type         types.String `tfsdk:"type"`
+	ZoneType     types.String `tfsdk:"zone_type"`
 }
 
 type dnsDomainAPIModel struct {
-	UUID     string                  `json:"uuid"`
+	UUID     string                  `json:"uuid,omitempty"`
 	Name     string                  `json:"name"`
 	Comment  string                  `json:"comment"`
 	Enddate  *string                 `json:"enddate"`
 	Customer *string                 `json:"customer"`
 	Provider integrationMinimalModel `json:"provider"`
 	Type     string                  `json:"type"`
+	ZoneType string                  `json:"zone_type"`
 }
 
 type integrationMinimalModel struct {
@@ -64,12 +72,14 @@ func (d *DnsDomainDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 		"comment":       schema.StringAttribute{Computed: true, Description: "Comment for the domain."},
 		"enddate":       schema.StringAttribute{Computed: true, Description: "End date for the domain, if known."},
 		"customer":      schema.StringAttribute{Computed: true, Description: "Customer associated with the domain."},
+		"provider_id":   schema.Int64Attribute{Computed: true, Description: "ID of the DNS provider integration."},
 		"provider_name": schema.StringAttribute{Computed: true, Description: "Name of the DNS provider integration."},
 		"type":          schema.StringAttribute{Computed: true, Description: "Domain type: external or internal."},
+		"zone_type":     schema.StringAttribute{Computed: true, Description: "Zone type: forward or reverse."},
 	}
 
 	resp.Schema = schema.Schema{
-		Description: "Look up MCS DNS domains, optionally filtered by name or type.",
+		Description: "Look up MCS DNS domains, optionally filtered by name, type, zone type, customer or provider.",
 		Attributes: map[string]schema.Attribute{
 			"name": schema.StringAttribute{
 				Optional:    true,
@@ -78,6 +88,19 @@ func (d *DnsDomainDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 			"type": schema.StringAttribute{
 				Optional:    true,
 				Description: "Filter domains by type: 'external' or 'internal'.",
+			},
+			"customer": schema.StringAttribute{
+				Optional:    true,
+				Description: "Filter domains by customer.",
+			},
+			"provider_id": schema.Int64Attribute{
+				Optional:    true,
+				Description: "Filter domains by DNS provider integration ID.",
+			},
+			"zone_type": schema.StringAttribute{
+				Optional:    true,
+				Description: "Filter domains by zone type: 'forward' or 'reverse'.",
+				Validators:  []validator.String{stringvalidator.OneOf("forward", "reverse")},
 			},
 			"domains": schema.ListNestedAttribute{
 				Computed:    true,
@@ -118,51 +141,50 @@ func (d *DnsDomainDataSource) Read(ctx context.Context, req datasource.ReadReque
 	if !config.Type.IsNull() && config.Type.ValueString() != "" {
 		params.Set("type", config.Type.ValueString())
 	}
+	if !config.Customer.IsNull() && config.Customer.ValueString() != "" {
+		params.Set("customer", config.Customer.ValueString())
+	}
+	if !config.Provider.IsNull() {
+		params.Set("provider", strconv.FormatInt(config.Provider.ValueInt64(), 10))
+	}
+	if !config.ZoneType.IsNull() && config.ZoneType.ValueString() != "" {
+		params.Set("zone_type", config.ZoneType.ValueString())
+	}
 	if len(params) > 0 {
 		path += "?" + params.Encode()
 	}
 
-	raw, err := d.client.ListAll(ctx, path)
+	items, err := listAll[dnsDomainAPIModel](ctx, d.client, path)
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading DNS domains", err.Error())
 		return
 	}
 
 	state := DnsDomainDataSourceModel{
-		Name:    config.Name,
-		Type:    config.Type,
-		Domains: make([]DnsDomainListModel, 0, len(raw)),
+		Name:     config.Name,
+		Type:     config.Type,
+		Customer: config.Customer,
+		Provider: config.Provider,
+		ZoneType: config.ZoneType,
+		Domains:  make([]DnsDomainListModel, 0, len(items)),
 	}
-
-	for _, item := range raw {
-		var domain dnsDomainAPIModel
-		if err := json.Unmarshal(item, &domain); err != nil {
-			resp.Diagnostics.AddError("Error parsing DNS domain", err.Error())
-			return
-		}
-		state.Domains = append(state.Domains, dnsDomainToListModel(&domain))
+	for i := range items {
+		state.Domains = append(state.Domains, dnsDomainToListModel(&items[i]))
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func dnsDomainToListModel(item *dnsDomainAPIModel) DnsDomainListModel {
-	m := DnsDomainListModel{
+	return DnsDomainListModel{
 		UUID:         types.StringValue(item.UUID),
 		Name:         types.StringValue(item.Name),
 		Comment:      types.StringValue(item.Comment),
+		Enddate:      types.StringPointerValue(item.Enddate),
+		Customer:     types.StringPointerValue(item.Customer),
+		ProviderID:   types.Int64Value(int64(item.Provider.ID)),
 		ProviderName: types.StringValue(item.Provider.Name),
 		Type:         types.StringValue(item.Type),
+		ZoneType:     types.StringValue(item.ZoneType),
 	}
-	if item.Enddate != nil {
-		m.Enddate = types.StringValue(*item.Enddate)
-	} else {
-		m.Enddate = types.StringNull()
-	}
-	if item.Customer != nil {
-		m.Customer = types.StringValue(*item.Customer)
-	} else {
-		m.Customer = types.StringNull()
-	}
-	return m
 }

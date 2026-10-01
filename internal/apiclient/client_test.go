@@ -3,6 +3,7 @@ package apiclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -218,7 +219,9 @@ func TestClient_Patch_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	var result struct{ ID int `json:"id"` }
+	var result struct {
+		ID int `json:"id"`
+	}
 	err := c.Patch(context.Background(), "/api/items/1/", map[string]string{"name": "patched"}, &result)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -304,7 +307,9 @@ func TestClient_429_IsRetried(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	var result struct{ OK bool `json:"ok"` }
+	var result struct {
+		OK bool `json:"ok"`
+	}
 	err := c.Get(context.Background(), "/rate-limited/", &result)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -356,6 +361,67 @@ func TestClient_5xx_ExhaustsRetries(t *testing.T) {
 	}
 	if got := calls.Load(); got != int32(maxRetries)+1 {
 		t.Errorf("expected %d calls, got %d", maxRetries+1, got)
+	}
+}
+
+func TestClient_PostOnce_NotRetriedOn5xx(t *testing.T) {
+	var calls atomic.Int32
+	c, srv := testClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = fmt.Fprint(w, "bad gateway")
+	}))
+	defer srv.Close()
+
+	err := c.PostOnce(context.Background(), "/deploy/", map[string]string{"a": "b"}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadGateway {
+		t.Errorf("expected a 502 APIError, got: %v", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("expected exactly 1 call, got %d", got)
+	}
+}
+
+func TestClient_PostOnce_Success(t *testing.T) {
+	c, srv := testClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = fmt.Fprint(w, `{"job_id": 7}`)
+	}))
+	defer srv.Close()
+
+	var result struct {
+		JobID int `json:"job_id"`
+	}
+	if err := c.PostOnce(context.Background(), "/deploy/", nil, &result); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.JobID != 7 {
+		t.Errorf("job_id = %d, want 7", result.JobID)
+	}
+}
+
+func TestClient_DeleteWithResult_DecodesBody(t *testing.T) {
+	c, srv := testClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method = %s, want DELETE", r.Method)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = fmt.Fprint(w, `{"job_id": 9}`)
+	}))
+	defer srv.Close()
+
+	var result struct {
+		JobID int `json:"job_id"`
+	}
+	if err := c.DeleteWithResult(context.Background(), "/api/items/1/", &result); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.JobID != 9 {
+		t.Errorf("job_id = %d, want 9", result.JobID)
 	}
 }
 
@@ -450,6 +516,35 @@ func TestClient_ListAll_MultiplePages(t *testing.T) {
 	}
 	if len(items) != 3 {
 		t.Errorf("got %d items, want 3", len(items))
+	}
+}
+
+func TestClient_ListAll_BasePathPrefix(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("page") == "2" {
+			_, _ = fmt.Fprint(w, `{"count":2,"next":null,"previous":null,"results":[{"id":2}]}`)
+		} else {
+			nextURL := fmt.Sprintf("http://%s/mcs/api/things/?page=2", r.Host)
+			_, _ = fmt.Fprintf(w, `{"count":2,"next":"%s","previous":null,"results":[{"id":1}]}`, nextURL)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL+"/mcs", "test-token", false)
+	items, err := c.ListAll(context.Background(), "/api/things/")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 2 {
+		t.Errorf("got %d items, want 2", len(items))
+	}
+	for _, p := range paths {
+		if p != "/mcs/api/things/" {
+			t.Errorf("unexpected request path %q", p)
+		}
 	}
 }
 

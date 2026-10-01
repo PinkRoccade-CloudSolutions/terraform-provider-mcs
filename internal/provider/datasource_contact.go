@@ -3,12 +3,13 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strconv"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &ContactDataSource{}
@@ -18,15 +19,15 @@ type ContactDataSource struct {
 }
 
 type ContactDataSourceModel struct {
-	Id        types.String         `tfsdk:"id"`
-	Name      types.String         `tfsdk:"name"`
-	Company   types.String         `tfsdk:"company"`
-	Firstname types.String         `tfsdk:"firstname"`
-	Lastname  types.String         `tfsdk:"lastname"`
-	Email     types.String         `tfsdk:"email"`
-	Phone     types.String         `tfsdk:"phone"`
-	Address   types.String         `tfsdk:"address"`
-	Contacts  []ContactListModel   `tfsdk:"contacts"`
+	Id        types.String       `tfsdk:"id"`
+	Name      types.String       `tfsdk:"name"`
+	Company   types.String       `tfsdk:"company"`
+	Firstname types.String       `tfsdk:"firstname"`
+	Lastname  types.String       `tfsdk:"lastname"`
+	Email     types.String       `tfsdk:"email"`
+	Phone     types.String       `tfsdk:"phone"`
+	Address   types.String       `tfsdk:"address"`
+	Contacts  []ContactListModel `tfsdk:"contacts"`
 }
 
 type ContactListModel struct {
@@ -71,7 +72,7 @@ func (d *ContactDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 				Optional:    true,
 				Description: "Exact company name to match (maps to the company field).",
 			},
-			"company": schema.StringAttribute{Computed: true},
+			"company":   schema.StringAttribute{Computed: true},
 			"firstname": schema.StringAttribute{Computed: true},
 			"lastname":  schema.StringAttribute{Computed: true},
 			"email":     schema.StringAttribute{Computed: true},
@@ -119,10 +120,13 @@ func (d *ContactDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		return
 	}
 
-	var page struct {
-		Results []contactAPIModel `json:"results"`
+	path := "/api/tenant/contacts/"
+	if !config.Name.IsNull() && config.Name.ValueString() != "" {
+		path += "?company__icontains=" + url.QueryEscape(config.Name.ValueString())
 	}
-	if err := d.client.Get(ctx, "/api/tenant/contacts/?page_size=1000", &page); err != nil {
+
+	items, err := listAll[contactAPIModel](ctx, d.client, path)
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading contacts", err.Error())
 		return
 	}
@@ -130,9 +134,9 @@ func (d *ContactDataSource) Read(ctx context.Context, req datasource.ReadRequest
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *contactAPIModel
 		want := config.Name.ValueString()
-		for i := range page.Results {
-			if page.Results[i].Company == want {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Company == want {
+				match = &items[i]
 				break
 			}
 		}
@@ -155,23 +159,23 @@ func (d *ContactDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		Email:     types.StringNull(),
 		Phone:     types.StringNull(),
 		Address:   types.StringNull(),
-		Contacts:  make([]ContactListModel, 0, len(page.Results)),
+		Contacts:  make([]ContactListModel, 0, len(items)),
 	}
-	for i := range page.Results {
-		state.Contacts = append(state.Contacts, contactToListModel(&page.Results[i]))
+	for i := range items {
+		state.Contacts = append(state.Contacts, contactToListModel(&items[i]))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func setSingleContact(state *ContactDataSourceModel, item *contactAPIModel) {
-	state.Id = types.StringValue(strconv.Itoa(item.Id))
-	state.Name = types.StringNull()
-	state.Company = types.StringValue(item.Company)
-	state.Firstname = types.StringValue(item.Firstname)
-	state.Lastname = types.StringValue(item.Lastname)
-	state.Email = types.StringValue(item.Email)
-	state.Phone = types.StringValue(item.Phone)
-	state.Address = types.StringValue(item.Address)
+	lm := contactToListModel(item)
+	state.Id = lm.Id
+	state.Company = lm.Company
+	state.Firstname = lm.Firstname
+	state.Lastname = lm.Lastname
+	state.Email = lm.Email
+	state.Phone = lm.Phone
+	state.Address = lm.Address
 	state.Contacts = []ContactListModel{}
 }
 
@@ -179,10 +183,10 @@ func contactToListModel(item *contactAPIModel) ContactListModel {
 	return ContactListModel{
 		Id:        types.StringValue(strconv.Itoa(item.Id)),
 		Company:   types.StringValue(item.Company),
-		Firstname: types.StringValue(item.Firstname),
-		Lastname:  types.StringValue(item.Lastname),
-		Email:     types.StringValue(item.Email),
-		Phone:     types.StringValue(item.Phone),
-		Address:   types.StringValue(item.Address),
+		Firstname: contactStringValue(item.Firstname),
+		Lastname:  contactStringValue(item.Lastname),
+		Email:     contactStringValue(item.Email),
+		Phone:     contactStringValue(item.Phone),
+		Address:   contactStringValue(item.Address),
 	}
 }

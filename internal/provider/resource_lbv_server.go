@@ -4,42 +4,53 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
-var _ resource.Resource = &LbvServerResource{}
+var (
+	_ resource.Resource                = &LbvServerResource{}
+	_ resource.ResourceWithImportState = &LbvServerResource{}
+)
 
 type LbvServerResource struct {
 	client *apiclient.Client
 }
 
 type LbvServerResourceModel struct {
-	Id           types.String `tfsdk:"id"`
-	Name         types.String `tfsdk:"name"`
-	Ipaddress    types.String `tfsdk:"ipaddress"`
-	Port         types.Int64  `tfsdk:"port"`
-	Type         types.String `tfsdk:"type"`
-	Servicegroup types.List   `tfsdk:"servicegroup"`
-	Certificate  types.List   `tfsdk:"certificate"`
-	Customer     types.String `tfsdk:"customer"`
-	Loadbalancer types.String `tfsdk:"loadbalancer"`
+	Id            types.String `tfsdk:"id"`
+	Name          types.String `tfsdk:"name"`
+	Ipaddress     types.String `tfsdk:"ipaddress"`
+	Port          types.Int64  `tfsdk:"port"`
+	Type          types.String `tfsdk:"type"`
+	Servicegroup  types.List   `tfsdk:"servicegroup"`
+	Certificate   types.List   `tfsdk:"certificate"`
+	CaCertificate types.List   `tfsdk:"ca_certificate"`
+	Customer      types.String `tfsdk:"customer"`
+	Loadbalancer  types.String `tfsdk:"loadbalancer"`
 }
 
 type lbvServerAPIModel struct {
-	Id           string   `json:"id,omitempty"`
-	Name         string   `json:"name"`
-	Ipaddress    *string  `json:"ipaddress,omitempty"`
-	Port         *int64   `json:"port,omitempty"`
-	Type         *string  `json:"type,omitempty"`
-	Servicegroup []string `json:"servicegroup"`
-	Certificate  []string `json:"certificate,omitempty"`
-	Customer     *string  `json:"customer,omitempty"`
-	Loadbalancer *string  `json:"loadbalancer,omitempty"`
+	Id            string    `json:"id,omitempty"`
+	Name          string    `json:"name"`
+	Ipaddress     *string   `json:"ipaddress"`
+	Port          *int64    `json:"port,omitempty"`
+	Type          *string   `json:"type,omitempty"`
+	Servicegroup  []string  `json:"servicegroup"`
+	Certificate   *[]string `json:"certificate,omitempty"`
+	CaCertificate *[]string `json:"ca_certificate,omitempty"`
+	Customer      *string   `json:"customer,omitempty"`
+	Loadbalancer  *string   `json:"loadbalancer,omitempty"`
 }
 
 func NewLbvServerResource() resource.Resource {
@@ -65,10 +76,17 @@ func (r *LbvServerResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				Description: "UUID of the associated PublicIPAddress. Leave empty if used as non routed loadbalancer.",
 			},
 			"port": schema.Int64Attribute{
-				Optional: true,
+				Optional:    true,
+				Computed:    true,
+				Default:     int64default.StaticInt64(0),
+				Description: "Port number. Leave at the default (0) if used as non routed loadbalancer.",
 			},
 			"type": schema.StringAttribute{
-				Optional: true,
+				Optional:    true,
+				Computed:    true,
+				Default:     stringdefault.StaticString("ssl"),
+				Description: "One of `http`, `ssl`, `ssl_bridge`, `tcp`, `udp`. Defaults to `ssl`.",
+				Validators:  []validator.String{stringvalidator.OneOf("http", "ssl", "ssl_bridge", "tcp", "udp")},
 			},
 			"servicegroup": schema.ListAttribute{
 				ElementType: types.StringType,
@@ -78,11 +96,20 @@ func (r *LbvServerResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				ElementType: types.StringType,
 				Optional:    true,
 			},
+			"ca_certificate": schema.ListAttribute{
+				ElementType: types.StringType,
+				Optional:    true,
+				Description: "UUIDs of CA certificates.",
+			},
 			"customer": schema.StringAttribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"loadbalancer": schema.StringAttribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 		},
 	}
@@ -103,6 +130,49 @@ func (r *LbvServerResource) Configure(_ context.Context, req resource.ConfigureR
 	r.client = client
 }
 
+func lbvServerToAPI(ctx context.Context, plan, state *LbvServerResourceModel, diags *diag.Diagnostics) lbvServerAPIModel {
+	m := lbvServerAPIModel{
+		Name:         plan.Name.ValueString(),
+		Ipaddress:    stringPtr(plan.Ipaddress),
+		Port:         int64Ptr(plan.Port),
+		Type:         stringPtr(plan.Type),
+		Servicegroup: []string{},
+		Customer:     stringPtr(plan.Customer),
+		Loadbalancer: stringPtr(plan.Loadbalancer),
+	}
+	diags.Append(plan.Servicegroup.ElementsAs(ctx, &m.Servicegroup, false)...)
+	if state == nil {
+		m.Certificate = listElems[string](ctx, plan.Certificate, diags)
+		m.CaCertificate = listElems[string](ctx, plan.CaCertificate, diags)
+	} else {
+		m.Certificate = listElemsForUpdate[string](ctx, plan.Certificate, state.Certificate, diags)
+		m.CaCertificate = listElemsForUpdate[string](ctx, plan.CaCertificate, state.CaCertificate, diags)
+	}
+	return m
+}
+
+func lbvServerFromAPI(ctx context.Context, m *LbvServerResourceModel, api *lbvServerAPIModel, diags *diag.Diagnostics) {
+	m.Id = types.StringValue(api.Id)
+	m.Name = types.StringValue(api.Name)
+	m.Ipaddress = types.StringPointerValue(api.Ipaddress)
+	// port is nullable in the API; null is equivalent to the default 0 (non routed loadbalancer).
+	if api.Port != nil {
+		m.Port = types.Int64Value(*api.Port)
+	} else {
+		m.Port = types.Int64Value(0)
+	}
+	if api.Type != nil {
+		m.Type = types.StringValue(*api.Type)
+	} else if m.Type.IsUnknown() {
+		m.Type = types.StringNull()
+	}
+	m.Servicegroup = computedListValue(ctx, types.StringType, api.Servicegroup, diags)
+	m.Certificate = listValue(ctx, types.StringType, m.Certificate, lbStringSlice(api.Certificate), diags)
+	m.CaCertificate = listValue(ctx, types.StringType, m.CaCertificate, lbStringSlice(api.CaCertificate), diags)
+	m.Customer = types.StringPointerValue(api.Customer)
+	m.Loadbalancer = types.StringPointerValue(api.Loadbalancer)
+}
+
 func (r *LbvServerResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan LbvServerResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -110,38 +180,9 @@ func (r *LbvServerResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	apiModel := lbvServerAPIModel{
-		Name: plan.Name.ValueString(),
-	}
-
-	var servicegroup []string
-	resp.Diagnostics.Append(plan.Servicegroup.ElementsAs(ctx, &servicegroup, false)...)
-	apiModel.Servicegroup = servicegroup
-
-	if !plan.Ipaddress.IsNull() {
-		v := plan.Ipaddress.ValueString()
-		apiModel.Ipaddress = &v
-	}
-	if !plan.Port.IsNull() {
-		v := plan.Port.ValueInt64()
-		apiModel.Port = &v
-	}
-	if !plan.Type.IsNull() {
-		v := plan.Type.ValueString()
-		apiModel.Type = &v
-	}
-	if !plan.Certificate.IsNull() {
-		var certificate []string
-		resp.Diagnostics.Append(plan.Certificate.ElementsAs(ctx, &certificate, false)...)
-		apiModel.Certificate = certificate
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
+	apiModel := lbvServerToAPI(ctx, &plan, nil, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	var apiResp lbvServerAPIModel
@@ -151,29 +192,7 @@ func (r *LbvServerResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringValue(apiResp.Name)
-	if apiResp.Ipaddress != nil {
-		plan.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
-	}
-	plan.Port = types.Int64PointerValue(apiResp.Port)
-	plan.Type = types.StringPointerValue(apiResp.Type)
-
-	listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Servicegroup)
-	resp.Diagnostics.Append(diags...)
-	plan.Servicegroup = listVal
-
-	if plan.Certificate.IsNull() && len(apiResp.Certificate) == 0 {
-		plan.Certificate = types.ListNull(types.StringType)
-	} else {
-		listVal, diags = types.ListValueFrom(ctx, types.StringType, apiResp.Certificate)
-		resp.Diagnostics.Append(diags...)
-		plan.Certificate = listVal
-	}
-
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	lbvServerFromAPI(ctx, &plan, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -195,29 +214,7 @@ func (r *LbvServerResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	state.Id = types.StringValue(apiResp.Id)
-	state.Name = types.StringValue(apiResp.Name)
-	if apiResp.Ipaddress != nil {
-		state.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
-	}
-	state.Port = types.Int64PointerValue(apiResp.Port)
-	state.Type = types.StringPointerValue(apiResp.Type)
-
-	listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Servicegroup)
-	resp.Diagnostics.Append(diags...)
-	state.Servicegroup = listVal
-
-	if state.Certificate.IsNull() && len(apiResp.Certificate) == 0 {
-		state.Certificate = types.ListNull(types.StringType)
-	} else {
-		listVal, diags = types.ListValueFrom(ctx, types.StringType, apiResp.Certificate)
-		resp.Diagnostics.Append(diags...)
-		state.Certificate = listVal
-	}
-
-	state.Customer = types.StringPointerValue(apiResp.Customer)
-	state.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	lbvServerFromAPI(ctx, &state, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -234,38 +231,9 @@ func (r *LbvServerResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	apiModel := lbvServerAPIModel{
-		Name: plan.Name.ValueString(),
-	}
-
-	var servicegroup []string
-	resp.Diagnostics.Append(plan.Servicegroup.ElementsAs(ctx, &servicegroup, false)...)
-	apiModel.Servicegroup = servicegroup
-
-	if !plan.Ipaddress.IsNull() {
-		v := plan.Ipaddress.ValueString()
-		apiModel.Ipaddress = &v
-	}
-	if !plan.Port.IsNull() {
-		v := plan.Port.ValueInt64()
-		apiModel.Port = &v
-	}
-	if !plan.Type.IsNull() {
-		v := plan.Type.ValueString()
-		apiModel.Type = &v
-	}
-	if !plan.Certificate.IsNull() {
-		var certificate []string
-		resp.Diagnostics.Append(plan.Certificate.ElementsAs(ctx, &certificate, false)...)
-		apiModel.Certificate = certificate
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
+	apiModel := lbvServerToAPI(ctx, &plan, &state, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	var apiResp lbvServerAPIModel
@@ -275,29 +243,7 @@ func (r *LbvServerResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringValue(apiResp.Name)
-	if apiResp.Ipaddress != nil {
-		plan.Ipaddress = types.StringPointerValue(apiResp.Ipaddress)
-	}
-	plan.Port = types.Int64PointerValue(apiResp.Port)
-	plan.Type = types.StringPointerValue(apiResp.Type)
-
-	listVal, diags := types.ListValueFrom(ctx, types.StringType, apiResp.Servicegroup)
-	resp.Diagnostics.Append(diags...)
-	plan.Servicegroup = listVal
-
-	if plan.Certificate.IsNull() && len(apiResp.Certificate) == 0 {
-		plan.Certificate = types.ListNull(types.StringType)
-	} else {
-		listVal, diags = types.ListValueFrom(ctx, types.StringType, apiResp.Certificate)
-		resp.Diagnostics.Append(diags...)
-		plan.Certificate = listVal
-	}
-
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	lbvServerFromAPI(ctx, &plan, &apiResp, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -315,4 +261,8 @@ func (r *LbvServerResource) Delete(ctx context.Context, req resource.DeleteReque
 		}
 		resp.Diagnostics.AddError("Error deleting lbv_server", err.Error())
 	}
+}
+
+func (r *LbvServerResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

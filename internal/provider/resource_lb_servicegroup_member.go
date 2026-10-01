@@ -4,16 +4,23 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
-var _ resource.Resource = &LbServicegroupMemberResource{}
+var (
+	_ resource.Resource                = &LbServicegroupMemberResource{}
+	_ resource.ResourceWithImportState = &LbServicegroupMemberResource{}
+)
 
 type LbServicegroupMemberResource struct {
 	client *apiclient.Client
@@ -25,6 +32,7 @@ type LbServicegroupMemberResourceModel struct {
 	Port         types.Int64  `tfsdk:"port"`
 	Servername   types.String `tfsdk:"servername"`
 	Weight       types.Int64  `tfsdk:"weight"`
+	State        types.String `tfsdk:"state"`
 	Customer     types.String `tfsdk:"customer"`
 	Loadbalancer types.String `tfsdk:"loadbalancer"`
 }
@@ -35,6 +43,7 @@ type lbServicegroupMemberAPIModel struct {
 	Port         *int64  `json:"port,omitempty"`
 	Servername   string  `json:"servername"`
 	Weight       *int64  `json:"weight,omitempty"`
+	State        *string `json:"state,omitempty"`
 	Customer     *string `json:"customer,omitempty"`
 	Loadbalancer *string `json:"loadbalancer,omitempty"`
 }
@@ -66,13 +75,26 @@ func (r *LbServicegroupMemberResource) Schema(_ context.Context, _ resource.Sche
 				Required: true,
 			},
 			"weight": schema.Int64Attribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
+			},
+			"state": schema.StringAttribute{
+				Optional:      true,
+				Computed:      true,
+				Description:   "Member state: `UP` or `DOWN`.",
+				Validators:    []validator.String{stringvalidator.OneOf("UP", "DOWN")},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"customer": schema.StringAttribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"loadbalancer": schema.StringAttribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 		},
 	}
@@ -93,6 +115,33 @@ func (r *LbServicegroupMemberResource) Configure(_ context.Context, req resource
 	r.client = client
 }
 
+func lbServicegroupMemberToAPI(plan *LbServicegroupMemberResourceModel) lbServicegroupMemberAPIModel {
+	return lbServicegroupMemberAPIModel{
+		Address:      plan.Address.ValueString(),
+		Port:         int64Ptr(plan.Port),
+		Servername:   plan.Servername.ValueString(),
+		Weight:       int64Ptr(plan.Weight),
+		State:        stringPtr(plan.State),
+		Customer:     stringPtr(plan.Customer),
+		Loadbalancer: stringPtr(plan.Loadbalancer),
+	}
+}
+
+func lbServicegroupMemberFromAPI(m *LbServicegroupMemberResourceModel, api *lbServicegroupMemberAPIModel) {
+	m.Id = types.StringValue(api.Id)
+	m.Address = types.StringValue(api.Address)
+	if api.Port != nil {
+		m.Port = types.Int64Value(*api.Port)
+	} else if m.Port.IsUnknown() {
+		m.Port = types.Int64Null()
+	}
+	m.Servername = types.StringValue(api.Servername)
+	m.Weight = types.Int64PointerValue(api.Weight)
+	m.State = types.StringPointerValue(api.State)
+	m.Customer = types.StringPointerValue(api.Customer)
+	m.Loadbalancer = types.StringPointerValue(api.Loadbalancer)
+}
+
 func (r *LbServicegroupMemberResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan LbServicegroupMemberResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -100,42 +149,14 @@ func (r *LbServicegroupMemberResource) Create(ctx context.Context, req resource.
 		return
 	}
 
-	apiModel := lbServicegroupMemberAPIModel{
-		Address:    plan.Address.ValueString(),
-		Servername: plan.Servername.ValueString(),
-	}
-	if !plan.Port.IsNull() {
-		v := plan.Port.ValueInt64()
-		apiModel.Port = &v
-	}
-	if !plan.Weight.IsNull() {
-		v := plan.Weight.ValueInt64()
-		apiModel.Weight = &v
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
-	}
-
 	var apiResp lbServicegroupMemberAPIModel
-	err := r.client.Post(ctx, "/api/loadbalancing/lbservicegroupmember/", apiModel, &apiResp)
+	err := r.client.Post(ctx, "/api/loadbalancing/lbservicegroupmember/", lbServicegroupMemberToAPI(&plan), &apiResp)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating lb_servicegroup_member", err.Error())
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Address = types.StringValue(apiResp.Address)
-	plan.Port = types.Int64PointerValue(apiResp.Port)
-	plan.Servername = types.StringValue(apiResp.Servername)
-	plan.Weight = types.Int64PointerValue(apiResp.Weight)
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	lbServicegroupMemberFromAPI(&plan, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -157,14 +178,7 @@ func (r *LbServicegroupMemberResource) Read(ctx context.Context, req resource.Re
 		return
 	}
 
-	state.Id = types.StringValue(apiResp.Id)
-	state.Address = types.StringValue(apiResp.Address)
-	state.Port = types.Int64PointerValue(apiResp.Port)
-	state.Servername = types.StringValue(apiResp.Servername)
-	state.Weight = types.Int64PointerValue(apiResp.Weight)
-	state.Customer = types.StringPointerValue(apiResp.Customer)
-	state.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	lbServicegroupMemberFromAPI(&state, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -181,42 +195,14 @@ func (r *LbServicegroupMemberResource) Update(ctx context.Context, req resource.
 		return
 	}
 
-	apiModel := lbServicegroupMemberAPIModel{
-		Address:    plan.Address.ValueString(),
-		Servername: plan.Servername.ValueString(),
-	}
-	if !plan.Port.IsNull() {
-		v := plan.Port.ValueInt64()
-		apiModel.Port = &v
-	}
-	if !plan.Weight.IsNull() {
-		v := plan.Weight.ValueInt64()
-		apiModel.Weight = &v
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
-	}
-
 	var apiResp lbServicegroupMemberAPIModel
-	err := r.client.Put(ctx, fmt.Sprintf("/api/loadbalancing/lbservicegroupmember/%s/", state.Id.ValueString()), apiModel, &apiResp)
+	err := r.client.Put(ctx, fmt.Sprintf("/api/loadbalancing/lbservicegroupmember/%s/", state.Id.ValueString()), lbServicegroupMemberToAPI(&plan), &apiResp)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating lb_servicegroup_member", err.Error())
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Address = types.StringValue(apiResp.Address)
-	plan.Port = types.Int64PointerValue(apiResp.Port)
-	plan.Servername = types.StringValue(apiResp.Servername)
-	plan.Weight = types.Int64PointerValue(apiResp.Weight)
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	lbServicegroupMemberFromAPI(&plan, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -234,4 +220,8 @@ func (r *LbServicegroupMemberResource) Delete(ctx context.Context, req resource.
 		}
 		resp.Diagnostics.AddError("Error deleting lb_servicegroup_member", err.Error())
 	}
+}
+
+func (r *LbServicegroupMemberResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

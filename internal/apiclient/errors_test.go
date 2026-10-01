@@ -2,6 +2,7 @@ package apiclient
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -55,6 +56,11 @@ func TestIsNotFound(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "wrapped 404 APIError",
+			err:      fmt.Errorf("request failed: %w", &APIError{StatusCode: 404, Method: "GET", Endpoint: "/foo/"}),
+			expected: true,
+		},
+		{
 			name:     "200 APIError",
 			err:      &APIError{StatusCode: 200, Method: "GET", Endpoint: "/foo/"},
 			expected: false,
@@ -95,6 +101,11 @@ func TestIsConflict(t *testing.T) {
 		{
 			name:     "409 APIError",
 			err:      &APIError{StatusCode: 409, Method: "POST", Endpoint: "/bar/"},
+			expected: true,
+		},
+		{
+			name:     "wrapped 409 APIError",
+			err:      fmt.Errorf("request failed: %w", &APIError{StatusCode: 409, Method: "POST", Endpoint: "/bar/"}),
 			expected: true,
 		},
 		{

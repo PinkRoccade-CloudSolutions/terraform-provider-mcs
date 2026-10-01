@@ -4,15 +4,22 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
-var _ resource.Resource = &PublicIPAddressResource{}
+var (
+	_ resource.Resource                = &PublicIPAddressResource{}
+	_ resource.ResourceWithImportState = &PublicIPAddressResource{}
+)
 
 type PublicIPAddressResource struct {
 	client *apiclient.Client
@@ -23,18 +30,19 @@ type PublicIPAddressResourceModel struct {
 	IPAddress   types.String `tfsdk:"ip_address"`
 	Pool        types.String `tfsdk:"pool"`
 	Description types.String `tfsdk:"description"`
+	Status      types.String `tfsdk:"status"`
 	Type        types.String `tfsdk:"type"`
 	Customer    types.String `tfsdk:"customer"`
 }
 
 type publicIPAddressAPIModel struct {
 	Id          string  `json:"id,omitempty"`
-	IPAddress   string  `json:"ip_address,omitempty"`
-	Pool        *string `json:"pool"`
-	Description string  `json:"description,omitempty"`
+	IPAddress   *string `json:"ip_address,omitempty"`
+	Pool        *string `json:"pool,omitempty"`
+	Description string  `json:"description"`
 	Status      string  `json:"status,omitempty"`
-	Type        string  `json:"type,omitempty"`
-	Customer    *string `json:"customer"`
+	Type        *string `json:"type,omitempty"`
+	Customer    *string `json:"customer,omitempty"`
 }
 
 func NewPublicIPAddressResource() resource.Resource {
@@ -55,26 +63,43 @@ func (r *PublicIPAddressResource) Schema(_ context.Context, _ resource.SchemaReq
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"ip_address": schema.StringAttribute{
-				Computed:    true,
-				Description: "The public IP address (read-only, assigned by the API).",
+				Optional:      true,
+				Computed:      true,
+				Description:   "The public IP address. Assigned by the API when not set.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"pool": schema.StringAttribute{
 				Optional:    true,
-				Description: "UUID of the IP pool this address belongs to.",
+				Computed:    true,
+				Description: "UUID of the IP pool this address belongs to. Changing this forces a new resource.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"description": schema.StringAttribute{
 				Optional:    true,
 				Computed:    true,
+				Default:     stringdefault.StaticString(""),
 				Description: "Description of the public IP address.",
+				Validators:  []validator.String{stringvalidator.LengthAtMost(255)},
+			},
+			"status": schema.StringAttribute{
+				Computed:    true,
+				Description: "Allocation status: available, assigned or reserved (read-only).",
 			},
 			"type": schema.StringAttribute{
-				Optional:    true,
-				Computed:    true,
-				Description: "Type: nat, vip, or loadbalancer.",
+				Optional:      true,
+				Computed:      true,
+				Description:   "Type: nat, vip, loadbalancer or secureingress.",
+				Validators:    []validator.String{stringvalidator.OneOf("nat", "vip", "loadbalancer", "secureingress", "")},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"customer": schema.StringAttribute{
-				Optional:    true,
-				Description: "Customer identifier.",
+				Optional:      true,
+				Computed:      true,
+				Description:   "Customer identifier.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 		},
 	}
@@ -136,8 +161,9 @@ func (r *PublicIPAddressResource) Read(ctx context.Context, req resource.ReadReq
 }
 
 func (r *PublicIPAddressResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan PublicIPAddressResourceModel
+	var plan, state PublicIPAddressResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -145,7 +171,7 @@ func (r *PublicIPAddressResource) Update(ctx context.Context, req resource.Updat
 	apiReq := buildPublicIPAPIRequest(&plan)
 
 	var apiResp publicIPAddressAPIModel
-	err := r.client.Put(ctx, fmt.Sprintf("/api/networking/publicipaddresss/%s/", plan.Id.ValueString()), apiReq, &apiResp)
+	err := r.client.Put(ctx, fmt.Sprintf("/api/networking/publicipaddresss/%s/", state.Id.ValueString()), apiReq, &apiResp)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating public IP address", err.Error())
 		return
@@ -172,37 +198,28 @@ func (r *PublicIPAddressResource) Delete(ctx context.Context, req resource.Delet
 }
 
 func buildPublicIPAPIRequest(plan *PublicIPAddressResourceModel) publicIPAddressAPIModel {
-	var apiReq publicIPAddressAPIModel
-	if !plan.Pool.IsNull() {
-		v := plan.Pool.ValueString()
-		apiReq.Pool = &v
+	return publicIPAddressAPIModel{
+		IPAddress:   stringPtr(plan.IPAddress),
+		Pool:        stringPtr(plan.Pool),
+		Description: plan.Description.ValueString(),
+		Type:        stringPtr(plan.Type),
+		Customer:    stringPtr(plan.Customer),
 	}
-	if !plan.Description.IsNull() {
-		apiReq.Description = plan.Description.ValueString()
-	}
-	if !plan.Type.IsNull() {
-		apiReq.Type = plan.Type.ValueString()
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiReq.Customer = &v
-	}
-	return apiReq
 }
 
 func mapPublicIPToState(state *PublicIPAddressResourceModel, api *publicIPAddressAPIModel) {
 	state.Id = types.StringValue(api.Id)
-	state.IPAddress = types.StringValue(api.IPAddress)
+	state.IPAddress = types.StringPointerValue(api.IPAddress)
+	state.Pool = types.StringPointerValue(api.Pool)
 	state.Description = types.StringValue(api.Description)
-	state.Type = types.StringValue(api.Type)
-	if api.Pool != nil {
-		state.Pool = types.StringValue(*api.Pool)
-	} else {
-		state.Pool = types.StringNull()
+	state.Status = types.StringValue(api.Status)
+	state.Type = types.StringValue("")
+	if api.Type != nil {
+		state.Type = types.StringValue(*api.Type)
 	}
-	if api.Customer != nil {
-		state.Customer = types.StringValue(*api.Customer)
-	} else {
-		state.Customer = types.StringNull()
-	}
+	state.Customer = types.StringPointerValue(api.Customer)
+}
+
+func (r *PublicIPAddressResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

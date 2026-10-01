@@ -4,15 +4,19 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
-var _ resource.Resource = &CsActionResource{}
+var (
+	_ resource.Resource                = &CsActionResource{}
+	_ resource.ResourceWithImportState = &CsActionResource{}
+)
 
 type CsActionResource struct {
 	client *apiclient.Client
@@ -29,7 +33,7 @@ type CsActionResourceModel struct {
 type csActionAPIModel struct {
 	Id           string  `json:"id,omitempty"`
 	Name         string  `json:"name"`
-	Lbvserver    *string `json:"lbvserver,omitempty"`
+	Lbvserver    *string `json:"lbvserver"`
 	Customer     *string `json:"customer,omitempty"`
 	Loadbalancer *string `json:"loadbalancer,omitempty"`
 }
@@ -53,14 +57,11 @@ func (r *CsActionResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				Required: true,
 			},
 			"lbvserver": schema.StringAttribute{
-				Optional: true,
+				Optional:    true,
+				Description: "UUID of the target LB vServer.",
 			},
-			"customer": schema.StringAttribute{
-				Optional: true,
-			},
-			"loadbalancer": schema.StringAttribute{
-				Optional: true,
-			},
+			"customer":     lbOptString(""),
+			"loadbalancer": lbOptString(""),
 		},
 	}
 }
@@ -80,6 +81,23 @@ func (r *CsActionResource) Configure(_ context.Context, req resource.ConfigureRe
 	r.client = client
 }
 
+func csActionToAPI(plan *CsActionResourceModel) csActionAPIModel {
+	return csActionAPIModel{
+		Name:         plan.Name.ValueString(),
+		Lbvserver:    stringPtr(plan.Lbvserver),
+		Customer:     stringPtr(plan.Customer),
+		Loadbalancer: stringPtr(plan.Loadbalancer),
+	}
+}
+
+func csActionFromAPI(m *CsActionResourceModel, api *csActionAPIModel) {
+	m.Id = types.StringValue(api.Id)
+	m.Name = types.StringValue(api.Name)
+	m.Lbvserver = types.StringPointerValue(api.Lbvserver)
+	m.Customer = types.StringPointerValue(api.Customer)
+	m.Loadbalancer = types.StringPointerValue(api.Loadbalancer)
+}
+
 func (r *CsActionResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan CsActionResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -87,35 +105,14 @@ func (r *CsActionResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	apiModel := csActionAPIModel{
-		Name: plan.Name.ValueString(),
-	}
-	if !plan.Lbvserver.IsNull() {
-		v := plan.Lbvserver.ValueString()
-		apiModel.Lbvserver = &v
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
-	}
-
 	var apiResp csActionAPIModel
-	err := r.client.Post(ctx, "/api/loadbalancing/csaction/", apiModel, &apiResp)
+	err := r.client.Post(ctx, "/api/loadbalancing/csaction/", csActionToAPI(&plan), &apiResp)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating cs_action", err.Error())
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringValue(apiResp.Name)
-	plan.Lbvserver = types.StringPointerValue(apiResp.Lbvserver)
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	csActionFromAPI(&plan, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -137,12 +134,7 @@ func (r *CsActionResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	state.Id = types.StringValue(apiResp.Id)
-	state.Name = types.StringValue(apiResp.Name)
-	state.Lbvserver = types.StringPointerValue(apiResp.Lbvserver)
-	state.Customer = types.StringPointerValue(apiResp.Customer)
-	state.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	csActionFromAPI(&state, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -159,35 +151,14 @@ func (r *CsActionResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	apiModel := csActionAPIModel{
-		Name: plan.Name.ValueString(),
-	}
-	if !plan.Lbvserver.IsNull() {
-		v := plan.Lbvserver.ValueString()
-		apiModel.Lbvserver = &v
-	}
-	if !plan.Customer.IsNull() {
-		v := plan.Customer.ValueString()
-		apiModel.Customer = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
-	}
-
 	var apiResp csActionAPIModel
-	err := r.client.Put(ctx, fmt.Sprintf("/api/loadbalancing/csaction/%s/", state.Id.ValueString()), apiModel, &apiResp)
+	err := r.client.Put(ctx, fmt.Sprintf("/api/loadbalancing/csaction/%s/", state.Id.ValueString()), csActionToAPI(&plan), &apiResp)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating cs_action", err.Error())
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringValue(apiResp.Name)
-	plan.Lbvserver = types.StringPointerValue(apiResp.Lbvserver)
-	plan.Customer = types.StringPointerValue(apiResp.Customer)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	csActionFromAPI(&plan, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -205,4 +176,8 @@ func (r *CsActionResource) Delete(ctx context.Context, req resource.DeleteReques
 		}
 		resp.Diagnostics.AddError("Error deleting cs_action", err.Error())
 	}
+}
+
+func (r *CsActionResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
