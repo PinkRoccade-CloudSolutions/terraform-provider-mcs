@@ -27,6 +27,7 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
   - [mcs_certificate](#mcs_certificate-data-source)
   - [mcs_cs_action](#mcs_cs_action-data-source)
   - [mcs_cs_policy](#mcs_cs_policy-data-source)
+  - [mcs_application](#mcs_application-data-source)
   - [mcs_rewrite_action](#mcs_rewrite_action-data-source)
   - [mcs_rewrite_policy](#mcs_rewrite_policy-data-source)
   - [mcs_csv_server](#mcs_csv_server-data-source)
@@ -42,21 +43,30 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
   - [mcs_customer](#mcs_customer-data-source)
   - [mcs_nat_translation](#mcs_nat_translation-data-source)
   - [mcs_site_to_site_vpn](#mcs_site_to_site_vpn-data-source)
+  - [mcs_secureingress_firewall](#mcs_secureingress_firewall-data-source)
+  - [mcs_ingress_cluster](#mcs_ingress_cluster-data-source)
 - [Resources](#resources)
   - [Tenant & Customer Management](#tenant--customer-management)
     - [mcs_contact](#mcs_contact)
     - [mcs_customer](#mcs_customer)
   - [Networking](#networking)
+    - [mcs_ippool](#mcs_ippool-resource)
+    - [mcs_networkpool](#mcs_networkpool-resource)
     - [mcs_public_ip_address](#mcs_public_ip_address)
     - [mcs_nat_translation](#mcs_nat_translation)
     - [mcs_site_to_site_vpn](#mcs_site_to_site_vpn)
+  - [Secure Ingress](#secure-ingress)
+    - [mcs_secureingress_firewall](#mcs_secureingress_firewall)
+    - [mcs_ingress_cluster](#mcs_ingress_cluster)
   - [Firewall](#firewall)
+    - [mcs_firewall](#mcs_firewall-resource)
     - [mcs_firewall_object](#mcs_firewall_object)
     - [mcs_firewall_object_group](#mcs_firewall_object_group)
     - [mcs_firewall_rule](#mcs_firewall_rule)
     - [mcs_firewall_service](#mcs_firewall_service)
     - [mcs_firewall_service_group](#mcs_firewall_service_group)
   - [Load Balancing](#load-balancing)
+    - [mcs_application](#mcs_application)
     - [mcs_certificate](#mcs_certificate)
     - [mcs_lb_monitor](#mcs_lb_monitor)
     - [mcs_lb_servicegroup](#mcs_lb_servicegroup)
@@ -70,6 +80,7 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
   - [Monitoring](#monitoring)
     - [mcs_monitor_ip](#mcs_monitor_ip)
   - [DNS](#dns)
+    - [mcs_dns_domain](#mcs_dns_domain)
     - [mcs_dns_entry](#mcs_dns_entry)
   - [Deny/Block Lists](#denyblock-lists)
     - [mcs_dbl](#mcs_dbl)
@@ -764,6 +775,39 @@ data "mcs_cs_policy" "routing" {
 
 ---
 
+### mcs_application (Data Source)
+
+Look up applications in the tenant's application catalogue. Provide `name` or `id` for a single match, or omit both to list all. The API offers no list filters, so `name` is matched exactly client-side.
+
+#### Example
+
+```hcl
+data "mcs_application" "webshop" {
+  name = "webshop"
+}
+
+resource "mcs_cs_policy" "webshop" {
+  # ...
+  application = data.mcs_application.webshop.id
+}
+```
+
+#### Attributes
+
+| Attribute | Type | Mode | Description |
+|-----------|------|------|-------------|
+| `name` | String | Optional/Computed | Exact application name. |
+| `id` | String | Optional/Computed | Application UUID. |
+| `pentested` | Bool | Computed | Whether the application has been pentested. |
+| `pentest_type` | String | Computed | Type of pentest: `blackbox`, `graybox`, `whitebox` or `unknown`. |
+| `pentest_date` | String | Computed | Date of the pentest (`YYYY-MM-DD`). |
+| `pentest_findings` | Number | Computed | Number of findings in the pentest. |
+| `applications` | List | Computed | All applications (populated when neither `name` nor `id` is set). |
+
+**Nested `applications` attributes:** `id`, `name`, `pentested` (Bool), `pentest_type`, `pentest_date`, `pentest_findings` (Number) — all Computed.
+
+---
+
 ### mcs_rewrite_action (Data Source)
 
 Look up rewrite actions. Provide `name` or `id` for a single match, or omit both to list all.
@@ -1237,6 +1281,80 @@ data "mcs_site_to_site_vpn" "office" {
 
 ---
 
+### mcs_secureingress_firewall (Data Source)
+
+Look up secure ingress (XDP) firewalls. Provide `name` or `id` for a single match, or omit both to list all. `name` is sent as the `name__icontains` filter and then matched exactly.
+
+#### Example
+
+```hcl
+data "mcs_secureingress_firewall" "edge" {
+  name = "edge-filter"
+}
+```
+
+#### Attributes
+
+| Attribute | Type | Mode | Description |
+|-----------|------|------|-------------|
+| `name` | String | Optional/Computed | Exact firewall name. |
+| `id` | String | Optional/Computed | Firewall UUID. |
+| `description` | String | Computed | Description of the firewall. |
+| `filter_json` | String (JSON) | Computed | Firewall filter definition as a JSON document. Use `jsondecode()` to read it. |
+| `customer` | String | Computed | Customer identifier. |
+| `created_at_timestamp` | String | Computed | Time when the firewall was created. |
+| `updated_at_timestamp` | String | Computed | Time when the firewall was last updated. |
+| `created_by_user` | Number | Computed | ID of the user who created the firewall. |
+| `updated_by_user` | Number | Computed | ID of the user who last updated the firewall. |
+| `secureingress_firewalls` | List | Computed | All secure ingress firewalls (populated when neither `name` nor `id` is set). |
+
+**Nested `secureingress_firewalls` attributes:** `id`, `name`, `description`, `filter_json`, `customer`, `created_at_timestamp`, `updated_at_timestamp` (String), `created_by_user`, `updated_by_user` (Number) — all Computed.
+
+---
+
+### mcs_ingress_cluster (Data Source)
+
+Look up secure ingress clusters. Provide `name` or `id` for a single match; otherwise all clusters matching the optional `ipaddress`, `sla` and `bandwidth` filters are listed. `name` is sent as the `name__icontains` filter and then matched exactly.
+
+#### Example
+
+```hcl
+data "mcs_ingress_cluster" "webshop" {
+  name = "webshop"
+}
+
+data "mcs_ingress_cluster" "gold" {
+  sla = "gold"
+}
+```
+
+#### Attributes
+
+| Attribute | Type | Mode | Description |
+|-----------|------|------|-------------|
+| `name` | String | Optional/Computed | Exact ingress cluster name. |
+| `id` | String | Optional/Computed | Ingress cluster UUID. |
+| `sla` | String | Optional/Computed | Filter by service level (`bronze`, `silver`, `gold`, `platinum`); the cluster's SLA for a single lookup. |
+| `bandwidth` | Number | Optional/Computed | Filter by bandwidth in Mbps (`50`, `100`, `500`, `1000`, `5000`); the cluster's bandwidth for a single lookup. |
+| `ipaddress` | String | Optional/Computed | Filter by public IP address UUID; the cluster's public IP UUID for a single lookup. |
+| `customer` | String | Computed | Customer identifier. |
+| `firewall` | String | Computed | UUID of the secure ingress firewall. |
+| `slug` | String | Computed | URL-safe identifier derived by the API. |
+| `state` | String | Computed | Synchronisation state: `synced`, `unsynced`, `error` or `deleted`. |
+| `reverse_proxy` | Number | Computed | ID of the reverse proxy integration. |
+| `reverse_proxy_name` | String | Computed | Name of the reverse proxy integration. |
+| `ipaddress_address` | String | Computed | The public IP address the cluster listens on. |
+| `ipaddress_type` | String | Computed | Type of the public IP address. |
+| `created_at_timestamp` | String | Computed | Time when the cluster was created. |
+| `updated_at_timestamp` | String | Computed | Time when the cluster was last updated. |
+| `created_by_user` | Number | Computed | ID of the user who created the cluster. |
+| `updated_by_user` | Number | Computed | ID of the user who last updated the cluster. |
+| `ingress_clusters` | List | Computed | All matching ingress clusters (populated when neither `name` nor `id` is set). |
+
+**Nested `ingress_clusters` attributes:** the same attributes as the single-lookup attributes above (`id`, `name`, `sla`, `bandwidth`, `customer`, `ipaddress`, `firewall`, `slug`, `state`, `reverse_proxy`, `reverse_proxy_name`, `ipaddress_address`, `ipaddress_type`, `created_at_timestamp`, `updated_at_timestamp`, `created_by_user`, `updated_by_user`) — all Computed.
+
+---
+
 ## Resources
 
 Resources allow you to create, update, and delete objects in MCS.
@@ -1307,6 +1425,88 @@ resource "mcs_customer" "example" {
 ---
 
 ### Networking
+
+#### mcs_ippool (Resource)
+
+Manages an IP pool from which public IP addresses are allocated.
+
+##### Example
+
+```hcl
+resource "mcs_ippool" "nat" {
+  name     = "NAT pool"
+  subnet   = "203.0.113.0/28"
+  type     = "nat"
+  customer = mcs_customer.example.id
+}
+
+output "nat_pool_free_ips" {
+  value = mcs_ippool.nat.free_ips
+}
+```
+
+##### Attributes
+
+| Attribute  | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `name`    | String | **Yes**  | Pool name (1–100 characters). |
+| `subnet`  | String | **Yes**  | Pool subnet in CIDR notation (max 50). Changing it forces a new resource, because the addresses allocated from the pool depend on it. |
+| `type`    | String | No       | Pool type: `nat`, `vip`, `loadbalancer`, or `""`. Computed by the API when omitted. |
+| `customer` | String | No      | Customer owning the pool. Computed by the API when omitted. |
+
+**Read-only attributes:**
+
+| Attribute   | Type   | Description |
+|------------|--------|-------------|
+| `id`       | String | UUID of the IP pool. |
+| `total_ips` | String | Total number of addresses in the pool. |
+| `free_ips` | String | Number of free addresses in the pool. |
+
+##### Import
+
+```shell
+terraform import mcs_ippool.nat <pool-uuid>
+```
+
+---
+
+#### mcs_networkpool (Resource)
+
+Manages a network pool that end users can pick networks from.
+
+##### Example
+
+```hcl
+resource "mcs_networkpool" "lan" {
+  name        = "Production LAN Pool"
+  network     = "10.0.0.0/8"
+  description = "Internal LAN networks"
+  type        = "lan"
+  enabled     = true
+}
+```
+
+##### Attributes
+
+All arguments are optional. Omitted values are taken from the API response; set a string to `""` to clear it.
+
+| Attribute     | Type   | Required | Description |
+|--------------|--------|----------|-------------|
+| `name`       | String | No       | Pool name (max 255). |
+| `network`    | String | No       | Pool network in CIDR notation, e.g. `10.0.0.0/8` (max 255). |
+| `description` | String | No      | Description to help end users pick a pool (max 2048). |
+| `type`       | String | No       | Pool type: `lan`, `wan`, `transit`, or `""`. |
+| `enabled`    | Bool   | No       | Whether the pool is usable by end users. |
+
+**Read-only attributes:** `id` (String) — UUID of the network pool.
+
+##### Import
+
+```shell
+terraform import mcs_networkpool.lan <pool-uuid>
+```
+
+---
 
 #### mcs_public_ip_address
 
@@ -1452,7 +1652,139 @@ resource "mcs_site_to_site_vpn" "office" {
 
 ---
 
+### Secure Ingress
+
+#### mcs_secureingress_firewall
+
+Manages a secure ingress (XDP) firewall filter. Referenced by `mcs_ingress_cluster.firewall`.
+
+The API stores `filter_json` as a JSON-encoded string. Write it with `jsonencode()`; differences in whitespace or key order between your configuration and the API's response do not cause a diff.
+
+##### Example
+
+```hcl
+resource "mcs_secureingress_firewall" "edge" {
+  name        = "edge-filter"
+  description = "Blocks unwanted traffic"
+  customer    = mcs_customer.example.id
+  filter_json = jsonencode({
+    allow = ["10.0.0.0/8"]
+  })
+}
+```
+
+##### Attributes
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | String | **Yes** | Name of the firewall (max 200 characters). |
+| `filter_json` | String (JSON) | **Yes** | Firewall filter definition as a JSON document. |
+| `customer` | String | **Yes** | Customer identifier. Changing this forces a new resource. |
+| `description` | String | No | Description of the firewall (max 200 characters). |
+
+**Read-only attributes:** `id`, `created_at_timestamp`, `updated_at_timestamp` (String), `created_by_user`, `updated_by_user` (Number).
+
+##### Import
+
+```shell
+terraform import mcs_secureingress_firewall.edge <firewall-uuid>
+```
+
+---
+
+#### mcs_ingress_cluster
+
+Manages a secure ingress cluster: a public IP address protected by a secure ingress (XDP) firewall and fronted by a reverse proxy. Instances, routes and upstream targets are not managed by this resource.
+
+##### Example
+
+```hcl
+resource "mcs_public_ip_address" "ingress" {
+  type     = "secureingress"
+  customer = mcs_customer.example.id
+}
+
+resource "mcs_ingress_cluster" "webshop" {
+  name      = "webshop"
+  sla       = "gold"
+  bandwidth = 1000
+  customer  = mcs_customer.example.id
+  ipaddress = mcs_public_ip_address.ingress.id
+  firewall  = mcs_secureingress_firewall.edge.id
+}
+```
+
+##### Attributes
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | String | **Yes** | Name of the ingress cluster (max 200 characters). |
+| `customer` | String | **Yes** | Customer identifier. Changing this forces a new resource. |
+| `ipaddress` | String | **Yes** | UUID of the public IP address (`mcs_public_ip_address`) the cluster listens on. |
+| `firewall` | String | **Yes** | UUID of the secure ingress firewall (`mcs_secureingress_firewall`). |
+| `sla` | String | No | Service level: `bronze`, `silver`, `gold` or `platinum`. Server default when unset. |
+| `bandwidth` | Number | No | Bandwidth in Mbps: `50`, `100`, `500`, `1000` or `5000`. Server default when unset. |
+
+**Read-only attributes:** `id`, `slug`, `state`, `reverse_proxy_name`, `ipaddress_address`, `ipaddress_type`, `created_at_timestamp`, `updated_at_timestamp` (String), `reverse_proxy`, `created_by_user`, `updated_by_user` (Number).
+
+##### Import
+
+```shell
+terraform import mcs_ingress_cluster.webshop <ingress-cluster-uuid>
+```
+
+---
+
 ### Firewall
+
+#### mcs_firewall (Resource)
+
+Manages a firewall (`/api/networking/firewalls/`). Updates use PATCH.
+
+##### Example
+
+```hcl
+resource "mcs_firewall" "edge" {
+  customer            = mcs_customer.example.id
+  device              = "fmg-01"
+  name                = "edge-fw"
+  type                = "internet"
+  context             = "VDOM-PROD"
+  external_interface  = "port1"
+  internal_interface  = "port2"
+  nat_ip_sync_enabled = false
+}
+```
+
+##### Attributes
+
+| Attribute                 | Type   | Required | Description |
+|--------------------------|--------|----------|-------------|
+| `customer`               | String | **Yes**  | Customer the firewall belongs to. Changing this forces a new resource. |
+| `device`                 | String | **Yes**  | Firewall device (see `/api/networking/firewalls/device-options/`). Changing this forces a new resource. |
+| `name`                   | String | No       | Firewall name. |
+| `description`            | String | No       | Firewall description. |
+| `type`                   | String | No       | `internet` or `wan`. |
+| `context`                | String | No       | VDOM on Fortimanager or Device Group on Panorama. |
+| `external_interface`     | String | No       | Name of the external (internet or WAN facing) interface. |
+| `internal_interface`     | String | No       | Name of the internal (VDOM or transit facing) interface. |
+| `default_log_profile`    | String | No       | Default log profile used when creating firewall rules. |
+| `default_protect_profile` | String | No      | Default protect group profile used when creating firewall rules. |
+| `multi_tenant`           | Bool   | No       | Whether the device is multi tenant; `tag_name` is then used for rule separation. |
+| `tag_name`               | String | No       | TAG name for object lookups on a multi tenant firewall (PaloAlto only). |
+| `nat_ip_sync_enabled`    | Bool   | No       | Opt in to the daily Panorama NAT public IP import job for this device group. |
+
+Optional attributes that are not set take the value assigned by the API.
+
+**Read-only attributes:** `id` (String — firewall UUID), `customer_name` (String), `device_name` (String), `platform` (String), `supports_threat_protection` (Bool).
+
+##### Import
+
+```shell
+terraform import mcs_firewall.edge <firewall-uuid>
+```
+
+---
 
 #### mcs_firewall_object
 
@@ -1881,6 +2213,42 @@ resource "mcs_cs_action" "route_to_backend" {
 
 ---
 
+#### mcs_application
+
+Manages an application in the tenant's application catalogue. Applications are referenced by `mcs_cs_policy.application`.
+
+##### Example
+
+```hcl
+resource "mcs_application" "webshop" {
+  name             = "webshop"
+  pentested        = true
+  pentest_type     = "graybox"
+  pentest_date     = "2026-03-15"
+  pentest_findings = 4
+}
+```
+
+##### Attributes
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | String | **Yes** | Name of the application (max 255 characters). |
+| `pentested` | Bool | No | Whether the application has been pentested. Server default when unset. |
+| `pentest_type` | String | No | Type of pentest: `blackbox`, `graybox`, `whitebox` or `unknown`. Server default when unset. |
+| `pentest_date` | String | No | Date of the pentest (`YYYY-MM-DD`). Removing it clears the value. |
+| `pentest_findings` | Number | No | Number of findings in the pentest. Removing it clears the value. |
+
+**Read-only attributes:** `id` (String).
+
+##### Import
+
+```shell
+terraform import mcs_application.webshop <application-uuid>
+```
+
+---
+
 #### mcs_cs_policy
 
 Manages a content switching policy.
@@ -2029,6 +2397,65 @@ resource "mcs_monitor_ip" "web_check" {
 ---
 
 ### DNS
+
+#### mcs_dns_domain
+
+Manages the settings of an **existing** MCS DNS domain (zone).
+
+> **Important:** DNS zones cannot be created or deleted through the MCS API. They are synchronised from the DNS provider integration.
+>
+> - **Create adopts an existing zone.** The provider looks up the zone whose name exactly matches `name` and applies the configured settings to it (`PUT /api/dns/domains/{uuid}/`). If no zone with that name exists, the apply fails with "DNS domain not found" — make sure the zone exists at the DNS provider and has been synchronised into MCS first.
+> - **Destroy does not delete the zone.** Removing the resource (or running `terraform destroy`) only removes it from Terraform state and emits a warning. The zone and its records remain in MCS and at the DNS provider.
+> - Optional attributes that are not configured keep their current value in MCS; only configured attributes are sent.
+
+##### Example
+
+```hcl
+resource "mcs_dns_domain" "example" {
+  name      = "example.com"
+  comment   = "Managed by Terraform"
+  type      = "external"
+  zone_type = "forward"
+  customer  = mcs_customer.example.id
+}
+
+resource "mcs_dns_entry" "www" {
+  domain_uuid = mcs_dns_domain.example.id
+  name        = "www"
+  type        = "A"
+  content     = "192.0.2.1"
+  expire      = 300
+}
+```
+
+##### Attributes
+
+| Attribute   | Type   | Required | Description |
+|------------|--------|----------|-------------|
+| `name`      | String | **Yes**  | Full zone name as known by the DNS provider (e.g. `example.com`). Must match an existing zone exactly. Changing this forces a new resource (the old zone is released from state, the new one adopted). |
+| `comment`   | String | No       | Comment for the domain (max 255 characters). Computed from MCS when omitted. |
+| `enddate`   | String | No       | End date for the domain (`YYYY-MM-DD`), if known. Computed from MCS when omitted. |
+| `customer`  | String | No       | Customer associated with the domain. Computed from MCS when omitted. |
+| `type`      | String | No       | Domain use type: `external` or `internal`. Computed from MCS when omitted. |
+| `zone_type` | String | No       | Zone type: `forward` or `reverse`. Computed from MCS when omitted. |
+
+**Read-only attributes:**
+
+| Attribute       | Type   | Description |
+|----------------|--------|-------------|
+| `id`            | String | UUID of the DNS domain. |
+| `provider_id`   | Number | ID of the DNS provider integration. |
+| `provider_name` | String | Name of the DNS provider integration. |
+
+##### Import
+
+Existing zones can also be imported by UUID:
+
+```shell
+terraform import mcs_dns_domain.example 0b7c0f9e-1234-4cde-9abc-0123456789ab
+```
+
+---
 
 #### mcs_dns_entry
 
