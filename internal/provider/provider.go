@@ -93,6 +93,7 @@ func (p *MCSProvider) Configure(ctx context.Context, req provider.ConfigureReque
 
 func (p *MCSProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
+		NewApplicationResource,
 		NewCertificateResource,
 		NewContactResource,
 		NewCsActionResource,
@@ -123,6 +124,7 @@ func (p *MCSProvider) Resources(_ context.Context) []func() resource.Resource {
 
 func (p *MCSProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
+		NewApplicationDataSource,
 		NewCertificateDataSource,
 		NewContactDataSource,
 		NewCsActionDataSource,
