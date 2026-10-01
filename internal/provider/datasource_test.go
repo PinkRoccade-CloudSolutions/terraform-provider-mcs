@@ -2085,7 +2085,7 @@ func TestAccVirtualDatacenterDataSource_ByName(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
-				{"id": "vdc-001", "name": "prod-dc", "customer": "acme"},
+				{"id": "vdc-001", "name": "prod-dc", "cluster": "cluster-001"},
 			},
 		})
 	})
@@ -2101,7 +2101,7 @@ data "mcs_virtual_datacenter" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.mcs_virtual_datacenter.test", "id", "vdc-001"),
 					resource.TestCheckResourceAttr("data.mcs_virtual_datacenter.test", "name", "prod-dc"),
-					resource.TestCheckResourceAttr("data.mcs_virtual_datacenter.test", "customer", "acme"),
+					resource.TestCheckResourceAttr("data.mcs_virtual_datacenter.test", "cluster", "cluster-001"),
 				),
 			},
 		},
@@ -2116,8 +2116,8 @@ func TestAccVirtualDatacenterDataSource_ListAll(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
-				{"id": "vdc-001", "name": "prod-dc", "customer": "acme"},
-				{"id": "vdc-002", "name": "staging-dc", "customer": "acme"},
+				{"id": "vdc-001", "name": "prod-dc", "cluster": "cluster-001"},
+				{"id": "vdc-002", "name": "staging-dc", "cluster": "cluster-001"},
 			},
 		})
 	})

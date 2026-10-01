@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"net/url"
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -123,24 +122,18 @@ func (d *DiskDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 		return
 	}
 
-	path := "/api/virtualization/disk/?page_size=1000"
-	if !config.Name.IsNull() && config.Name.ValueString() != "" {
-		path += "&name__icontains=" + url.QueryEscape(config.Name.ValueString())
-	}
-
-	var page struct {
-		Results []diskDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	// The disk list endpoint has no name filter; match client-side.
+	items, err := listAll[diskDSAPIModel](ctx, d.client, "/api/virtualization/disk/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading disks", err.Error())
 		return
 	}
 
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *diskDSAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name == config.Name.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name == config.Name.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -160,9 +153,9 @@ func (d *DiskDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 		Size:     types.Int64Null(),
 		Path:     types.StringNull(),
 		DiskType: types.StringNull(),
-		Disks:    make([]DiskListModel, 0, len(page.Results)),
+		Disks:    make([]DiskListModel, 0, len(items)),
 	}
-	for _, item := range page.Results {
+	for _, item := range items {
 		state.Disks = append(state.Disks, toDiskListModel(&item))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)

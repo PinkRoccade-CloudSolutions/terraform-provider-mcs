@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &DblDataSource{}
@@ -18,14 +18,18 @@ type DblDataSource struct {
 }
 
 type DblDataSourceModel struct {
-	IpAddress   types.String  `tfsdk:"ipaddress"`
-	Id          types.String  `tfsdk:"id"`
-	Timestamp   types.String  `tfsdk:"timestamp"`
-	Source      types.String  `tfsdk:"source"`
-	Occurrence  types.Int64   `tfsdk:"occurrence"`
-	Persistent  types.Bool    `tfsdk:"persistent"`
-	Hostname    types.String  `tfsdk:"hostname"`
-	Dbls        []DblListModel `tfsdk:"dbls"`
+	IpAddress  types.String   `tfsdk:"ipaddress"`
+	Id         types.String   `tfsdk:"id"`
+	Timestamp  types.String   `tfsdk:"timestamp"`
+	Source     types.String   `tfsdk:"source"`
+	Occurrence types.Int64    `tfsdk:"occurrence"`
+	Persistent types.Bool     `tfsdk:"persistent"`
+	Blackholed types.Bool     `tfsdk:"blackholed"`
+	Hostname   types.String   `tfsdk:"hostname"`
+	Meta       types.String   `tfsdk:"meta"`
+	Itsm       types.String   `tfsdk:"itsm"`
+	Reason     types.String   `tfsdk:"reason"`
+	Dbls       []DblListModel `tfsdk:"dbls"`
 }
 
 type DblListModel struct {
@@ -35,7 +39,11 @@ type DblListModel struct {
 	Source     types.String `tfsdk:"source"`
 	Occurrence types.Int64  `tfsdk:"occurrence"`
 	Persistent types.Bool   `tfsdk:"persistent"`
+	Blackholed types.Bool   `tfsdk:"blackholed"`
 	Hostname   types.String `tfsdk:"hostname"`
+	Meta       types.String `tfsdk:"meta"`
+	Itsm       types.String `tfsdk:"itsm"`
+	Reason     types.String `tfsdk:"reason"`
 }
 
 func NewDblDataSource() datasource.DataSource {
@@ -56,7 +64,11 @@ func (d *DblDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, re
 		"source":     schema.StringAttribute{Computed: true},
 		"occurrence": schema.Int64Attribute{Computed: true},
 		"persistent": schema.BoolAttribute{Computed: true},
+		"blackholed": schema.BoolAttribute{Computed: true},
 		"hostname":   schema.StringAttribute{Computed: true},
+		"meta":       schema.StringAttribute{Computed: true},
+		"itsm":       schema.StringAttribute{Computed: true},
+		"reason":     schema.StringAttribute{Computed: true},
 	}
 
 	resp.Schema = schema.Schema{
@@ -74,7 +86,11 @@ func (d *DblDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, re
 			"source":     schema.StringAttribute{Computed: true},
 			"occurrence": schema.Int64Attribute{Computed: true},
 			"persistent": schema.BoolAttribute{Computed: true},
+			"blackholed": schema.BoolAttribute{Computed: true},
 			"hostname":   schema.StringAttribute{Computed: true},
+			"meta":       schema.StringAttribute{Computed: true},
+			"itsm":       schema.StringAttribute{Computed: true},
+			"reason":     schema.StringAttribute{Computed: true},
 			"dbls": schema.ListNestedAttribute{
 				Computed: true,
 				NestedObject: schema.NestedAttributeObject{
@@ -117,10 +133,8 @@ func (d *DblDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 		return
 	}
 
-	var page struct {
-		Results []dblAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, "/api/dbl/?page_size=1000", &page); err != nil {
+	items, err := listAll[dblAPIModel](ctx, d.client, "/api/dbl/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading dbl entries", err.Error())
 		return
 	}
@@ -132,51 +146,47 @@ func (d *DblDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 		Source:     types.StringNull(),
 		Occurrence: types.Int64Null(),
 		Persistent: types.BoolNull(),
+		Blackholed: types.BoolNull(),
 		Hostname:   types.StringNull(),
-		Dbls:       make([]DblListModel, 0, len(page.Results)),
+		Meta:       types.StringNull(),
+		Itsm:       types.StringNull(),
+		Reason:     types.StringNull(),
+		Dbls:       make([]DblListModel, 0, len(items)),
 	}
-	for i := range page.Results {
-		state.Dbls = append(state.Dbls, dblToListModel(&page.Results[i]))
+	for i := range items {
+		state.Dbls = append(state.Dbls, dblToListModel(&items[i]))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func setSingleDbl(state *DblDataSourceModel, item *dblAPIModel) {
-	state.IpAddress = types.StringValue(item.IpAddress)
-	state.Id = types.StringValue(strconv.Itoa(item.Id))
-	state.Timestamp = types.StringValue(item.Timestamp)
-	if item.Source != nil {
-		state.Source = types.StringValue(*item.Source)
-	} else {
-		state.Source = types.StringNull()
-	}
-	state.Occurrence = types.Int64Value(int64(item.Occurrence))
-	if item.Persistent != nil {
-		state.Persistent = types.BoolValue(*item.Persistent)
-	} else {
-		state.Persistent = types.BoolNull()
-	}
-	state.Hostname = types.StringValue(item.Hostname)
+	lm := dblToListModel(item)
+	state.IpAddress = lm.IpAddress
+	state.Id = lm.Id
+	state.Timestamp = lm.Timestamp
+	state.Source = lm.Source
+	state.Occurrence = lm.Occurrence
+	state.Persistent = lm.Persistent
+	state.Blackholed = lm.Blackholed
+	state.Hostname = lm.Hostname
+	state.Meta = lm.Meta
+	state.Itsm = lm.Itsm
+	state.Reason = lm.Reason
 	state.Dbls = []DblListModel{}
 }
 
 func dblToListModel(item *dblAPIModel) DblListModel {
-	m := DblListModel{
+	return DblListModel{
 		Id:         types.StringValue(strconv.Itoa(item.Id)),
 		IpAddress:  types.StringValue(item.IpAddress),
 		Timestamp:  types.StringValue(item.Timestamp),
+		Source:     types.StringPointerValue(item.Source),
 		Occurrence: types.Int64Value(int64(item.Occurrence)),
+		Persistent: types.BoolPointerValue(item.Persistent),
+		Blackholed: types.BoolPointerValue(item.Blackholed),
 		Hostname:   types.StringValue(item.Hostname),
+		Meta:       types.StringPointerValue(item.Meta),
+		Itsm:       types.StringPointerValue(item.Itsm),
+		Reason:     types.StringPointerValue(item.Reason),
 	}
-	if item.Source != nil {
-		m.Source = types.StringValue(*item.Source)
-	} else {
-		m.Source = types.StringNull()
-	}
-	if item.Persistent != nil {
-		m.Persistent = types.BoolValue(*item.Persistent)
-	} else {
-		m.Persistent = types.BoolNull()
-	}
-	return m
 }

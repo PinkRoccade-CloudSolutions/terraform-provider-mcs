@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &DomainDblDataSource{}
@@ -18,13 +19,14 @@ type DomainDblDataSource struct {
 }
 
 type DomainDblDataSourceModel struct {
-	Id          types.String         `tfsdk:"id"`
-	DomainName  types.String         `tfsdk:"domainname"`
-	Timestamp   types.String         `tfsdk:"timestamp"`
-	Source      types.String         `tfsdk:"source"`
-	Persistent  types.Bool           `tfsdk:"persistent"`
-	Occurrence  types.Int64          `tfsdk:"occurrence"`
-	DomainDbls  []DomainDblListModel `tfsdk:"domain_dbls"`
+	Id         types.String         `tfsdk:"id"`
+	DomainName types.String         `tfsdk:"domainname"`
+	Timestamp  types.String         `tfsdk:"timestamp"`
+	Source     types.String         `tfsdk:"source"`
+	Persistent types.Bool           `tfsdk:"persistent"`
+	Occurrence types.Int64          `tfsdk:"occurrence"`
+	Labels     types.List           `tfsdk:"labels"`
+	DomainDbls []DomainDblListModel `tfsdk:"domain_dbls"`
 }
 
 type DomainDblListModel struct {
@@ -34,6 +36,7 @@ type DomainDblListModel struct {
 	Source     types.String `tfsdk:"source"`
 	Persistent types.Bool   `tfsdk:"persistent"`
 	Occurrence types.Int64  `tfsdk:"occurrence"`
+	Labels     types.List   `tfsdk:"labels"`
 }
 
 func NewDomainDblDataSource() datasource.DataSource {
@@ -54,6 +57,7 @@ func (d *DomainDblDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 		"source":     schema.StringAttribute{Computed: true},
 		"persistent": schema.BoolAttribute{Computed: true},
 		"occurrence": schema.Int64Attribute{Computed: true},
+		"labels":     schema.ListAttribute{Computed: true, ElementType: types.StringType},
 	}
 
 	resp.Schema = schema.Schema{
@@ -68,6 +72,11 @@ func (d *DomainDblDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 			"source":     schema.StringAttribute{Computed: true},
 			"persistent": schema.BoolAttribute{Computed: true},
 			"occurrence": schema.Int64Attribute{Computed: true},
+			"labels": schema.ListAttribute{
+				Computed:    true,
+				ElementType: types.StringType,
+				Description: "Names of the DBL labels attached to the entry.",
+			},
 			"domain_dbls": schema.ListNestedAttribute{
 				Computed: true,
 				NestedObject: schema.NestedAttributeObject{
@@ -105,15 +114,13 @@ func (d *DomainDblDataSource) Read(ctx context.Context, req datasource.ReadReque
 			resp.Diagnostics.AddError("Error reading domain dbl entry", err.Error())
 			return
 		}
-		setSingleDomainDbl(&config, &item)
+		setSingleDomainDbl(ctx, &config, &item, &resp.Diagnostics)
 		resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
 		return
 	}
 
-	var page struct {
-		Results []domainDblAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, "/api/dbl/domaindbl/?page_size=1000", &page); err != nil {
+	items, err := listAll[domainDblAPIModel](ctx, d.client, "/api/dbl/domaindbl/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading domain dbl entries", err.Error())
 		return
 	}
@@ -125,40 +132,38 @@ func (d *DomainDblDataSource) Read(ctx context.Context, req datasource.ReadReque
 		Source:     types.StringNull(),
 		Persistent: types.BoolNull(),
 		Occurrence: types.Int64Null(),
-		DomainDbls: make([]DomainDblListModel, 0, len(page.Results)),
+		Labels:     types.ListNull(types.StringType),
+		DomainDbls: make([]DomainDblListModel, 0, len(items)),
 	}
-	for i := range page.Results {
-		state.DomainDbls = append(state.DomainDbls, domainDblToListModel(&page.Results[i]))
+	for i := range items {
+		state.DomainDbls = append(state.DomainDbls, domainDblToListModel(ctx, &items[i], &resp.Diagnostics))
+	}
+	if resp.Diagnostics.HasError() {
+		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-func setSingleDomainDbl(state *DomainDblDataSourceModel, item *domainDblAPIModel) {
-	state.Id = types.StringValue(strconv.Itoa(item.Id))
-	state.DomainName = types.StringValue(item.DomainName)
-	state.Timestamp = types.StringValue(item.Timestamp)
-	state.Source = types.StringValue(item.Source)
-	state.Occurrence = types.Int64Value(int64(item.Occurrence))
-	if item.Persistent != nil {
-		state.Persistent = types.BoolValue(*item.Persistent)
-	} else {
-		state.Persistent = types.BoolNull()
-	}
+func setSingleDomainDbl(ctx context.Context, state *DomainDblDataSourceModel, item *domainDblAPIModel, diags *diag.Diagnostics) {
+	lm := domainDblToListModel(ctx, item, diags)
+	state.Id = lm.Id
+	state.DomainName = lm.DomainName
+	state.Timestamp = lm.Timestamp
+	state.Source = lm.Source
+	state.Persistent = lm.Persistent
+	state.Occurrence = lm.Occurrence
+	state.Labels = lm.Labels
 	state.DomainDbls = []DomainDblListModel{}
 }
 
-func domainDblToListModel(item *domainDblAPIModel) DomainDblListModel {
-	m := DomainDblListModel{
+func domainDblToListModel(ctx context.Context, item *domainDblAPIModel, diags *diag.Diagnostics) DomainDblListModel {
+	return DomainDblListModel{
 		Id:         types.StringValue(strconv.Itoa(item.Id)),
 		DomainName: types.StringValue(item.DomainName),
 		Timestamp:  types.StringValue(item.Timestamp),
-		Source:     types.StringValue(item.Source),
+		Source:     types.StringPointerValue(item.Source),
+		Persistent: types.BoolPointerValue(item.Persistent),
 		Occurrence: types.Int64Value(int64(item.Occurrence)),
+		Labels:     computedListValue(ctx, types.StringType, dblLabelNames(item.Labels), diags),
 	}
-	if item.Persistent != nil {
-		m.Persistent = types.BoolValue(*item.Persistent)
-	} else {
-		m.Persistent = types.BoolNull()
-	}
-	return m
 }

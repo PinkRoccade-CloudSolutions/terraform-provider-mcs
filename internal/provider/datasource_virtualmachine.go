@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strconv"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &VirtualMachineDataSource{}
@@ -18,14 +19,16 @@ type VirtualMachineDataSource struct {
 }
 
 type VirtualMachineDataSourceModel struct {
-	Name              types.String              `tfsdk:"name"`
-	Id                types.String              `tfsdk:"id"`
-	CPU               types.Int64               `tfsdk:"cpu"`
-	Memory            types.Int64               `tfsdk:"memory"`
-	OS                types.String              `tfsdk:"os"`
-	Disks             []VMDiskModel             `tfsdk:"disks"`
-	Interfaces        []VMInterfaceModel        `tfsdk:"interfaces"`
-	VirtualMachines   []VirtualMachineListModel `tfsdk:"virtual_machines"`
+	Name            types.String              `tfsdk:"name"`
+	Id              types.String              `tfsdk:"id"`
+	DomainId        types.Int64               `tfsdk:"domain_id"`
+	CPU             types.Int64               `tfsdk:"cpu"`
+	Memory          types.Int64               `tfsdk:"memory"`
+	OS              types.String              `tfsdk:"os"`
+	State           types.String              `tfsdk:"state"`
+	Disks           []VMDiskModel             `tfsdk:"disks"`
+	Interfaces      []VMInterfaceModel        `tfsdk:"interfaces"`
+	VirtualMachines []VirtualMachineListModel `tfsdk:"virtual_machines"`
 }
 
 type VirtualMachineListModel struct {
@@ -34,6 +37,7 @@ type VirtualMachineListModel struct {
 	CPU        types.Int64        `tfsdk:"cpu"`
 	Memory     types.Int64        `tfsdk:"memory"`
 	OS         types.String       `tfsdk:"os"`
+	State      types.String       `tfsdk:"state"`
 	Disks      []VMDiskModel      `tfsdk:"disks"`
 	Interfaces []VMInterfaceModel `tfsdk:"interfaces"`
 }
@@ -53,16 +57,18 @@ type VMInterfaceModel struct {
 	IPv6Address types.String `tfsdk:"ipv6address"`
 	Network     types.String `tfsdk:"network"`
 	MACAddress  types.String `tfsdk:"mac_address"`
+	VMName      types.String `tfsdk:"vm_name"`
 }
 
 type vmAPIModel struct {
-	Id         string              `json:"id"`
-	Name       string              `json:"name"`
-	CPU        int64               `json:"cpu"`
-	Memory     int64               `json:"memory"`
-	OS         string              `json:"os"`
-	Disks      []vmDiskAPIModel    `json:"disks"`
-	Interfaces []vmIfaceAPIModel   `json:"interfaces"`
+	Id         string            `json:"id"`
+	Name       string            `json:"name"`
+	CPU        int64             `json:"cpu"`
+	Memory     int64             `json:"memory"`
+	OS         string            `json:"os"`
+	State      string            `json:"state"`
+	Disks      []vmDiskAPIModel  `json:"disks"`
+	Interfaces []vmIfaceAPIModel `json:"interfaces"`
 }
 
 type vmDiskAPIModel struct {
@@ -80,6 +86,7 @@ type vmIfaceAPIModel struct {
 	IPv6Address string  `json:"ipv6address"`
 	Network     *string `json:"network"`
 	MACAddress  string  `json:"macAddress"`
+	VMName      string  `json:"vm_name"`
 }
 
 func NewVirtualMachineDataSource() datasource.DataSource {
@@ -105,6 +112,7 @@ func (d *VirtualMachineDataSource) Schema(_ context.Context, _ datasource.Schema
 		"ipv6address": schema.StringAttribute{Computed: true},
 		"network":     schema.StringAttribute{Computed: true},
 		"mac_address": schema.StringAttribute{Computed: true},
+		"vm_name":     schema.StringAttribute{Computed: true},
 	}
 
 	vmAttrs := map[string]schema.Attribute{
@@ -113,6 +121,7 @@ func (d *VirtualMachineDataSource) Schema(_ context.Context, _ datasource.Schema
 		"cpu":    schema.Int64Attribute{Computed: true},
 		"memory": schema.Int64Attribute{Computed: true, Description: "Memory in MB."},
 		"os":     schema.StringAttribute{Computed: true},
+		"state":  schema.StringAttribute{Computed: true},
 		"disks": schema.ListNestedAttribute{
 			Computed:     true,
 			NestedObject: schema.NestedAttributeObject{Attributes: diskAttrs},
@@ -135,6 +144,10 @@ func (d *VirtualMachineDataSource) Schema(_ context.Context, _ datasource.Schema
 				Computed:    true,
 				Description: "UUID of a specific VM to look up, or the UUID of the matched VM when filtering by name.",
 			},
+			"domain_id": schema.Int64Attribute{
+				Optional:    true,
+				Description: "Only consider VMs with an interface in a network of this domain (interfaces__network__domain__id).",
+			},
 			"cpu": schema.Int64Attribute{
 				Computed:    true,
 				Description: "Number of vCPUs (set when a single VM is matched).",
@@ -146,6 +159,10 @@ func (d *VirtualMachineDataSource) Schema(_ context.Context, _ datasource.Schema
 			"os": schema.StringAttribute{
 				Computed:    true,
 				Description: "Operating system (set when a single VM is matched).",
+			},
+			"state": schema.StringAttribute{
+				Computed:    true,
+				Description: "Power state (set when a single VM is matched).",
 			},
 			"disks": schema.ListNestedAttribute{
 				Computed:     true,
@@ -186,7 +203,6 @@ func (d *VirtualMachineDataSource) Read(ctx context.Context, req datasource.Read
 		return
 	}
 
-	// Direct ID lookup via /api/virtualization/virtualmachine/{id}/
 	if !config.Id.IsNull() && config.Id.ValueString() != "" {
 		var vm vmAPIModel
 		err := d.client.Get(ctx, fmt.Sprintf("/api/virtualization/virtualmachine/%s/", config.Id.ValueString()), &vm)
@@ -199,26 +215,29 @@ func (d *VirtualMachineDataSource) Read(ctx context.Context, req datasource.Read
 		return
 	}
 
-	// List with optional name filter
-	path := "/api/virtualization/virtualmachine/?page_size=1000"
+	query := url.Values{}
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
-		path += "&name__icontains=" + url.QueryEscape(config.Name.ValueString())
+		query.Set("name__icontains", config.Name.ValueString())
+	}
+	if !config.DomainId.IsNull() && !config.DomainId.IsUnknown() {
+		query.Set("interfaces__network__domain__id", strconv.FormatInt(config.DomainId.ValueInt64(), 10))
+	}
+	path := "/api/virtualization/virtualmachine/"
+	if len(query) > 0 {
+		path += "?" + query.Encode()
 	}
 
-	var page struct {
-		Results []vmAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[vmAPIModel](ctx, d.client, path)
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading virtual machines", err.Error())
 		return
 	}
 
-	// Single-match mode
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *vmAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name == config.Name.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name == config.Name.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -232,19 +251,20 @@ func (d *VirtualMachineDataSource) Read(ctx context.Context, req datasource.Read
 		return
 	}
 
-	// List-all mode
 	state := VirtualMachineDataSourceModel{
 		Name:            types.StringNull(),
 		Id:              types.StringNull(),
+		DomainId:        config.DomainId,
 		CPU:             types.Int64Null(),
 		Memory:          types.Int64Null(),
 		OS:              types.StringNull(),
+		State:           types.StringNull(),
 		Disks:           []VMDiskModel{},
 		Interfaces:      []VMInterfaceModel{},
-		VirtualMachines: make([]VirtualMachineListModel, 0, len(page.Results)),
+		VirtualMachines: make([]VirtualMachineListModel, 0, len(items)),
 	}
-	for _, vm := range page.Results {
-		state.VirtualMachines = append(state.VirtualMachines, toVMListModel(&vm))
+	for i := range items {
+		state.VirtualMachines = append(state.VirtualMachines, toVMListModel(&items[i]))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -255,6 +275,7 @@ func setSingleVM(state *VirtualMachineDataSourceModel, vm *vmAPIModel) {
 	state.CPU = types.Int64Value(vm.CPU)
 	state.Memory = types.Int64Value(vm.Memory)
 	state.OS = types.StringValue(vm.OS)
+	state.State = types.StringValue(vm.State)
 	state.Disks = mapDisks(vm.Disks)
 	state.Interfaces = mapIfaces(vm.Interfaces)
 	state.VirtualMachines = []VirtualMachineListModel{}
@@ -267,6 +288,7 @@ func toVMListModel(vm *vmAPIModel) VirtualMachineListModel {
 		CPU:        types.Int64Value(vm.CPU),
 		Memory:     types.Int64Value(vm.Memory),
 		OS:         types.StringValue(vm.OS),
+		State:      types.StringValue(vm.State),
 		Disks:      mapDisks(vm.Disks),
 		Interfaces: mapIfaces(vm.Interfaces),
 	}
@@ -289,17 +311,14 @@ func mapDisks(disks []vmDiskAPIModel) []VMDiskModel {
 func mapIfaces(ifaces []vmIfaceAPIModel) []VMInterfaceModel {
 	out := make([]VMInterfaceModel, 0, len(ifaces))
 	for _, i := range ifaces {
-		network := types.StringNull()
-		if i.Network != nil {
-			network = types.StringValue(*i.Network)
-		}
 		out = append(out, VMInterfaceModel{
 			Id:          types.StringValue(i.Id),
 			Name:        types.StringValue(i.Name),
 			IPAddress:   types.StringValue(i.IPAddress),
 			IPv6Address: types.StringValue(i.IPv6Address),
-			Network:     network,
+			Network:     types.StringPointerValue(i.Network),
 			MACAddress:  types.StringValue(i.MACAddress),
+			VMName:      types.StringValue(i.VMName),
 		})
 	}
 	return out

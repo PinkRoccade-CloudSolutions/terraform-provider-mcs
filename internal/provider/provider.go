@@ -117,7 +117,6 @@ func (p *MCSProvider) Resources(_ context.Context) []func() resource.Resource {
 		NewRewriteActionResource,
 		NewRewritePolicyResource,
 		NewSiteToSiteVPNResource,
-		NewVirtualDatacenterResource,
 	}
 }
 

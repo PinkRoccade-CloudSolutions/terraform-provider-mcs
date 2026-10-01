@@ -142,7 +142,7 @@ func TestAccCustomerResource_CRUD(t *testing.T) {
 
 	customerResponse := map[string]interface{}{
 		"id": "cust-001", "name": "Test Customer", "contractid": "",
-		"tenant": 1, "sdm": 0,
+		"tenant": 1, "sdm": nil,
 		"tech_contacts": []int{}, "admin_contacts": []int{},
 		"created_at_timestamp": "2025-01-01T00:00:00Z",
 		"updated_at_timestamp": "2025-01-01T00:00:00Z",
@@ -169,16 +169,26 @@ func TestAccCustomerResource_CRUD(t *testing.T) {
 			{
 				Config: providerConfigBlock(mock.URL()) + `
 resource "mcs_customer" "test" {
-  name           = "Test Customer"
-  contractid     = ""
-  sdm            = 0
-  tech_contacts  = []
-  admin_contacts = []
+  name = "Test Customer"
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_customer.test", "id", "cust-001"),
 					resource.TestCheckResourceAttr("mcs_customer.test", "name", "Test Customer"),
+					resource.TestCheckResourceAttr("mcs_customer.test", "contractid", ""),
+					resource.TestCheckNoResourceAttr("mcs_customer.test", "sdm"),
+					resource.TestCheckResourceAttr("mcs_customer.test", "tech_contacts.#", "0"),
+					resource.TestCheckResourceAttr("mcs_customer.test", "admin_contacts.#", "0"),
 				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_customer" "test" {
+  name           = "Test Customer"
+  contractid     = ""
+  tech_contacts  = []
+  admin_contacts = []
+}`,
+				PlanOnly: true,
 			},
 		},
 	})
@@ -1524,64 +1534,6 @@ resource "mcs_site_to_site_vpn" "test" {
 					resource.TestCheckResourceAttr("mcs_site_to_site_vpn.test", "id", "7"),
 					resource.TestCheckResourceAttr("mcs_site_to_site_vpn.test", "name", "hq-to-branch"),
 					resource.TestCheckResourceAttr("mcs_site_to_site_vpn.test", "uuid", "vpn-uuid-001"),
-				),
-			},
-		},
-	})
-}
-
-// ---------------------------------------------------------------------------
-// mcs_virtual_datacenter
-// ---------------------------------------------------------------------------
-
-func TestAccVirtualDatacenterResource_CRUD(t *testing.T) {
-	mock := newMockAPIServer()
-	defer mock.Close()
-
-	mock.On("/api/virtualization/virtualdatacenter", func(w http.ResponseWriter, r *http.Request, body []byte) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.Method {
-		case http.MethodPost:
-			var req map[string]interface{}
-			_ = json.Unmarshal(body, &req)
-			resp := map[string]interface{}{
-				"id": "vdc-001", "name": req["name"], "customer": req["customer"],
-				"created_at_timestamp": "2025-01-01T00:00:00Z",
-				"updated_at_timestamp": "2025-01-01T00:00:00Z",
-			}
-			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(resp)
-		case http.MethodGet:
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"id": "vdc-001", "name": "prod-dc", "customer": "acme",
-				"created_at_timestamp": "2025-01-01T00:00:00Z",
-				"updated_at_timestamp": "2025-01-01T00:00:00Z",
-			})
-		case http.MethodPut:
-			var req map[string]interface{}
-			_ = json.Unmarshal(body, &req)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"id": "vdc-001", "name": req["name"], "customer": req["customer"],
-				"created_at_timestamp": "2025-01-01T00:00:00Z",
-				"updated_at_timestamp": "2025-01-01T00:00:00Z",
-			})
-		case http.MethodDelete:
-			w.WriteHeader(http.StatusNoContent)
-		}
-	})
-
-	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
-		Steps: []resource.TestStep{
-			{
-				Config: providerConfigBlock(mock.URL()) + `
-resource "mcs_virtual_datacenter" "test" {
-  name     = "prod-dc"
-  customer = "acme"
-}`,
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("mcs_virtual_datacenter.test", "id", "vdc-001"),
-					resource.TestCheckResourceAttr("mcs_virtual_datacenter.test", "name", "prod-dc"),
 				),
 			},
 		},

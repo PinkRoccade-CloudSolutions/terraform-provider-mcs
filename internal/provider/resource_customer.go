@@ -4,12 +4,17 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ resource.Resource = &CustomerResource{}
@@ -19,21 +24,21 @@ type CustomerResource struct {
 }
 
 type CustomerResourceModel struct {
-	Id                 types.String `tfsdk:"id"`
-	Name               types.String `tfsdk:"name"`
-	ContractId         types.String `tfsdk:"contractid"`
-	Sdm                types.Int64  `tfsdk:"sdm"`
-	TechContacts  types.List `tfsdk:"tech_contacts"`
-	AdminContacts types.List `tfsdk:"admin_contacts"`
+	Id            types.String `tfsdk:"id"`
+	Name          types.String `tfsdk:"name"`
+	ContractId    types.String `tfsdk:"contractid"`
+	Sdm           types.Int64  `tfsdk:"sdm"`
+	TechContacts  types.List   `tfsdk:"tech_contacts"`
+	AdminContacts types.List   `tfsdk:"admin_contacts"`
 }
 
 type customerAPIModel struct {
-	Id                 string  `json:"id,omitempty"`
-	Name               string  `json:"name"`
-	ContractId         string  `json:"contractid,omitempty"`
-	Sdm                int64   `json:"sdm,omitempty"`
-	TechContacts  []int64 `json:"tech_contacts"`
-	AdminContacts []int64 `json:"admin_contacts"`
+	Id            string   `json:"id,omitempty"`
+	Name          string   `json:"name"`
+	ContractId    *string  `json:"contractid,omitempty"`
+	Sdm           *int64   `json:"sdm,omitempty"`
+	TechContacts  *[]int64 `json:"tech_contacts,omitempty"`
+	AdminContacts *[]int64 `json:"admin_contacts,omitempty"`
 }
 
 func NewCustomerResource() resource.Resource {
@@ -52,21 +57,32 @@ func (r *CustomerResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"name": schema.StringAttribute{
-				Required: true,
+				Required:   true,
+				Validators: []validator.String{stringvalidator.LengthBetween(1, 255)},
 			},
 			"contractid": schema.StringAttribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				Validators:    []validator.String{stringvalidator.LengthAtMost(255)},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"sdm": schema.Int64Attribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				Description:   "Service Delivery Manager (user id) for the customer; null when not set.",
+				PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
 			},
 			"tech_contacts": schema.ListAttribute{
-				Optional:    true,
-				ElementType: types.Int64Type,
+				Optional:      true,
+				Computed:      true,
+				ElementType:   types.Int64Type,
+				PlanModifiers: []planmodifier.List{listplanmodifier.UseStateForUnknown()},
 			},
 			"admin_contacts": schema.ListAttribute{
-				Optional:    true,
-				ElementType: types.Int64Type,
+				Optional:      true,
+				Computed:      true,
+				ElementType:   types.Int64Type,
+				PlanModifiers: []planmodifier.List{listplanmodifier.UseStateForUnknown()},
 			},
 		},
 	}
@@ -85,6 +101,40 @@ func (r *CustomerResource) Configure(_ context.Context, req resource.ConfigureRe
 	r.client = client
 }
 
+func customerBodyFromPlan(ctx context.Context, plan *CustomerResourceModel, diags *diag.Diagnostics) customerAPIModel {
+	return customerAPIModel{
+		Name:          plan.Name.ValueString(),
+		ContractId:    stringPtr(plan.ContractId),
+		Sdm:           int64Ptr(plan.Sdm),
+		TechContacts:  listElems[int64](ctx, plan.TechContacts, diags),
+		AdminContacts: listElems[int64](ctx, plan.AdminContacts, diags),
+	}
+}
+
+func customerStateFromAPI(ctx context.Context, apiResp *customerAPIModel, state *CustomerResourceModel, diags *diag.Diagnostics) {
+	state.Id = types.StringValue(apiResp.Id)
+	state.Name = types.StringValue(apiResp.Name)
+	if apiResp.ContractId != nil {
+		state.ContractId = types.StringValue(*apiResp.ContractId)
+	} else {
+		state.ContractId = types.StringValue("")
+	}
+	if apiResp.Sdm != nil {
+		state.Sdm = types.Int64Value(*apiResp.Sdm)
+	} else {
+		state.Sdm = types.Int64Null()
+	}
+	var tech, admin []int64
+	if apiResp.TechContacts != nil {
+		tech = *apiResp.TechContacts
+	}
+	if apiResp.AdminContacts != nil {
+		admin = *apiResp.AdminContacts
+	}
+	state.TechContacts = computedListValue(ctx, types.Int64Type, tech, diags)
+	state.AdminContacts = computedListValue(ctx, types.Int64Type, admin, diags)
+}
+
 func (r *CustomerResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan CustomerResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -92,21 +142,7 @@ func (r *CustomerResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	apiReq := customerAPIModel{
-		Name: plan.Name.ValueString(),
-	}
-	if !plan.ContractId.IsNull() {
-		apiReq.ContractId = plan.ContractId.ValueString()
-	}
-	if !plan.Sdm.IsNull() {
-		apiReq.Sdm = plan.Sdm.ValueInt64()
-	}
-	if !plan.TechContacts.IsNull() {
-		resp.Diagnostics.Append(plan.TechContacts.ElementsAs(ctx, &apiReq.TechContacts, false)...)
-	}
-	if !plan.AdminContacts.IsNull() {
-		resp.Diagnostics.Append(plan.AdminContacts.ElementsAs(ctx, &apiReq.AdminContacts, false)...)
-	}
+	apiReq := customerBodyFromPlan(ctx, &plan, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -118,16 +154,7 @@ func (r *CustomerResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-
-	techList, diags := types.ListValueFrom(ctx, types.Int64Type, apiResp.TechContacts)
-	resp.Diagnostics.Append(diags...)
-	plan.TechContacts = techList
-
-	adminList, diags := types.ListValueFrom(ctx, types.Int64Type, apiResp.AdminContacts)
-	resp.Diagnostics.Append(diags...)
-	plan.AdminContacts = adminList
-
+	customerStateFromAPI(ctx, &apiResp, &plan, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -149,19 +176,7 @@ func (r *CustomerResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	state.Id = types.StringValue(apiResp.Id)
-	state.Name = types.StringValue(apiResp.Name)
-	state.ContractId = types.StringValue(apiResp.ContractId)
-	state.Sdm = types.Int64Value(apiResp.Sdm)
-
-	techList, diags := types.ListValueFrom(ctx, types.Int64Type, apiResp.TechContacts)
-	resp.Diagnostics.Append(diags...)
-	state.TechContacts = techList
-
-	adminList, diags := types.ListValueFrom(ctx, types.Int64Type, apiResp.AdminContacts)
-	resp.Diagnostics.Append(diags...)
-	state.AdminContacts = adminList
-
+	customerStateFromAPI(ctx, &apiResp, &state, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -172,21 +187,7 @@ func (r *CustomerResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	apiReq := customerAPIModel{
-		Name: plan.Name.ValueString(),
-	}
-	if !plan.ContractId.IsNull() {
-		apiReq.ContractId = plan.ContractId.ValueString()
-	}
-	if !plan.Sdm.IsNull() {
-		apiReq.Sdm = plan.Sdm.ValueInt64()
-	}
-	if !plan.TechContacts.IsNull() {
-		resp.Diagnostics.Append(plan.TechContacts.ElementsAs(ctx, &apiReq.TechContacts, false)...)
-	}
-	if !plan.AdminContacts.IsNull() {
-		resp.Diagnostics.Append(plan.AdminContacts.ElementsAs(ctx, &apiReq.AdminContacts, false)...)
-	}
+	apiReq := customerBodyFromPlan(ctx, &plan, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -198,14 +199,7 @@ func (r *CustomerResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	techList, diags := types.ListValueFrom(ctx, types.Int64Type, apiResp.TechContacts)
-	resp.Diagnostics.Append(diags...)
-	plan.TechContacts = techList
-
-	adminList, diags := types.ListValueFrom(ctx, types.Int64Type, apiResp.AdminContacts)
-	resp.Diagnostics.Append(diags...)
-	plan.AdminContacts = adminList
-
+	customerStateFromAPI(ctx, &apiResp, &plan, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
