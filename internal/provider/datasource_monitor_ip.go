@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &MonitorIPDataSource{}
@@ -17,14 +17,14 @@ type MonitorIPDataSource struct {
 }
 
 type MonitorIPDataSourceModel struct {
-	Id                 types.String           `tfsdk:"id"`
-	IpAddress          types.String           `tfsdk:"ipaddress"`
-	Timestamp          types.String           `tfsdk:"timestamp"`
-	NotifyEmail        types.String           `tfsdk:"notify_email"`
-	LastCheckTimestamp types.String           `tfsdk:"last_check_timestamp"`
-	Customer           types.String           `tfsdk:"customer"`
-	Comment            types.String           `tfsdk:"comment"`
-	MonitorIps         []MonitorIPListModel   `tfsdk:"monitor_ips"`
+	Id                 types.String         `tfsdk:"id"`
+	IpAddress          types.String         `tfsdk:"ipaddress"`
+	Timestamp          types.String         `tfsdk:"timestamp"`
+	NotifyEmail        types.String         `tfsdk:"notify_email"`
+	LastCheckTimestamp types.String         `tfsdk:"last_check_timestamp"`
+	Customer           types.String         `tfsdk:"customer"`
+	Comment            types.String         `tfsdk:"comment"`
+	MonitorIps         []MonitorIPListModel `tfsdk:"monitor_ips"`
 }
 
 type MonitorIPListModel struct {
@@ -111,10 +111,8 @@ func (d *MonitorIPDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	var page struct {
-		Results []monitorIPAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, "/api/dbl/monitorip/?page_size=1000", &page); err != nil {
+	items, err := listAll[monitorIPAPIModel](ctx, d.client, "/api/dbl/monitorip/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading monitor IP entries", err.Error())
 		return
 	}
@@ -127,10 +125,10 @@ func (d *MonitorIPDataSource) Read(ctx context.Context, req datasource.ReadReque
 		LastCheckTimestamp: types.StringNull(),
 		Customer:           types.StringNull(),
 		Comment:            types.StringNull(),
-		MonitorIps:         make([]MonitorIPListModel, 0, len(page.Results)),
+		MonitorIps:         make([]MonitorIPListModel, 0, len(items)),
 	}
-	for i := range page.Results {
-		state.MonitorIps = append(state.MonitorIps, monitorIPToListModel(&page.Results[i]))
+	for i := range items {
+		state.MonitorIps = append(state.MonitorIps, monitorIPToListModel(&items[i]))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -139,18 +137,10 @@ func setSingleMonitorIP(state *MonitorIPDataSourceModel, item *monitorIPAPIModel
 	state.Id = types.StringValue(item.Id)
 	state.IpAddress = types.StringValue(item.IpAddress)
 	state.Timestamp = types.StringValue(item.Timestamp)
-	if item.NotifyEmail != nil {
-		state.NotifyEmail = types.StringValue(*item.NotifyEmail)
-	} else {
-		state.NotifyEmail = types.StringNull()
-	}
+	state.NotifyEmail = types.StringValue(item.NotifyEmail)
 	state.LastCheckTimestamp = types.StringValue(item.LastCheckTimestamp)
 	state.Customer = types.StringValue(item.Customer)
-	if item.Comment != nil {
-		state.Comment = types.StringValue(*item.Comment)
-	} else {
-		state.Comment = types.StringNull()
-	}
+	state.Comment = types.StringValue(item.Comment)
 	state.MonitorIps = []MonitorIPListModel{}
 }
 
@@ -161,16 +151,8 @@ func monitorIPToListModel(item *monitorIPAPIModel) MonitorIPListModel {
 		Timestamp:          types.StringValue(item.Timestamp),
 		LastCheckTimestamp: types.StringValue(item.LastCheckTimestamp),
 		Customer:           types.StringValue(item.Customer),
-	}
-	if item.NotifyEmail != nil {
-		m.NotifyEmail = types.StringValue(*item.NotifyEmail)
-	} else {
-		m.NotifyEmail = types.StringNull()
-	}
-	if item.Comment != nil {
-		m.Comment = types.StringValue(*item.Comment)
-	} else {
-		m.Comment = types.StringNull()
+		NotifyEmail:        types.StringValue(item.NotifyEmail),
+		Comment:            types.StringValue(item.Comment),
 	}
 	return m
 }

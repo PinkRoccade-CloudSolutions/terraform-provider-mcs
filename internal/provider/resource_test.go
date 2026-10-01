@@ -1478,6 +1478,7 @@ func TestAccSiteToSiteVPNResource_CRUD(t *testing.T) {
 			resp := map[string]interface{}{
 				"id": 7, "uuid": "vpn-uuid-001", "name": req["name"],
 				"state": req["state"], "last_status": req["last_status"],
+				"domain": req["domain"], "tenant": req["tenant"],
 				"resets": req["resets"], "last_check": req["last_check"],
 				"last_reset":           req["last_reset"],
 				"created_at_timestamp": "2025-01-01T00:00:00Z",
@@ -1488,6 +1489,7 @@ func TestAccSiteToSiteVPNResource_CRUD(t *testing.T) {
 		case http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"id": 7, "uuid": "vpn-uuid-001", "name": "hq-to-branch",
+				"domain": 1, "tenant": 2,
 				"state": "up", "last_status": "ok", "resets": 0,
 				"last_check": "2025-01-01T12:00:00Z", "last_reset": "",
 				"created_at_timestamp": "2025-01-01T00:00:00Z",
@@ -1514,6 +1516,8 @@ func TestAccSiteToSiteVPNResource_CRUD(t *testing.T) {
 				Config: providerConfigBlock(mock.URL()) + `
 resource "mcs_site_to_site_vpn" "test" {
   name        = "hq-to-branch"
+  domain      = 1
+  tenant      = 2
   state       = "up"
   last_status = "ok"
   resets      = 0
@@ -1524,6 +1528,8 @@ resource "mcs_site_to_site_vpn" "test" {
 					resource.TestCheckResourceAttr("mcs_site_to_site_vpn.test", "id", "7"),
 					resource.TestCheckResourceAttr("mcs_site_to_site_vpn.test", "name", "hq-to-branch"),
 					resource.TestCheckResourceAttr("mcs_site_to_site_vpn.test", "uuid", "vpn-uuid-001"),
+					resource.TestCheckResourceAttr("mcs_site_to_site_vpn.test", "domain", "1"),
+					resource.TestCheckResourceAttr("mcs_site_to_site_vpn.test", "tenant", "2"),
 				),
 			},
 		},

@@ -255,12 +255,14 @@ locals {
 
 | Attribute       | Type   | Mode     | Description |
 |----------------|--------|----------|-------------|
-| `name`         | String | Optional | Exact zone name to look up. |
+| `name`         | String | Optional | Exact zone name to look up (filtered server-side with `name__icontains`, then matched exactly). |
+| `id`           | Number | Computed | Numeric zone ID. |
 | `uuid`         | String | Computed | Zone UUID. |
 | `description`  | String | Computed | Zone description. |
 | `adom`         | String | Computed | Administrative domain. |
 | `transit_vrf`  | String | Computed | Transit VRF identifier. |
 | `loadbalancers` | List   | Computed | Load balancers available in the matched zone (only set when `name` is provided). |
+| `edge_root_networks` | List(String) | Computed | UUIDs of the zone's edge root networks. |
 | `zones`        | List   | Computed | List of all zones (populated when `name` is not set). |
 
 **Nested `loadbalancers` attributes:**
@@ -268,15 +270,15 @@ locals {
 | Attribute | Type   | Mode     | Description |
 |-----------|--------|----------|-------------|
 | `id`      | String | Computed | Load balancer identifier. |
-| `name`    | String | Computed | Load balancer name. |
+| `name`    | String | Computed | Load balancer name (the device `alias`). |
 
-**Nested `zones` attributes:** `uuid`, `name`, `description`, `adom`, `transit_vrf` — all String, Computed. Each zone also contains a nested `loadbalancers` list with the same attributes as above.
+**Nested `zones` attributes:** `id` (Number), `uuid`, `name`, `description`, `adom`, `transit_vrf` (String), `edge_root_networks` (List(String)) — all Computed. Each zone also contains a nested `loadbalancers` list with the same attributes as above.
 
 ---
 
 ### mcs_network
 
-Look up networks. Provide `name` for a single match, or omit to list all.
+Look up networks. Provide `name` for a single match, or omit to list all (optionally filtered by `domain`).
 
 #### Example
 
@@ -295,12 +297,17 @@ output "network_vlan" {
 | Attribute     | Type   | Mode     | Description |
 |--------------|--------|----------|-------------|
 | `name`       | String | Optional | Exact network name to look up. |
+| `domain`     | Number | Optional/Computed | Filter by domain ID; set to the matched network's domain. |
 | `id`         | String | Computed | Network ID. |
+| `domain_name` | String | Computed | Name of the network's domain (from `domain_detail`). |
+| `domain_vdom_id` | String | Computed | VDOM ID of the network's domain (from `domain_detail`). |
+| `description` | String | Computed | Network description. |
 | `ipv4_prefix` | String | Computed | IPv4 CIDR prefix. |
-| `vlan_id`    | String | Computed | VLAN identifier. |
+| `ipv4_address` | String | Computed | IPv4 address. |
+| `vlan_id`    | Number | Computed | VLAN identifier (API field `vlanid`). |
 | `networks`   | List   | Computed | List of all networks (populated when `name` is not set). |
 
-**Nested `networks` attributes:** `id`, `name`, `ipv4_prefix`, `vlan_id` — all String, Computed.
+**Nested `networks` attributes:** `id`, `name`, `domain_name`, `domain_vdom_id`, `description`, `ipv4_prefix`, `ipv4_address` (String); `domain`, `vlan_id` (Number) — all Computed.
 
 ---
 
@@ -398,7 +405,7 @@ output "interface_ip" {
 
 ### mcs_ippool
 
-Look up IP pools. Provide `name` or `id` for a single match, or omit both to list all.
+Look up IP pools. Provide `name` or `id` for a single match, or omit both to list all (optionally filtered by `customer` and `type`).
 
 #### Example
 
@@ -419,10 +426,13 @@ output "pool_id" {
 | `name`    | String | Optional | Exact pool name. |
 | `id`      | String | Optional/Computed | Pool ID. |
 | `subnet`  | String | Computed | Pool subnet. |
-| `customer` | String | Computed | Associated customer. |
+| `customer` | String | Optional/Computed | Filter by customer; set to the matched pool's customer. |
+| `type`    | String | Optional/Computed | Filter by type (`nat`, `vip`, `loadbalancer`); set to the matched pool's type. |
+| `total_ips` | String | Computed | Total number of addresses in the pool. |
+| `free_ips` | String | Computed | Number of free addresses in the pool. |
 | `ip_pools` | List  | Computed | List of all IP pools (populated when `name` and `id` are not set). |
 
-**Nested `ip_pools` attributes:** `id`, `name`, `subnet`, `customer` — all String, Computed.
+**Nested `ip_pools` attributes:** `id`, `name`, `subnet`, `customer`, `type`, `total_ips`, `free_ips` — all String, Computed.
 
 ---
 
@@ -469,7 +479,7 @@ output "all_public_ips" {
 | `pool`               | String | Computed          | UUID of the IP pool (set when a single address is matched). |
 | `description`        | String | Computed          | Description (set when a single address is matched). |
 | `status`             | String | Computed          | Status: `available`, `assigned`, or `reserved`. |
-| `type`               | String | Computed          | Type: `nat`, `vip`, or `loadbalancer`. |
+| `type`               | String | Computed          | Type: `nat`, `vip`, `loadbalancer`, or `secureingress`. |
 | `customer`           | String | Computed          | Customer identifier (set when a single address is matched). |
 | `public_ip_addresses` | List  | Computed          | All public IP addresses (populated when neither `ip_address` nor `id` is set). |
 
@@ -1104,8 +1114,8 @@ data "mcs_nat_translation" "all" {}
 | Attribute          | Type   | Mode     | Description |
 |-------------------|--------|----------|-------------|
 | `id`              | String | Optional/Computed | NAT translation UUID. |
-| `public_ip`       | String | Computed | Public IP UUID. |
-| `interface`       | String | Computed | Private interface UUID. |
+| `public_ip`       | String | Computed | Public IP UUID (null when unset). |
+| `interface`       | String | Computed | Private interface UUID (null when unset). |
 | `firewall`        | String | Computed | Firewall UUID. |
 | `translation`     | String | Computed | Translation description. |
 | `private_ip`      | String | Computed | Private IP address. |
@@ -1115,15 +1125,17 @@ data "mcs_nat_translation" "all" {}
 | `protocol`        | String | Computed | Protocol. |
 | `customer`        | String | Computed | Customer identifier. |
 | `description`     | String | Computed | Description. |
-| `state`           | String | Computed | Sync state. |
+| `state`           | String | Computed | Sync state: `synced`, `unsynced`, `error`, or `deleted`. |
 | `enabled`         | Bool   | Computed | Whether enabled. |
+| `snat_source_addresses` | List(String) | Computed | SNAT source addresses/subnets (`snat` only). |
+| `snat_translated_addresses` | List(String) | Computed | SNAT translation pool addresses (`snat` only). |
 | `nat_translations` | List  | Computed | All NAT translations (populated when `id` is not set). |
 
 ---
 
 ### mcs_site_to_site_vpn (Data Source)
 
-Look up site-to-site VPN tunnels. Provide `name` or `id` for a single match, or omit both to list all.
+Look up site-to-site VPN tunnels. Provide `name` (exact match, sent as the API's `name` filter) or `id` for a single match, or omit both to list all.
 
 #### Example
 
@@ -1140,13 +1152,20 @@ data "mcs_site_to_site_vpn" "office" {
 | `name`                | String | Optional | Exact VPN tunnel name. |
 | `id`                  | String | Optional/Computed | VPN ID. |
 | `uuid`                | String | Computed | VPN UUID. |
+| `domain`              | Number | Computed | Domain ID. |
+| `tenant`              | Number | Computed | Tenant ID. |
+| `customer`            | String | Computed | Customer identifier. |
+| `firewall`            | String | Computed | Firewall UUID. |
+| `contact`             | List(Number) | Computed | Contact IDs. |
 | `state`               | String | Computed | Tunnel state. |
 | `last_status`         | String | Computed | Last known status. |
 | `resets`              | Number | Computed | Number of resets. |
-| `last_check`          | String | Computed | Last health check timestamp. |
-| `last_reset`          | String | Computed | Last reset timestamp. |
+| `last_check`          | String | Computed | Last health check timestamp (null if never checked). |
+| `last_reset`          | String | Computed | Last reset timestamp (null if never reset). |
 | `created_at_timestamp` | String | Computed | Creation timestamp. |
 | `updated_at_timestamp` | String | Computed | Last update timestamp. |
+| `created_by_user`     | Number | Computed | ID of the user who created the VPN. |
+| `updated_by_user`     | Number | Computed | ID of the user who last updated the VPN. |
 | `vpns`                | List   | Computed | All VPN tunnels (populated when neither `name` nor `id` is set). |
 
 ---
@@ -1239,23 +1258,24 @@ resource "mcs_public_ip_address" "web" {
 
 | Attribute    | Type   | Required | Description |
 |-------------|--------|----------|-------------|
-| `pool`      | String | No       | UUID of the IP pool to allocate from. |
-| `description` | String | No     | Description of the public IP address. |
-| `type`      | String | No       | Type: `nat`, `vip`, or `loadbalancer`. |
-| `customer`  | String | No       | Customer identifier. |
+| `pool`      | String | No       | UUID of the IP pool to allocate from. Computed by the API when omitted. Changing it forces a new resource. |
+| `ip_address` | String | No      | Specific public IP address to claim. Assigned by the API when omitted. |
+| `description` | String | No     | Description of the public IP address (max 255). Defaults to `""`; removing it clears the description. |
+| `type`      | String | No       | Type: `nat`, `vip`, `loadbalancer`, or `secureingress`. |
+| `customer`  | String | No       | Customer identifier. Computed by the API when omitted. |
 
 **Read-only attributes:**
 
 | Attribute    | Type   | Description |
 |-------------|--------|-------------|
 | `id`        | String | UUID of the public IP address. |
-| `ip_address` | String | The assigned public IP address (determined by the API). |
+| `status`    | String | Allocation status: `available`, `assigned`, or `reserved`. |
 
 ---
 
 #### mcs_nat_translation
 
-Manages a NAT translation between a public IP and a private interface. Supports both 1:1 NAT and port forwarding.
+Manages a NAT translation between a public IP and a private interface. Supports 1:1 NAT, port forwarding and SNAT.
 
 ##### Example — 1:1 NAT
 
@@ -1286,20 +1306,35 @@ resource "mcs_nat_translation" "https_forward" {
 }
 ```
 
+##### Example — SNAT
+
+```hcl
+resource "mcs_nat_translation" "outbound" {
+  interface                 = data.mcs_interface.eth0.id
+  firewall                  = data.mcs_firewall.internet.id
+  translation_type          = "snat"
+  customer                  = mcs_customer.example.id
+  snat_source_addresses     = ["10.0.0.0/24"]
+  snat_translated_addresses = [mcs_public_ip_address.web.ip_address]
+}
+```
+
 ##### Attributes
 
 | Attribute          | Type   | Required | Description |
 |-------------------|--------|----------|-------------|
-| `public_ip`       | String | **Yes**  | UUID of the public IP address. |
-| `interface`       | String | **Yes**  | UUID of the private interface. |
-| `firewall`        | String | **Yes**  | UUID of the firewall. |
-| `translation_type` | String | **Yes** | Translation type: `one_to_one` or `port_forward`. |
-| `customer`        | String | **Yes**  | Customer identifier. |
-| `public_port`     | Number | No       | Public port (required for port forwarding). |
-| `private_port`    | Number | No       | Private port (required for port forwarding). |
-| `protocol`        | String | No       | Protocol: `tcp` or `udp`. |
-| `description`     | String | No       | Description of the NAT translation. |
-| `enabled`         | Bool   | No       | Whether the NAT translation is enabled. Defaults to `true`. |
+| `firewall`        | String | **Yes**  | UUID of the firewall. Changing it forces a new resource. |
+| `translation_type` | String | **Yes** | Translation type: `one_to_one`, `port_forward`, or `snat`. |
+| `customer`        | String | **Yes**  | Customer identifier. Changing it forces a new resource. |
+| `public_ip`       | String | No       | UUID of the public IP address. Removing it sends `null`. |
+| `interface`       | String | No       | UUID of the private interface. Removing it sends `null`. |
+| `public_port`     | Number | No       | Public port, 0–4294967295 (required for port forwarding). |
+| `private_port`    | Number | No       | Private port, 0–4294967295 (required for port forwarding). |
+| `protocol`        | String | No       | Protocol: `tcp`, `udp`, or `""`. |
+| `description`     | String | No       | Description of the NAT translation (max 255). |
+| `enabled`         | Bool   | No       | Whether the NAT translation is enabled. Defaults to `true` on create. |
+| `snat_source_addresses` | List(String) | No | Source IPs/subnets to apply SNAT to (`snat` only). Removing it clears the list. |
+| `snat_translated_addresses` | List(String) | No | Addresses used as the SNAT translation pool (`snat` only). Removing it clears the list. |
 
 **Read-only attributes:**
 
@@ -1307,6 +1342,8 @@ resource "mcs_nat_translation" "https_forward" {
 |-------------|--------|-------------|
 | `id`        | String | UUID of the NAT translation. |
 | `private_ip` | String | Resolved private IP address. |
+| `translation` | String | Human-readable translation summary. |
+| `state`     | String | Sync state: `synced`, `unsynced`, `error`, or `deleted`. |
 
 ---
 
@@ -1318,8 +1355,11 @@ Manages a site-to-site VPN tunnel.
 
 ```hcl
 resource "mcs_site_to_site_vpn" "office" {
-  name  = "office-vpn-tunnel"
-  state = "up"
+  name     = "office-vpn-tunnel"
+  domain   = 42
+  tenant   = 7
+  firewall = data.mcs_firewall.internet.id
+  contact  = [mcs_contact.admin.id]
 }
 ```
 
@@ -1327,14 +1367,19 @@ resource "mcs_site_to_site_vpn" "office" {
 
 | Attribute     | Type   | Required | Description |
 |--------------|--------|----------|-------------|
-| `name`       | String | **Yes**  | VPN tunnel name. |
-| `state`      | String | No       | Desired tunnel state. |
-| `last_status` | String | No      | Last known status. |
-| `resets`     | Number | No       | Number of tunnel resets. |
-| `last_check` | String | No       | Timestamp of the last health check. |
-| `last_reset` | String | No       | Timestamp of the last reset. |
+| `domain`     | Number | **Yes**  | Domain ID. Changing it forces a new resource. |
+| `tenant`     | Number | **Yes**  | Tenant ID. Changing it forces a new resource. |
+| `name`       | String | No       | VPN tunnel name (max 255). Defaults to `""`. |
+| `customer`   | String | No       | Customer identifier. Computed by the API when omitted. |
+| `firewall`   | String | No       | UUID of the firewall terminating the tunnel. |
+| `contact`    | List(Number) | No | Contact IDs. Removing it clears the list. |
+| `state`      | String | No       | Tunnel state. Computed when omitted. |
+| `last_status` | String | No      | Last known status. Computed when omitted. |
+| `resets`     | Number | No       | Number of tunnel resets. Computed when omitted. |
+| `last_check` | String | No       | Timestamp of the last health check. Computed when omitted (may be null). |
+| `last_reset` | String | No       | Timestamp of the last reset. Computed when omitted (may be null). |
 
-**Read-only attributes:** `id` (String), `uuid` (String).
+**Read-only attributes:** `id` (String), `uuid` (String), `created_at_timestamp` (String), `updated_at_timestamp` (String), `created_by_user` (Number), `updated_by_user` (Number).
 
 ---
 
@@ -1896,10 +1941,10 @@ resource "mcs_monitor_ip" "web_check" {
 
 | Attribute      | Type   | Required | Description |
 |---------------|--------|----------|-------------|
-| `ipaddress`   | String | **Yes**  | IP address to monitor. |
+| `ipaddress`   | String | **Yes**  | IP address to monitor (max 255). |
 | `customer`    | String | **Yes**  | Customer identifier. |
-| `notify_email` | String | No      | Email address for notifications. |
-| `comment`     | String | No       | Comment. |
+| `notify_email` | String | No      | Comma-separated email addresses for notifications (max 255). Defaults to `""`. |
+| `comment`     | String | No       | Comment. Defaults to `""`. |
 
 **Read-only attributes:**
 

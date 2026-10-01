@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &NetworkPoolDataSource{}
@@ -132,24 +132,22 @@ func (d *NetworkPoolDataSource) Read(ctx context.Context, req datasource.ReadReq
 		return
 	}
 
-	path := "/api/networking/networkpools/?page_size=1000"
+	path := "/api/networking/networkpools/"
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
-		path += "&name__icontains=" + url.QueryEscape(config.Name.ValueString())
+		path += "?name__icontains=" + url.QueryEscape(config.Name.ValueString())
 	}
 
-	var page struct {
-		Results []networkPoolAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[networkPoolAPIModel](ctx, d.client, path)
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading network pools", err.Error())
 		return
 	}
 
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *networkPoolAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name == config.Name.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name == config.Name.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -170,9 +168,9 @@ func (d *NetworkPoolDataSource) Read(ctx context.Context, req datasource.ReadReq
 		Description:  types.StringNull(),
 		Type:         types.StringNull(),
 		Enabled:      types.BoolNull(),
-		NetworkPools: make([]NetworkPoolModel, 0, len(page.Results)),
+		NetworkPools: make([]NetworkPoolModel, 0, len(items)),
 	}
-	for _, item := range page.Results {
+	for _, item := range items {
 		state.NetworkPools = append(state.NetworkPools, NetworkPoolModel{
 			Id:          types.StringValue(item.Id),
 			Name:        types.StringValue(item.Name),

@@ -7,6 +7,7 @@ import (
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -17,55 +18,61 @@ type NATTranslationDataSource struct {
 }
 
 type NATTranslationDataSourceModel struct {
-	Id              types.String          `tfsdk:"id"`
-	PublicIP        types.String          `tfsdk:"public_ip"`
-	InterfaceField  types.String          `tfsdk:"interface"`
-	Firewall        types.String          `tfsdk:"firewall"`
-	Translation     types.String          `tfsdk:"translation"`
-	PrivateIP       types.String          `tfsdk:"private_ip"`
-	TranslationType types.String          `tfsdk:"translation_type"`
-	PublicPort      types.Int64           `tfsdk:"public_port"`
-	PrivatePort     types.Int64           `tfsdk:"private_port"`
-	Protocol        types.String          `tfsdk:"protocol"`
-	Customer        types.String          `tfsdk:"customer"`
-	Description     types.String          `tfsdk:"description"`
-	State           types.String          `tfsdk:"state"`
-	Enabled         types.Bool            `tfsdk:"enabled"`
-	NatTranslations []NATTranslationModel `tfsdk:"nat_translations"`
+	Id                      types.String          `tfsdk:"id"`
+	PublicIP                types.String          `tfsdk:"public_ip"`
+	InterfaceField          types.String          `tfsdk:"interface"`
+	Firewall                types.String          `tfsdk:"firewall"`
+	Translation             types.String          `tfsdk:"translation"`
+	PrivateIP               types.String          `tfsdk:"private_ip"`
+	TranslationType         types.String          `tfsdk:"translation_type"`
+	PublicPort              types.Int64           `tfsdk:"public_port"`
+	PrivatePort             types.Int64           `tfsdk:"private_port"`
+	Protocol                types.String          `tfsdk:"protocol"`
+	Customer                types.String          `tfsdk:"customer"`
+	Description             types.String          `tfsdk:"description"`
+	State                   types.String          `tfsdk:"state"`
+	Enabled                 types.Bool            `tfsdk:"enabled"`
+	SnatSourceAddresses     types.List            `tfsdk:"snat_source_addresses"`
+	SnatTranslatedAddresses types.List            `tfsdk:"snat_translated_addresses"`
+	NatTranslations         []NATTranslationModel `tfsdk:"nat_translations"`
 }
 
 type NATTranslationModel struct {
-	Id              types.String `tfsdk:"id"`
-	PublicIP        types.String `tfsdk:"public_ip"`
-	InterfaceField  types.String `tfsdk:"interface"`
-	Firewall        types.String `tfsdk:"firewall"`
-	Translation     types.String `tfsdk:"translation"`
-	PrivateIP       types.String `tfsdk:"private_ip"`
-	TranslationType types.String `tfsdk:"translation_type"`
-	PublicPort      types.Int64  `tfsdk:"public_port"`
-	PrivatePort     types.Int64  `tfsdk:"private_port"`
-	Protocol        types.String `tfsdk:"protocol"`
-	Customer        types.String `tfsdk:"customer"`
-	Description     types.String `tfsdk:"description"`
-	State           types.String `tfsdk:"state"`
-	Enabled         types.Bool   `tfsdk:"enabled"`
+	Id                      types.String `tfsdk:"id"`
+	PublicIP                types.String `tfsdk:"public_ip"`
+	InterfaceField          types.String `tfsdk:"interface"`
+	Firewall                types.String `tfsdk:"firewall"`
+	Translation             types.String `tfsdk:"translation"`
+	PrivateIP               types.String `tfsdk:"private_ip"`
+	TranslationType         types.String `tfsdk:"translation_type"`
+	PublicPort              types.Int64  `tfsdk:"public_port"`
+	PrivatePort             types.Int64  `tfsdk:"private_port"`
+	Protocol                types.String `tfsdk:"protocol"`
+	Customer                types.String `tfsdk:"customer"`
+	Description             types.String `tfsdk:"description"`
+	State                   types.String `tfsdk:"state"`
+	Enabled                 types.Bool   `tfsdk:"enabled"`
+	SnatSourceAddresses     types.List   `tfsdk:"snat_source_addresses"`
+	SnatTranslatedAddresses types.List   `tfsdk:"snat_translated_addresses"`
 }
 
 type natTranslationDSAPIModel struct {
-	Id              string `json:"id"`
-	PublicIP        string `json:"public_ip"`
-	InterfaceField  string `json:"interface"`
-	Firewall        string `json:"firewall"`
-	Translation     string `json:"translation"`
-	PrivateIP       string `json:"private_ip"`
-	TranslationType string `json:"translation_type"`
-	PublicPort      *int64 `json:"public_port"`
-	PrivatePort     *int64 `json:"private_port"`
-	Protocol        string `json:"protocol"`
-	Customer        string `json:"customer"`
-	Description     string `json:"description"`
-	State           string `json:"state"`
-	Enabled         bool   `json:"enabled"`
+	Id                      string         `json:"id"`
+	PublicIP                *string        `json:"public_ip"`
+	InterfaceField          *string        `json:"interface"`
+	Firewall                string         `json:"firewall"`
+	Translation             string         `json:"translation"`
+	PrivateIP               string         `json:"private_ip"`
+	TranslationType         string         `json:"translation_type"`
+	PublicPort              *int64         `json:"public_port"`
+	PrivatePort             *int64         `json:"private_port"`
+	Protocol                string         `json:"protocol"`
+	Customer                string         `json:"customer"`
+	Description             string         `json:"description"`
+	State                   string         `json:"state"`
+	Enabled                 bool           `json:"enabled"`
+	SnatSourceAddresses     natAddressList `json:"snat_source_addresses"`
+	SnatTranslatedAddresses natAddressList `json:"snat_translated_addresses"`
 }
 
 func NewNATTranslationDataSource() datasource.DataSource {
@@ -78,20 +85,22 @@ func (d *NATTranslationDataSource) Metadata(_ context.Context, req datasource.Me
 
 func (d *NATTranslationDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	natAttrs := map[string]schema.Attribute{
-		"id":               schema.StringAttribute{Computed: true},
-		"public_ip":        schema.StringAttribute{Computed: true},
-		"interface":        schema.StringAttribute{Computed: true},
-		"firewall":         schema.StringAttribute{Computed: true},
-		"translation":      schema.StringAttribute{Computed: true},
-		"private_ip":       schema.StringAttribute{Computed: true},
-		"translation_type": schema.StringAttribute{Computed: true},
-		"public_port":      schema.Int64Attribute{Computed: true},
-		"private_port":     schema.Int64Attribute{Computed: true},
-		"protocol":         schema.StringAttribute{Computed: true},
-		"customer":         schema.StringAttribute{Computed: true},
-		"description":      schema.StringAttribute{Computed: true},
-		"state":            schema.StringAttribute{Computed: true},
-		"enabled":          schema.BoolAttribute{Computed: true},
+		"id":                        schema.StringAttribute{Computed: true},
+		"public_ip":                 schema.StringAttribute{Computed: true},
+		"interface":                 schema.StringAttribute{Computed: true},
+		"firewall":                  schema.StringAttribute{Computed: true},
+		"translation":               schema.StringAttribute{Computed: true},
+		"private_ip":                schema.StringAttribute{Computed: true},
+		"translation_type":          schema.StringAttribute{Computed: true},
+		"public_port":               schema.Int64Attribute{Computed: true},
+		"private_port":              schema.Int64Attribute{Computed: true},
+		"protocol":                  schema.StringAttribute{Computed: true},
+		"customer":                  schema.StringAttribute{Computed: true},
+		"description":               schema.StringAttribute{Computed: true},
+		"state":                     schema.StringAttribute{Computed: true},
+		"enabled":                   schema.BoolAttribute{Computed: true},
+		"snat_source_addresses":     schema.ListAttribute{Computed: true, ElementType: types.StringType},
+		"snat_translated_addresses": schema.ListAttribute{Computed: true, ElementType: types.StringType},
 	}
 
 	resp.Schema = schema.Schema{
@@ -102,19 +111,21 @@ func (d *NATTranslationDataSource) Schema(_ context.Context, _ datasource.Schema
 				Computed:    true,
 				Description: "UUID of a specific NAT translation to look up.",
 			},
-			"public_ip":        schema.StringAttribute{Computed: true},
-			"interface":        schema.StringAttribute{Computed: true},
-			"firewall":         schema.StringAttribute{Computed: true},
-			"translation":      schema.StringAttribute{Computed: true},
-			"private_ip":       schema.StringAttribute{Computed: true},
-			"translation_type": schema.StringAttribute{Computed: true},
-			"public_port":      schema.Int64Attribute{Computed: true},
-			"private_port":     schema.Int64Attribute{Computed: true},
-			"protocol":         schema.StringAttribute{Computed: true},
-			"customer":         schema.StringAttribute{Computed: true},
-			"description":      schema.StringAttribute{Computed: true},
-			"state":            schema.StringAttribute{Computed: true},
-			"enabled":          schema.BoolAttribute{Computed: true},
+			"public_ip":                 schema.StringAttribute{Computed: true},
+			"interface":                 schema.StringAttribute{Computed: true},
+			"firewall":                  schema.StringAttribute{Computed: true},
+			"translation":               schema.StringAttribute{Computed: true},
+			"private_ip":                schema.StringAttribute{Computed: true},
+			"translation_type":          schema.StringAttribute{Computed: true},
+			"public_port":               schema.Int64Attribute{Computed: true},
+			"private_port":              schema.Int64Attribute{Computed: true},
+			"protocol":                  schema.StringAttribute{Computed: true},
+			"customer":                  schema.StringAttribute{Computed: true},
+			"description":               schema.StringAttribute{Computed: true},
+			"state":                     schema.StringAttribute{Computed: true},
+			"enabled":                   schema.BoolAttribute{Computed: true},
+			"snat_source_addresses":     schema.ListAttribute{Computed: true, ElementType: types.StringType},
+			"snat_translated_addresses": schema.ListAttribute{Computed: true, ElementType: types.StringType},
 			"nat_translations": schema.ListNestedAttribute{
 				Computed:     true,
 				Description:  "All NAT translations (populated when `id` is not set).",
@@ -151,92 +162,78 @@ func (d *NATTranslationDataSource) Read(ctx context.Context, req datasource.Read
 			resp.Diagnostics.AddError("Error reading NAT translation", err.Error())
 			return
 		}
-		setSingleNATTranslation(&config, &nat)
+		m := toNATTranslationListModel(ctx, &nat, &resp.Diagnostics)
+		config = NATTranslationDataSourceModel{
+			Id:                      m.Id,
+			PublicIP:                m.PublicIP,
+			InterfaceField:          m.InterfaceField,
+			Firewall:                m.Firewall,
+			Translation:             m.Translation,
+			PrivateIP:               m.PrivateIP,
+			TranslationType:         m.TranslationType,
+			PublicPort:              m.PublicPort,
+			PrivatePort:             m.PrivatePort,
+			Protocol:                m.Protocol,
+			Customer:                m.Customer,
+			Description:             m.Description,
+			State:                   m.State,
+			Enabled:                 m.Enabled,
+			SnatSourceAddresses:     m.SnatSourceAddresses,
+			SnatTranslatedAddresses: m.SnatTranslatedAddresses,
+			NatTranslations:         []NATTranslationModel{},
+		}
 		resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
 		return
 	}
 
-	var page struct {
-		Results []natTranslationDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, "/api/networking/nattranslations/?page_size=1000", &page); err != nil {
+	items, err := listAll[natTranslationDSAPIModel](ctx, d.client, "/api/networking/nattranslations/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading NAT translations", err.Error())
 		return
 	}
 
 	state := NATTranslationDataSourceModel{
-		Id:              types.StringNull(),
-		PublicIP:        types.StringNull(),
-		InterfaceField:  types.StringNull(),
-		Firewall:        types.StringNull(),
-		Translation:     types.StringNull(),
-		PrivateIP:       types.StringNull(),
-		TranslationType: types.StringNull(),
-		PublicPort:      types.Int64Null(),
-		PrivatePort:     types.Int64Null(),
-		Protocol:        types.StringNull(),
-		Customer:        types.StringNull(),
-		Description:     types.StringNull(),
-		State:           types.StringNull(),
-		Enabled:         types.BoolNull(),
-		NatTranslations: make([]NATTranslationModel, 0, len(page.Results)),
+		Id:                      types.StringNull(),
+		PublicIP:                types.StringNull(),
+		InterfaceField:          types.StringNull(),
+		Firewall:                types.StringNull(),
+		Translation:             types.StringNull(),
+		PrivateIP:               types.StringNull(),
+		TranslationType:         types.StringNull(),
+		PublicPort:              types.Int64Null(),
+		PrivatePort:             types.Int64Null(),
+		Protocol:                types.StringNull(),
+		Customer:                types.StringNull(),
+		Description:             types.StringNull(),
+		State:                   types.StringNull(),
+		Enabled:                 types.BoolNull(),
+		SnatSourceAddresses:     types.ListNull(types.StringType),
+		SnatTranslatedAddresses: types.ListNull(types.StringType),
+		NatTranslations:         make([]NATTranslationModel, 0, len(items)),
 	}
-	for _, item := range page.Results {
-		state.NatTranslations = append(state.NatTranslations, toNATTranslationListModel(&item))
+	for i := range items {
+		state.NatTranslations = append(state.NatTranslations, toNATTranslationListModel(ctx, &items[i], &resp.Diagnostics))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-func setSingleNATTranslation(state *NATTranslationDataSourceModel, nat *natTranslationDSAPIModel) {
-	state.Id = types.StringValue(nat.Id)
-	state.PublicIP = types.StringValue(nat.PublicIP)
-	state.InterfaceField = types.StringValue(nat.InterfaceField)
-	state.Firewall = types.StringValue(nat.Firewall)
-	state.Translation = types.StringValue(nat.Translation)
-	state.PrivateIP = types.StringValue(nat.PrivateIP)
-	state.TranslationType = types.StringValue(nat.TranslationType)
-	state.Protocol = types.StringValue(nat.Protocol)
-	state.Customer = types.StringValue(nat.Customer)
-	state.Description = types.StringValue(nat.Description)
-	state.State = types.StringValue(nat.State)
-	state.Enabled = types.BoolValue(nat.Enabled)
-	if nat.PublicPort != nil {
-		state.PublicPort = types.Int64Value(*nat.PublicPort)
-	} else {
-		state.PublicPort = types.Int64Null()
+func toNATTranslationListModel(ctx context.Context, nat *natTranslationDSAPIModel, diags *diag.Diagnostics) NATTranslationModel {
+	return NATTranslationModel{
+		Id:                      types.StringValue(nat.Id),
+		PublicIP:                types.StringPointerValue(nat.PublicIP),
+		InterfaceField:          types.StringPointerValue(nat.InterfaceField),
+		Firewall:                types.StringValue(nat.Firewall),
+		Translation:             types.StringValue(nat.Translation),
+		PrivateIP:               types.StringValue(nat.PrivateIP),
+		TranslationType:         types.StringValue(nat.TranslationType),
+		PublicPort:              types.Int64PointerValue(nat.PublicPort),
+		PrivatePort:             types.Int64PointerValue(nat.PrivatePort),
+		Protocol:                types.StringValue(nat.Protocol),
+		Customer:                types.StringValue(nat.Customer),
+		Description:             types.StringValue(nat.Description),
+		State:                   types.StringValue(nat.State),
+		Enabled:                 types.BoolValue(nat.Enabled),
+		SnatSourceAddresses:     computedListValue(ctx, types.StringType, []string(nat.SnatSourceAddresses), diags),
+		SnatTranslatedAddresses: computedListValue(ctx, types.StringType, []string(nat.SnatTranslatedAddresses), diags),
 	}
-	if nat.PrivatePort != nil {
-		state.PrivatePort = types.Int64Value(*nat.PrivatePort)
-	} else {
-		state.PrivatePort = types.Int64Null()
-	}
-	state.NatTranslations = []NATTranslationModel{}
-}
-
-func toNATTranslationListModel(nat *natTranslationDSAPIModel) NATTranslationModel {
-	m := NATTranslationModel{
-		Id:              types.StringValue(nat.Id),
-		PublicIP:        types.StringValue(nat.PublicIP),
-		InterfaceField:  types.StringValue(nat.InterfaceField),
-		Firewall:        types.StringValue(nat.Firewall),
-		Translation:     types.StringValue(nat.Translation),
-		PrivateIP:       types.StringValue(nat.PrivateIP),
-		TranslationType: types.StringValue(nat.TranslationType),
-		Protocol:        types.StringValue(nat.Protocol),
-		Customer:        types.StringValue(nat.Customer),
-		Description:     types.StringValue(nat.Description),
-		State:           types.StringValue(nat.State),
-		Enabled:         types.BoolValue(nat.Enabled),
-	}
-	if nat.PublicPort != nil {
-		m.PublicPort = types.Int64Value(*nat.PublicPort)
-	} else {
-		m.PublicPort = types.Int64Null()
-	}
-	if nat.PrivatePort != nil {
-		m.PrivatePort = types.Int64Value(*nat.PrivatePort)
-	} else {
-		m.PrivatePort = types.Int64Null()
-	}
-	return m
 }
