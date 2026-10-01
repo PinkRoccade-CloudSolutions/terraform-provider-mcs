@@ -700,9 +700,11 @@ data "mcs_certificate" "web_cert" {
 | `ca`                | Bool   | Computed | Whether this is a CA certificate. |
 | `valid_to_timestamp` | String | Computed | Certificate expiry timestamp. |
 | `loadbalancer`      | String | Computed | UUID of the load balancer. |
+| `customer`          | String | Computed | Customer identifier. |
+| `protected`         | Bool   | Computed | Whether the certificate is protected from changes. |
 | `certificates`      | List   | Computed | All certificates (populated when neither `name` nor `id` is set). |
 
-**Nested `certificates` attributes:** `id`, `name`, `valid_to_timestamp`, `loadbalancer` (String); `ca` (Bool) — all Computed.
+**Nested `certificates` attributes:** `id`, `name`, `valid_to_timestamp`, `loadbalancer`, `customer` (String); `ca`, `protected` (Bool) — all Computed.
 
 ---
 
@@ -815,7 +817,7 @@ data "mcs_rewrite_policy" "request_rules" {
 | `action` | String | Computed | Rewrite action UUID. |
 | `undefaction` | String | Computed | Action used when the rule result is undefined. |
 | `comment` | String | Computed | Rewrite policy comment. |
-| `priority` | Number | Computed | Rewrite policy priority. |
+| `priority` | Number (integer) | Computed | Rewrite policy priority. |
 | `bindpoint` | String | Computed | Rewrite bind point. |
 | `gotopriorityexpression` | String | Computed | Priority expression after evaluation. |
 | `customer` | String | Computed | Customer identifier. |
@@ -850,9 +852,12 @@ data "mcs_csv_server" "frontend" {
 | `type`        | String       | Computed | Protocol type. |
 | `policies`    | List(String) | Computed | CS policy IDs. |
 | `certificate` | List(String) | Computed | SSL certificate IDs. |
+| `ca_certificate` | List(String) | Computed | CA certificate IDs used to verify client certificates. |
+| `clientauth`  | Bool         | Computed | Whether client certificate authentication is enabled. |
+| `clientcert`  | String       | Computed | Client certificate requirement: `Mandatory` or `Optional`. |
 | `customer`    | String       | Computed | Customer identifier. |
 | `loadbalancer` | String      | Computed | UUID of the load balancer. |
-| `csv_servers` | List         | Computed | All CS vServers (populated when neither `name` nor `id` is set). |
+| `csv_servers` | List         | Computed | All CS vServers (populated when neither `name` nor `id` is set). Items have the same attributes as above. |
 
 ---
 
@@ -877,10 +882,14 @@ data "mcs_lb_servicegroup" "backend" {
 | `type`          | String       | Computed | Service type. |
 | `state`         | String       | Computed | State: `enable` or `disable`. |
 | `members`       | List(String) | Computed | Member IDs. |
+| `monitors`      | List(String) | Computed | Bound monitor IDs. |
 | `healthmonitor` | String       | Computed | Health monitor setting. |
+| `client_certificate` | String  | Computed | Certificate presented to backend servers for client authentication. |
+| `cip`           | String       | Computed | Client IP header insertion: `ENABLED` or `DISABLED`. |
+| `cipheader`     | String       | Computed | Client IP header name. |
 | `customer`      | String       | Computed | Customer identifier. |
 | `loadbalancer`  | String       | Computed | UUID of the load balancer. |
-| `lb_servicegroups` | List      | Computed | All service groups (populated when neither `name` nor `id` is set). |
+| `lb_servicegroups` | List      | Computed | All service groups (populated when neither `name` nor `id` is set). Items have the same attributes as above. |
 
 ---
 
@@ -903,6 +912,7 @@ data "mcs_lb_servicegroup_member" "all" {}
 | `port`                 | Number | Computed | Port number. |
 | `servername`           | String | Computed | Server name. |
 | `weight`               | Number | Computed | Load balancing weight. |
+| `state`                | String | Computed | Member state: `UP` or `DOWN`. |
 | `customer`             | String | Computed | Customer identifier. |
 | `loadbalancer`         | String | Computed | UUID of the load balancer. |
 | `lb_servicegroup_members` | List | Computed | All members (populated when `id` is not set). |
@@ -932,9 +942,10 @@ data "mcs_lbv_server" "web_lb" {
 | `type`        | String       | Computed | Protocol type. |
 | `servicegroup` | List(String) | Computed | Service group IDs. |
 | `certificate` | List(String) | Computed | SSL certificate IDs. |
+| `ca_certificate` | List(String) | Computed | CA certificate IDs. |
 | `customer`    | String       | Computed | Customer identifier. |
 | `loadbalancer` | String      | Computed | UUID of the load balancer. |
-| `lbv_servers` | List         | Computed | All LB vServers (populated when neither `name` nor `id` is set). |
+| `lbv_servers` | List         | Computed | All LB vServers (populated when neither `name` nor `id` is set). Items have the same attributes as above. |
 
 ---
 
@@ -1003,7 +1014,7 @@ data "mcs_dbl" "blocked" {
 
 ### mcs_dns_domain (Data Source)
 
-Look up DNS domains managed by MCS. Optionally filter by name or type, or omit filters to list all.
+Look up DNS domains managed by MCS. Optionally filter by name, type, zone type, customer or DNS provider, or omit filters to list all.
 
 #### Example
 
@@ -1017,6 +1028,11 @@ data "mcs_dns_domain" "external" {
 data "mcs_dns_domain" "search" {
   name = "example"
 }
+
+data "mcs_dns_domain" "reverse_zones" {
+  zone_type   = "reverse"
+  provider_id = 3
+}
 ```
 
 #### Attributes
@@ -1025,6 +1041,9 @@ data "mcs_dns_domain" "search" {
 |-----------|--------|----------|-------------|
 | `name`    | String | Optional | Filter by domain name (case-insensitive contains match). |
 | `type`    | String | Optional | Filter by domain type: `external` or `internal`. |
+| `zone_type` | String | Optional | Filter by zone type: `forward` or `reverse`. |
+| `customer` | String | Optional | Filter by customer. |
+| `provider_id` | Number | Optional | Filter by DNS provider integration ID. |
 | `domains` | List   | Computed | List of matching DNS domains. |
 
 Each item in `domains` has the following attributes:
@@ -1036,8 +1055,10 @@ Each item in `domains` has the following attributes:
 | `comment`      | String | Comment for the domain. |
 | `enddate`      | String | End date for the domain (if known). |
 | `customer`     | String | Customer associated with the domain. |
+| `provider_id`  | Number | ID of the DNS provider integration. |
 | `provider_name` | String | Name of the DNS provider integration. |
 | `type`         | String | Domain type: `external` or `internal`. |
+| `zone_type`    | String | Zone type: `forward` or `reverse`. |
 
 ---
 
@@ -1623,12 +1644,13 @@ resource "mcs_certificate" "web_cert" {
 
 | Attribute          | Type   | Required | Description |
 |-------------------|--------|----------|-------------|
-| `name`            | String | No       | Certificate name. |
-| `ca`              | Bool   | No       | Whether this is a CA certificate. |
-| `valid_to_timestamp` | String | No    | Certificate expiry timestamp. |
-| `loadbalancer`    | String | No       | UUID of the load balancer. |
+| `name`            | String | **Yes**  | Certificate name. |
+| `loadbalancer`    | String | **Yes**  | UUID of the load balancer. |
+| `ca`              | Bool   | No       | Whether this is a CA certificate. Computed by the server when omitted. |
+| `valid_to_timestamp` | String | No    | Certificate expiry timestamp. Computed by the server when omitted. |
+| `customer`        | String | No       | Customer identifier. Computed by the server when omitted. |
 
-**Read-only attributes:** `id` (String).
+**Read-only attributes:** `id` (String), `protected` (Bool, whether the certificate is protected from changes).
 
 ---
 
@@ -1645,7 +1667,7 @@ resource "mcs_lb_monitor" "http_monitor" {
   interval     = 5
   resptimeout  = 2
   downtime     = 30
-  respcode     = "200"
+  respcode     = "[\"200\"]"
   httprequest  = "GET /health"
   loadbalancer = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
   customer     = mcs_customer.example.id
@@ -1654,15 +1676,17 @@ resource "mcs_lb_monitor" "http_monitor" {
 
 ##### Attributes
 
+All optional attributes are also computed: when omitted, the value set by the server is kept in state.
+
 | Attribute      | Type   | Required | Description |
 |---------------|--------|----------|-------------|
 | `name`        | String | **Yes**  | Monitor name. |
-| `type`        | String | No       | Monitor type (e.g. `HTTP`, `TCP`). |
+| `type`        | String | No       | Monitor type: `HTTP`, `TCP`, `ssl_bridge`, `tcp` or `udp`. |
 | `interval`    | Number | No       | Check interval in seconds. |
 | `resptimeout` | Number | No       | Response timeout in seconds. |
 | `downtime`    | Number | No       | Downtime threshold in seconds. |
-| `respcode`    | String | No       | Expected response code (e.g. `"200"`). |
-| `secure`      | String | No       | Whether to use secure connections. |
+| `respcode`    | String | No       | Accepted response codes: `["200"]`, `["200", "403", "500"]` or empty. |
+| `secure`      | String | No       | Use secure connections: `YES`, `NO` or empty. |
 | `httprequest` | String | No       | HTTP request string (e.g. `"GET /health"`). |
 | `loadbalancer` | String | No      | UUID of the load balancer. |
 | `protected`   | Bool   | No       | Whether the monitor is protected. |
@@ -1686,7 +1710,10 @@ resource "mcs_lb_servicegroup" "web_backend" {
   type          = "HTTP"
   state         = "enable"
   members       = [mcs_lb_servicegroup_member.web1.id, mcs_lb_servicegroup_member.web2.id]
+  monitors      = [mcs_lb_monitor.http_monitor.id]
   healthmonitor = "YES"
+  cip           = "ENABLED"
+  cipheader     = "X-Forwarded-For"
   customer      = mcs_customer.example.id
   loadbalancer  = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
 }
@@ -1697,12 +1724,16 @@ resource "mcs_lb_servicegroup" "web_backend" {
 | Attribute       | Type         | Required | Description |
 |----------------|-------------|----------|-------------|
 | `name`         | String       | **Yes**  | Service group name. |
-| `type`         | String       | **Yes**  | Service type (e.g. `HTTP`, `SSL`, `TCP`). |
-| `state`        | String       | No       | State (e.g. `enable`, `disable`). |
-| `members`      | List(String) | No       | List of member IDs. Set after creation via a separate API call. |
-| `healthmonitor` | String      | No       | Health monitor setting. |
-| `customer`     | String       | No       | Customer identifier. |
-| `loadbalancer` | String       | No       | UUID of the load balancer. |
+| `type`         | String       | **Yes**  | Service type: `HTTP`, `SSL`, `ssl_bridge`, `tcp` or `udp`. |
+| `state`        | String       | No       | State: `enable` or `disable`. Computed by the server when omitted. |
+| `members`      | List(String) | No       | List of member IDs. Set after creation via a separate API call. Removing the attribute clears the members. |
+| `monitors`     | List(String) | No       | List of monitor IDs bound to the service group. Removing the attribute clears the monitors. |
+| `healthmonitor` | String      | No       | Health monitoring: `YES` or `NO`. Computed by the server when omitted. |
+| `client_certificate` | String | No       | UUID of the certificate presented to backend servers that request client authentication. |
+| `cip`          | String       | No       | Insert the client IP in a request header: `ENABLED` or `DISABLED`. Computed by the server when omitted. |
+| `cipheader`    | String       | No       | Header name for the client IP. The server defaults it to `X-Forwarded-For`. |
+| `customer`     | String       | No       | Customer identifier. Computed by the server when omitted. |
+| `loadbalancer` | String       | No       | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
 
@@ -1720,6 +1751,7 @@ resource "mcs_lb_servicegroup_member" "web1" {
   port         = 8080
   servername   = "web-server-01"
   weight       = 100
+  state        = "UP"
   customer     = mcs_customer.example.id
   loadbalancer = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
 }
@@ -1732,9 +1764,10 @@ resource "mcs_lb_servicegroup_member" "web1" {
 | `address`     | String | **Yes**  | IP address of the backend server. |
 | `servername`  | String | **Yes**  | Server name. |
 | `port`        | Number | No       | Port number. Defaults to `0`. |
-| `weight`      | Number | No       | Load balancing weight. |
-| `customer`    | String | No       | Customer identifier. |
-| `loadbalancer` | String | No      | UUID of the load balancer. |
+| `weight`      | Number | No       | Load balancing weight. Computed by the server when omitted. |
+| `state`       | String | No       | Member state: `UP` or `DOWN`. Computed by the server when omitted. |
+| `customer`    | String | No       | Customer identifier. Computed by the server when omitted. |
+| `loadbalancer` | String | No      | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
 
@@ -1765,11 +1798,12 @@ resource "mcs_lbv_server" "web_lb" {
 | `name`        | String       | **Yes**  | Virtual server name. |
 | `servicegroup` | List(String) | **Yes** | List of service group IDs to bind. |
 | `ipaddress`   | String       | No       | UUID of the associated PublicIPAddress. Leave empty if used as non routed loadbalancer. |
-| `port`        | Number       | No       | Listening port. |
-| `type`        | String       | No       | Protocol type (e.g. `ssl`, `http`, `tcp`). |
-| `certificate` | List(String) | No       | List of SSL certificate IDs. |
-| `customer`    | String       | No       | Customer identifier. |
-| `loadbalancer` | String      | No       | UUID of the load balancer. |
+| `port`        | Number       | No       | Listening port. Defaults to `0` (non routed loadbalancer); a null port returned by the API is shown as `0`. |
+| `type`        | String       | No       | Protocol type: `http`, `ssl`, `ssl_bridge`, `tcp` or `udp`. Defaults to `ssl`. |
+| `certificate` | List(String) | No       | List of SSL certificate IDs. Removing the attribute clears the certificates. |
+| `ca_certificate` | List(String) | No    | List of CA certificate IDs. Removing the attribute clears them. |
+| `customer`    | String       | No       | Customer identifier. Computed by the server when omitted. |
+| `loadbalancer` | String      | No       | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
 
@@ -1783,15 +1817,18 @@ Manages a content switching virtual server (CS vServer).
 
 ```hcl
 resource "mcs_csv_server" "web_frontend" {
-  name         = "web-csvserver"
-  ufname       = "web-frontend"
-  type         = "ssl"
-  port         = 443
-  ipaddress    = mcs_public_ip_address.web.id
-  policies     = [mcs_cs_policy.routing.id]
-  certificate  = [mcs_certificate.web_cert.id]
-  customer     = mcs_customer.example.id
-  loadbalancer = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
+  name           = "web-csvserver"
+  ufname         = "web-frontend"
+  type           = "ssl"
+  port           = 443
+  ipaddress      = mcs_public_ip_address.web.id
+  policies       = [mcs_cs_policy.routing.id]
+  certificate    = [mcs_certificate.web_cert.id]
+  ca_certificate = [mcs_certificate.client_ca.id]
+  clientauth     = true
+  clientcert     = "Mandatory"
+  customer       = mcs_customer.example.id
+  loadbalancer   = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
 }
 ```
 
@@ -1801,13 +1838,16 @@ resource "mcs_csv_server" "web_frontend" {
 |---------------|-------------|----------|-------------|
 | `name`        | String       | **Yes**  | CS vServer name. |
 | `ufname`      | String       | **Yes**  | User-friendly name. |
-| `type`        | String       | **Yes**  | Protocol type (e.g. `ssl`, `http`). |
+| `type`        | String       | **Yes**  | Protocol type: `http` or `ssl`. |
 | `ipaddress`   | String       | No       | UUID of the associated PublicIPAddress. |
-| `port`        | Number       | No       | Listening port. |
-| `policies`    | List(String) | No       | List of CS policy IDs. |
-| `certificate` | List(String) | No       | List of SSL certificate IDs. |
-| `customer`    | String       | No       | Customer identifier. |
-| `loadbalancer` | String      | No       | UUID of the load balancer. |
+| `port`        | Number       | No       | Listening port. Defaults to `443`. |
+| `policies`    | List(String) | No       | List of CS policy IDs. Removing the attribute clears the policies. |
+| `certificate` | List(String) | No       | List of SSL certificate IDs. Removing the attribute clears the certificates. |
+| `ca_certificate` | List(String) | No    | List of CA certificate IDs used to verify client certificates. Removing the attribute clears them. |
+| `clientauth`  | Bool         | No       | Enable client certificate authentication. Computed by the server when omitted. |
+| `clientcert`  | String       | No       | Client certificate requirement: `Mandatory` or `Optional`. Computed by the server when omitted. |
+| `customer`    | String       | No       | Customer identifier. Computed by the server when omitted. |
+| `loadbalancer` | String      | No       | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
 
@@ -1822,7 +1862,7 @@ Manages a content switching action.
 ```hcl
 resource "mcs_cs_action" "route_to_backend" {
   name         = "route-to-web"
-  lbvserver    = mcs_lbv_server.web_lb.name
+  lbvserver    = mcs_lbv_server.web_lb.id
   customer     = mcs_customer.example.id
   loadbalancer = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
 }
@@ -1833,9 +1873,9 @@ resource "mcs_cs_action" "route_to_backend" {
 | Attribute      | Type   | Required | Description |
 |---------------|--------|----------|-------------|
 | `name`        | String | **Yes**  | Action name. |
-| `lbvserver`   | String | No       | Target LB vServer name. |
-| `customer`    | String | No       | Customer identifier. |
-| `loadbalancer` | String | No      | UUID of the load balancer. |
+| `lbvserver`   | String | No       | UUID of the target LB vServer. |
+| `customer`    | String | No       | Customer identifier. Computed by the server when omitted. |
+| `loadbalancer` | String | No      | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
 
@@ -1850,7 +1890,7 @@ Manages a content switching policy.
 ```hcl
 resource "mcs_cs_policy" "by_url" {
   name         = "route-by-url"
-  action       = mcs_cs_action.route_to_backend.name
+  action       = mcs_cs_action.route_to_backend.id
   expression   = "HTTP.REQ.URL.PATH.STARTSWITH(\"/api\")"
   customer     = mcs_customer.example.id
   loadbalancer = "6b68cf7b-6d6e-459d-a583-b02fdccfadbd"
@@ -1862,11 +1902,11 @@ resource "mcs_cs_policy" "by_url" {
 | Attribute      | Type   | Required | Description |
 |---------------|--------|----------|-------------|
 | `name`        | String | **Yes**  | Policy name. |
-| `action`      | String | No       | CS action name to invoke. |
-| `expression`  | String | No       | Policy expression. |
-| `customer`    | String | No       | Customer identifier. |
-| `application` | String | No       | Application identifier. |
-| `loadbalancer` | String | No      | UUID of the load balancer. |
+| `action`      | String | No       | UUID of the CS action to invoke. |
+| `expression`  | String | No       | Policy expression. Computed by the server when omitted. |
+| `customer`    | String | No       | Customer identifier. Computed by the server when omitted. |
+| `application` | String | No       | UUID of the application. |
+| `loadbalancer` | String | No      | UUID of the load balancer. Computed by the server when omitted. |
 
 **Read-only attributes:** `id` (String).
 
@@ -1893,10 +1933,12 @@ resource "mcs_rewrite_action" "replace_host" {
 
 ##### Attributes
 
+All optional attributes are also computed: when omitted, the value set by the server is kept in state.
+
 | Attribute | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | String | **Yes** | Rewrite action name. |
-| `type` | String | No | Rewrite action type. |
+| `type` | String | No | Rewrite action type: `replace`, `replace_all`, `replace_http_res`, `insert_http_header`, `delete_http_header`, `corrupt_http_header`, `insert_before`, `insert_before_all`, `insert_after`, `insert_after_all`, `delete`, `delete_all`, `clientless_vpn_encode`, `clientless_vpn_encode_all`, `clientless_vpn_decode`, `clientless_vpn_decode_all` or `replace_sip_res`. |
 | `target` | String | No | Rewrite target expression. |
 | `stringbuilderexpr` | String | No | String builder expression. |
 | `search` | String | No | Search expression. |
@@ -1931,16 +1973,18 @@ resource "mcs_rewrite_policy" "rewrite_requests" {
 
 ##### Attributes
 
+All optional attributes except `action` are also computed: when omitted, the value set by the server is kept in state.
+
 | Attribute | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | String | **Yes** | Rewrite policy name. |
 | `rule` | String | No | Rewrite rule expression. |
 | `action` | String | No | Rewrite action UUID to invoke. |
-| `undefaction` | String | No | Action used when the rule result is undefined. |
+| `undefaction` | String | No | Action used when the rule result is undefined (`NOREWRITE`, `RESET`, `DROP`). |
 | `comment` | String | No | Rewrite policy comment. |
-| `priority` | Number | No | Rewrite policy priority. |
-| `bindpoint` | String | No | Rewrite bind point. |
-| `gotopriorityexpression` | String | No | Priority expression after evaluation. |
+| `priority` | Number | No | Rewrite policy priority (integer). Lower number = higher priority. |
+| `bindpoint` | String | No | Rewrite bind point: `REQUEST` or `RESPONSE`. |
+| `gotopriorityexpression` | String | No | Action after this policy: `NEXT`, `END` or `USE_INVOCATION_RESULT`. |
 | `customer` | String | No | Customer identifier. |
 | `loadbalancer` | String | No | UUID of the load balancer. |
 
@@ -2024,7 +2068,7 @@ resource "mcs_dns_entry" "mail" {
 | `name`       | String | **Yes**  | DNS record name (e.g. www, mail). Changing this forces a new resource. |
 | `type`       | String | **Yes**  | DNS record type (e.g. A, AAAA, CNAME, MX, TXT). Changing this forces a new resource. |
 | `content`    | String | **Yes**  | DNS record content (e.g. IP address, hostname). Changing this forces a new resource. |
-| `expire`     | Number | **Yes**  | TTL in seconds (minimum 60, maximum 604800). Changing this forces a new resource. |
+| `expire`     | Number | **Yes**  | TTL in seconds, between 60 and 604800 (validated at plan time). Changing this forces a new resource. |
 
 **Read-only attributes:**
 

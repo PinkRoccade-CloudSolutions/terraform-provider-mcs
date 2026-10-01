@@ -3,12 +3,11 @@ package provider
 import (
 	"context"
 	"fmt"
-	"net/url"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &CsActionDataSource{}
@@ -18,12 +17,12 @@ type CsActionDataSource struct {
 }
 
 type CsActionDataSourceModel struct {
-	Name        types.String      `tfsdk:"name"`
-	Id          types.String      `tfsdk:"id"`
-	Lbvserver   types.String      `tfsdk:"lbvserver"`
-	Customer    types.String      `tfsdk:"customer"`
-	Loadbalancer types.String     `tfsdk:"loadbalancer"`
-	CsActions   []CsActionModel   `tfsdk:"cs_actions"`
+	Name         types.String    `tfsdk:"name"`
+	Id           types.String    `tfsdk:"id"`
+	Lbvserver    types.String    `tfsdk:"lbvserver"`
+	Customer     types.String    `tfsdk:"customer"`
+	Loadbalancer types.String    `tfsdk:"loadbalancer"`
+	CsActions    []CsActionModel `tfsdk:"cs_actions"`
 }
 
 type CsActionModel struct {
@@ -124,24 +123,17 @@ func (d *CsActionDataSource) Read(ctx context.Context, req datasource.ReadReques
 		return
 	}
 
-	path := "/api/loadbalancing/csaction/?page_size=1000"
-	if !config.Name.IsNull() && config.Name.ValueString() != "" {
-		path += "&name__icontains=" + url.QueryEscape(config.Name.ValueString())
-	}
-
-	var page struct {
-		Results []csActionDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[csActionDSAPIModel](ctx, d.client, "/api/loadbalancing/csaction/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading CS actions", err.Error())
 		return
 	}
 
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *csActionDSAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name == config.Name.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name == config.Name.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -161,10 +153,10 @@ func (d *CsActionDataSource) Read(ctx context.Context, req datasource.ReadReques
 		Lbvserver:    types.StringNull(),
 		Customer:     types.StringNull(),
 		Loadbalancer: types.StringNull(),
-		CsActions:    make([]CsActionModel, 0, len(page.Results)),
+		CsActions:    make([]CsActionModel, 0, len(items)),
 	}
-	for i := range page.Results {
-		state.CsActions = append(state.CsActions, csActionItemToModel(&page.Results[i]))
+	for i := range items {
+		state.CsActions = append(state.CsActions, csActionItemToModel(&items[i]))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

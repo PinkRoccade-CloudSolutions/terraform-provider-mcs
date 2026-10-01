@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ resource.Resource = &CertificateResource{}
@@ -25,14 +25,18 @@ type CertificateResourceModel struct {
 	Ca               types.Bool   `tfsdk:"ca"`
 	ValidToTimestamp types.String `tfsdk:"valid_to_timestamp"`
 	Loadbalancer     types.String `tfsdk:"loadbalancer"`
+	Customer         types.String `tfsdk:"customer"`
+	Protected        types.Bool   `tfsdk:"protected"`
 }
 
 type certificateAPIModel struct {
 	Id               string  `json:"id,omitempty"`
-	Name             *string `json:"name,omitempty"`
+	Name             string  `json:"name"`
 	Ca               *bool   `json:"ca,omitempty"`
 	ValidToTimestamp *string `json:"valid_to_timestamp,omitempty"`
-	Loadbalancer     *string `json:"loadbalancer,omitempty"`
+	Loadbalancer     string  `json:"loadbalancer"`
+	Customer         *string `json:"customer,omitempty"`
+	Protected        *bool   `json:"protected,omitempty"`
 }
 
 func NewCertificateResource() resource.Resource {
@@ -51,18 +55,30 @@ func (r *CertificateResource) Schema(_ context.Context, _ resource.SchemaRequest
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"name": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				Default:  stringdefault.StaticString(""),
+				Required: true,
 			},
 			"ca": schema.BoolAttribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
 			},
 			"valid_to_timestamp": schema.StringAttribute{
-				Optional: true,
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"loadbalancer": schema.StringAttribute{
-				Optional: true,
+				Required: true,
+			},
+			"customer": schema.StringAttribute{
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"protected": schema.BoolAttribute{
+				Computed:      true,
+				Description:   "Whether the certificate is protected from changes.",
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
 			},
 		},
 	}
@@ -83,6 +99,26 @@ func (r *CertificateResource) Configure(_ context.Context, req resource.Configur
 	r.client = client
 }
 
+func certificateToAPI(plan *CertificateResourceModel) certificateAPIModel {
+	return certificateAPIModel{
+		Name:             plan.Name.ValueString(),
+		Ca:               boolPtr(plan.Ca),
+		ValidToTimestamp: stringPtr(plan.ValidToTimestamp),
+		Loadbalancer:     plan.Loadbalancer.ValueString(),
+		Customer:         stringPtr(plan.Customer),
+	}
+}
+
+func certificateFromAPI(m *CertificateResourceModel, api *certificateAPIModel) {
+	m.Id = types.StringValue(api.Id)
+	m.Name = types.StringValue(api.Name)
+	m.Ca = types.BoolPointerValue(api.Ca)
+	m.ValidToTimestamp = types.StringPointerValue(api.ValidToTimestamp)
+	m.Loadbalancer = types.StringValue(api.Loadbalancer)
+	m.Customer = types.StringPointerValue(api.Customer)
+	m.Protected = types.BoolValue(api.Protected != nil && *api.Protected)
+}
+
 func (r *CertificateResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan CertificateResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -90,37 +126,14 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	apiModel := certificateAPIModel{}
-	if !plan.Name.IsNull() {
-		v := plan.Name.ValueString()
-		apiModel.Name = &v
-	}
-	if !plan.Ca.IsNull() {
-		v := plan.Ca.ValueBool()
-		apiModel.Ca = &v
-	}
-	if !plan.ValidToTimestamp.IsNull() {
-		v := plan.ValidToTimestamp.ValueString()
-		apiModel.ValidToTimestamp = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
-	}
-
 	var apiResp certificateAPIModel
-	err := r.client.Post(ctx, "/api/loadbalancing/certificate/", apiModel, &apiResp)
+	err := r.client.Post(ctx, "/api/loadbalancing/certificate/", certificateToAPI(&plan), &apiResp)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating certificate", err.Error())
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringPointerValue(apiResp.Name)
-	plan.Ca = types.BoolPointerValue(apiResp.Ca)
-	plan.ValidToTimestamp = types.StringPointerValue(apiResp.ValidToTimestamp)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	certificateFromAPI(&plan, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -142,12 +155,7 @@ func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest
 		return
 	}
 
-	state.Id = types.StringValue(apiResp.Id)
-	state.Name = types.StringPointerValue(apiResp.Name)
-	state.Ca = types.BoolPointerValue(apiResp.Ca)
-	state.ValidToTimestamp = types.StringPointerValue(apiResp.ValidToTimestamp)
-	state.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	certificateFromAPI(&state, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -164,37 +172,14 @@ func (r *CertificateResource) Update(ctx context.Context, req resource.UpdateReq
 		return
 	}
 
-	apiModel := certificateAPIModel{}
-	if !plan.Name.IsNull() {
-		v := plan.Name.ValueString()
-		apiModel.Name = &v
-	}
-	if !plan.Ca.IsNull() {
-		v := plan.Ca.ValueBool()
-		apiModel.Ca = &v
-	}
-	if !plan.ValidToTimestamp.IsNull() {
-		v := plan.ValidToTimestamp.ValueString()
-		apiModel.ValidToTimestamp = &v
-	}
-	if !plan.Loadbalancer.IsNull() {
-		v := plan.Loadbalancer.ValueString()
-		apiModel.Loadbalancer = &v
-	}
-
 	var apiResp certificateAPIModel
-	err := r.client.Put(ctx, fmt.Sprintf("/api/loadbalancing/certificate/%s/", state.Id.ValueString()), apiModel, &apiResp)
+	err := r.client.Put(ctx, fmt.Sprintf("/api/loadbalancing/certificate/%s/", state.Id.ValueString()), certificateToAPI(&plan), &apiResp)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating certificate", err.Error())
 		return
 	}
 
-	plan.Id = types.StringValue(apiResp.Id)
-	plan.Name = types.StringPointerValue(apiResp.Name)
-	plan.Ca = types.BoolPointerValue(apiResp.Ca)
-	plan.ValidToTimestamp = types.StringPointerValue(apiResp.ValidToTimestamp)
-	plan.Loadbalancer = types.StringPointerValue(apiResp.Loadbalancer)
-
+	certificateFromAPI(&plan, &apiResp)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 

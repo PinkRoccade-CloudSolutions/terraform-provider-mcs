@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"net/url"
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -156,24 +155,17 @@ func (d *RewriteActionDataSource) Read(ctx context.Context, req datasource.ReadR
 		return
 	}
 
-	path := "/api/loadbalancing/rewriteaction/?page_size=1000"
-	if !config.Name.IsNull() && config.Name.ValueString() != "" {
-		path += "&name__icontains=" + url.QueryEscape(config.Name.ValueString())
-	}
-
-	var page struct {
-		Results []rewriteActionDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[rewriteActionDSAPIModel](ctx, d.client, "/api/loadbalancing/rewriteaction/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading rewrite actions", err.Error())
 		return
 	}
 
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *rewriteActionDSAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name == config.Name.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name == config.Name.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -197,10 +189,10 @@ func (d *RewriteActionDataSource) Read(ctx context.Context, req datasource.ReadR
 		Comment:           types.StringNull(),
 		Customer:          types.StringNull(),
 		Loadbalancer:      types.StringNull(),
-		RewriteActions:    make([]RewriteActionModel, 0, len(page.Results)),
+		RewriteActions:    make([]RewriteActionModel, 0, len(items)),
 	}
-	for i := range page.Results {
-		state.RewriteActions = append(state.RewriteActions, rewriteActionItemToModel(&page.Results[i]))
+	for i := range items {
+		state.RewriteActions = append(state.RewriteActions, rewriteActionItemToModel(&items[i]))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

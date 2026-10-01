@@ -3,13 +3,12 @@ package provider
 import (
 	"context"
 	"fmt"
-	"net/url"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
-	diag "github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &LbvServerDataSource{}
@@ -19,40 +18,43 @@ type LbvServerDataSource struct {
 }
 
 type LbvServerDataSourceModel struct {
-	Name         types.String       `tfsdk:"name"`
-	Id           types.String       `tfsdk:"id"`
-	Ipaddress    types.String       `tfsdk:"ipaddress"`
-	Port         types.Int64        `tfsdk:"port"`
-	Type         types.String       `tfsdk:"type"`
-	Servicegroup types.List         `tfsdk:"servicegroup"`
-	Certificate  types.List         `tfsdk:"certificate"`
-	Customer     types.String       `tfsdk:"customer"`
-	Loadbalancer types.String       `tfsdk:"loadbalancer"`
-	LbvServers   []LbvServerListModel `tfsdk:"lbv_servers"`
+	Name          types.String         `tfsdk:"name"`
+	Id            types.String         `tfsdk:"id"`
+	Ipaddress     types.String         `tfsdk:"ipaddress"`
+	Port          types.Int64          `tfsdk:"port"`
+	Type          types.String         `tfsdk:"type"`
+	Servicegroup  types.List           `tfsdk:"servicegroup"`
+	Certificate   types.List           `tfsdk:"certificate"`
+	CaCertificate types.List           `tfsdk:"ca_certificate"`
+	Customer      types.String         `tfsdk:"customer"`
+	Loadbalancer  types.String         `tfsdk:"loadbalancer"`
+	LbvServers    []LbvServerListModel `tfsdk:"lbv_servers"`
 }
 
 type LbvServerListModel struct {
-	Id           types.String `tfsdk:"id"`
-	Name         types.String `tfsdk:"name"`
-	Ipaddress    types.String `tfsdk:"ipaddress"`
-	Port         types.Int64  `tfsdk:"port"`
-	Type         types.String `tfsdk:"type"`
-	Servicegroup types.List   `tfsdk:"servicegroup"`
-	Certificate  types.List   `tfsdk:"certificate"`
-	Customer     types.String `tfsdk:"customer"`
-	Loadbalancer types.String `tfsdk:"loadbalancer"`
+	Id            types.String `tfsdk:"id"`
+	Name          types.String `tfsdk:"name"`
+	Ipaddress     types.String `tfsdk:"ipaddress"`
+	Port          types.Int64  `tfsdk:"port"`
+	Type          types.String `tfsdk:"type"`
+	Servicegroup  types.List   `tfsdk:"servicegroup"`
+	Certificate   types.List   `tfsdk:"certificate"`
+	CaCertificate types.List   `tfsdk:"ca_certificate"`
+	Customer      types.String `tfsdk:"customer"`
+	Loadbalancer  types.String `tfsdk:"loadbalancer"`
 }
 
 type lbvServerDSAPIModel struct {
-	Id           string   `json:"id"`
-	Name         string   `json:"name"`
-	Ipaddress    *string  `json:"ipaddress,omitempty"`
-	Port         *int64   `json:"port,omitempty"`
-	Type         *string  `json:"type,omitempty"`
-	Servicegroup []string `json:"servicegroup"`
-	Certificate  []string `json:"certificate,omitempty"`
-	Customer     *string  `json:"customer,omitempty"`
-	Loadbalancer *string  `json:"loadbalancer,omitempty"`
+	Id            string   `json:"id"`
+	Name          string   `json:"name"`
+	Ipaddress     *string  `json:"ipaddress,omitempty"`
+	Port          *int64   `json:"port,omitempty"`
+	Type          *string  `json:"type,omitempty"`
+	Servicegroup  []string `json:"servicegroup"`
+	Certificate   []string `json:"certificate,omitempty"`
+	CaCertificate []string `json:"ca_certificate,omitempty"`
+	Customer      *string  `json:"customer,omitempty"`
+	Loadbalancer  *string  `json:"loadbalancer,omitempty"`
 }
 
 func NewLbvServerDataSource() datasource.DataSource {
@@ -65,25 +67,16 @@ func (d *LbvServerDataSource) Metadata(_ context.Context, req datasource.Metadat
 
 func (d *LbvServerDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	srvAttrs := map[string]schema.Attribute{
-		"id": schema.StringAttribute{Computed: true},
-		"name": schema.StringAttribute{
-			Computed: true,
-		},
-		"ipaddress": schema.StringAttribute{Computed: true},
-		"port": schema.Int64Attribute{
-			Computed: true,
-		},
-		"type": schema.StringAttribute{Computed: true},
-		"servicegroup": schema.ListAttribute{
-			ElementType: types.StringType,
-			Computed:    true,
-		},
-		"certificate": schema.ListAttribute{
-			ElementType: types.StringType,
-			Computed:    true,
-		},
-		"customer":     schema.StringAttribute{Computed: true},
-		"loadbalancer": schema.StringAttribute{Computed: true},
+		"id":             schema.StringAttribute{Computed: true},
+		"name":           schema.StringAttribute{Computed: true},
+		"ipaddress":      schema.StringAttribute{Computed: true},
+		"port":           schema.Int64Attribute{Computed: true},
+		"type":           schema.StringAttribute{Computed: true},
+		"servicegroup":   schema.ListAttribute{ElementType: types.StringType, Computed: true},
+		"certificate":    schema.ListAttribute{ElementType: types.StringType, Computed: true},
+		"ca_certificate": schema.ListAttribute{ElementType: types.StringType, Computed: true},
+		"customer":       schema.StringAttribute{Computed: true},
+		"loadbalancer":   schema.StringAttribute{Computed: true},
 	}
 
 	resp.Schema = schema.Schema{
@@ -98,21 +91,14 @@ func (d *LbvServerDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 				Computed:    true,
 				Description: "UUID of a specific lbv_server to look up.",
 			},
-			"ipaddress": schema.StringAttribute{Computed: true},
-			"port": schema.Int64Attribute{
-				Computed: true,
-			},
-			"type": schema.StringAttribute{Computed: true},
-			"servicegroup": schema.ListAttribute{
-				ElementType: types.StringType,
-				Computed:    true,
-			},
-			"certificate": schema.ListAttribute{
-				ElementType: types.StringType,
-				Computed:    true,
-			},
-			"customer":     schema.StringAttribute{Computed: true},
-			"loadbalancer": schema.StringAttribute{Computed: true},
+			"ipaddress":      schema.StringAttribute{Computed: true},
+			"port":           schema.Int64Attribute{Computed: true},
+			"type":           schema.StringAttribute{Computed: true},
+			"servicegroup":   schema.ListAttribute{ElementType: types.StringType, Computed: true},
+			"certificate":    schema.ListAttribute{ElementType: types.StringType, Computed: true},
+			"ca_certificate": schema.ListAttribute{ElementType: types.StringType, Computed: true},
+			"customer":       schema.StringAttribute{Computed: true},
+			"loadbalancer":   schema.StringAttribute{Computed: true},
 			"lbv_servers": schema.ListNestedAttribute{
 				Computed:     true,
 				Description:  "All lbv_servers (populated when neither `name` nor `id` is set).",
@@ -154,24 +140,17 @@ func (d *LbvServerDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	path := "/api/loadbalancing/lbvserver/?page_size=1000"
-	if !config.Name.IsNull() && config.Name.ValueString() != "" {
-		path += "&name__icontains=" + url.QueryEscape(config.Name.ValueString())
-	}
-
-	var page struct {
-		Results []lbvServerDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[lbvServerDSAPIModel](ctx, d.client, "/api/loadbalancing/lbvserver/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading lbv_servers", err.Error())
 		return
 	}
 
 	if !config.Name.IsNull() && config.Name.ValueString() != "" {
 		var match *lbvServerDSAPIModel
-		for i := range page.Results {
-			if page.Results[i].Name == config.Name.ValueString() {
-				match = &page.Results[i]
+		for i := range items {
+			if items[i].Name == config.Name.ValueString() {
+				match = &items[i]
 				break
 			}
 		}
@@ -186,84 +165,53 @@ func (d *LbvServerDataSource) Read(ctx context.Context, req datasource.ReadReque
 	}
 
 	state := LbvServerDataSourceModel{
-		Name:         types.StringNull(),
-		Id:           types.StringNull(),
-		Ipaddress:    types.StringNull(),
-		Port:         types.Int64Null(),
-		Type:         types.StringNull(),
-		Servicegroup: types.ListNull(types.StringType),
-		Certificate:  types.ListNull(types.StringType),
-		Customer:     types.StringNull(),
-		Loadbalancer: types.StringNull(),
-		LbvServers:   make([]LbvServerListModel, 0, len(page.Results)),
+		Name:          types.StringNull(),
+		Id:            types.StringNull(),
+		Ipaddress:     types.StringNull(),
+		Port:          types.Int64Null(),
+		Type:          types.StringNull(),
+		Servicegroup:  types.ListNull(types.StringType),
+		Certificate:   types.ListNull(types.StringType),
+		CaCertificate: types.ListNull(types.StringType),
+		Customer:      types.StringNull(),
+		Loadbalancer:  types.StringNull(),
+		LbvServers:    make([]LbvServerListModel, 0, len(items)),
 	}
-	for i := range page.Results {
-		lm, diags := toLbvServerListModel(ctx, &page.Results[i])
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-		state.LbvServers = append(state.LbvServers, lm)
+	for i := range items {
+		state.LbvServers = append(state.LbvServers, toLbvServerListModel(ctx, &items[i], &resp.Diagnostics))
+	}
+	if resp.Diagnostics.HasError() {
+		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func setSingleLbvServer(ctx context.Context, state *LbvServerDataSourceModel, s *lbvServerDSAPIModel, diags *diag.Diagnostics) {
-	state.Id = types.StringValue(s.Id)
-	state.Name = types.StringValue(s.Name)
-	state.Ipaddress = types.StringPointerValue(s.Ipaddress)
-	if s.Port != nil {
-		state.Port = types.Int64Value(*s.Port)
-	} else {
-		state.Port = types.Int64Null()
-	}
-	state.Type = types.StringPointerValue(s.Type)
-	sg := s.Servicegroup
-	if sg == nil {
-		sg = []string{}
-	}
-	sgList, d := types.ListValueFrom(ctx, types.StringType, sg)
-	diags.Append(d...)
-	state.Servicegroup = sgList
-	cert := s.Certificate
-	if cert == nil {
-		cert = []string{}
-	}
-	certList, d2 := types.ListValueFrom(ctx, types.StringType, cert)
-	diags.Append(d2...)
-	state.Certificate = certList
-	state.Customer = types.StringPointerValue(s.Customer)
-	state.Loadbalancer = types.StringPointerValue(s.Loadbalancer)
+	m := toLbvServerListModel(ctx, s, diags)
+	state.Id = m.Id
+	state.Name = m.Name
+	state.Ipaddress = m.Ipaddress
+	state.Port = m.Port
+	state.Type = m.Type
+	state.Servicegroup = m.Servicegroup
+	state.Certificate = m.Certificate
+	state.CaCertificate = m.CaCertificate
+	state.Customer = m.Customer
+	state.Loadbalancer = m.Loadbalancer
 	state.LbvServers = []LbvServerListModel{}
 }
 
-func toLbvServerListModel(ctx context.Context, s *lbvServerDSAPIModel) (LbvServerListModel, diag.Diagnostics) {
-	var diags diag.Diagnostics
-	port := types.Int64Null()
-	if s.Port != nil {
-		port = types.Int64Value(*s.Port)
-	}
-	sg := s.Servicegroup
-	if sg == nil {
-		sg = []string{}
-	}
-	sgList, d := types.ListValueFrom(ctx, types.StringType, sg)
-	diags.Append(d...)
-	cert := s.Certificate
-	if cert == nil {
-		cert = []string{}
-	}
-	certList, d2 := types.ListValueFrom(ctx, types.StringType, cert)
-	diags.Append(d2...)
+func toLbvServerListModel(ctx context.Context, s *lbvServerDSAPIModel, diags *diag.Diagnostics) LbvServerListModel {
 	return LbvServerListModel{
-		Id:           types.StringValue(s.Id),
-		Name:         types.StringValue(s.Name),
-		Ipaddress:    types.StringPointerValue(s.Ipaddress),
-		Port:         port,
-		Type:         types.StringPointerValue(s.Type),
-		Servicegroup: sgList,
-		Certificate:  certList,
-		Customer:     types.StringPointerValue(s.Customer),
-		Loadbalancer: types.StringPointerValue(s.Loadbalancer),
-	}, diags
+		Id:            types.StringValue(s.Id),
+		Name:          types.StringValue(s.Name),
+		Ipaddress:     types.StringPointerValue(s.Ipaddress),
+		Port:          types.Int64PointerValue(s.Port),
+		Type:          types.StringPointerValue(s.Type),
+		Servicegroup:  computedListValue(ctx, types.StringType, s.Servicegroup, diags),
+		Certificate:   computedListValue(ctx, types.StringType, s.Certificate, diags),
+		CaCertificate: computedListValue(ctx, types.StringType, s.CaCertificate, diags),
+		Customer:      types.StringPointerValue(s.Customer),
+		Loadbalancer:  types.StringPointerValue(s.Loadbalancer),
+	}
 }

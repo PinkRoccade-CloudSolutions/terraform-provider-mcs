@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 )
 
 var _ datasource.DataSource = &LbServicegroupMemberDataSource{}
@@ -17,13 +17,14 @@ type LbServicegroupMemberDataSource struct {
 }
 
 type LbServicegroupMemberDataSourceModel struct {
-	Id                    types.String                   `tfsdk:"id"`
-	Address               types.String                   `tfsdk:"address"`
-	Port                  types.Int64                    `tfsdk:"port"`
-	Servername            types.String                   `tfsdk:"servername"`
-	Weight                types.Int64                    `tfsdk:"weight"`
-	Customer              types.String                   `tfsdk:"customer"`
-	Loadbalancer          types.String                   `tfsdk:"loadbalancer"`
+	Id                    types.String                    `tfsdk:"id"`
+	Address               types.String                    `tfsdk:"address"`
+	Port                  types.Int64                     `tfsdk:"port"`
+	Servername            types.String                    `tfsdk:"servername"`
+	Weight                types.Int64                     `tfsdk:"weight"`
+	State                 types.String                    `tfsdk:"state"`
+	Customer              types.String                    `tfsdk:"customer"`
+	Loadbalancer          types.String                    `tfsdk:"loadbalancer"`
 	LbServicegroupMembers []LbServicegroupMemberListModel `tfsdk:"lb_servicegroup_members"`
 }
 
@@ -33,6 +34,7 @@ type LbServicegroupMemberListModel struct {
 	Port         types.Int64  `tfsdk:"port"`
 	Servername   types.String `tfsdk:"servername"`
 	Weight       types.Int64  `tfsdk:"weight"`
+	State        types.String `tfsdk:"state"`
 	Customer     types.String `tfsdk:"customer"`
 	Loadbalancer types.String `tfsdk:"loadbalancer"`
 }
@@ -43,6 +45,7 @@ type lbServicegroupMemberDSAPIModel struct {
 	Port         *int64  `json:"port,omitempty"`
 	Servername   string  `json:"servername"`
 	Weight       *int64  `json:"weight,omitempty"`
+	State        *string `json:"state,omitempty"`
 	Customer     *string `json:"customer,omitempty"`
 	Loadbalancer *string `json:"loadbalancer,omitempty"`
 }
@@ -68,6 +71,7 @@ func (d *LbServicegroupMemberDataSource) Schema(_ context.Context, _ datasource.
 		"weight": schema.Int64Attribute{
 			Computed: true,
 		},
+		"state":        schema.StringAttribute{Computed: true},
 		"customer":     schema.StringAttribute{Computed: true},
 		"loadbalancer": schema.StringAttribute{Computed: true},
 	}
@@ -89,6 +93,10 @@ func (d *LbServicegroupMemberDataSource) Schema(_ context.Context, _ datasource.
 			"servername": schema.StringAttribute{Computed: true},
 			"weight": schema.Int64Attribute{
 				Computed: true,
+			},
+			"state": schema.StringAttribute{
+				Computed:    true,
+				Description: "Member state (`UP` or `DOWN`).",
 			},
 			"customer":     schema.StringAttribute{Computed: true},
 			"loadbalancer": schema.StringAttribute{Computed: true},
@@ -133,11 +141,8 @@ func (d *LbServicegroupMemberDataSource) Read(ctx context.Context, req datasourc
 		return
 	}
 
-	path := "/api/loadbalancing/lbservicegroupmember/?page_size=1000"
-	var page struct {
-		Results []lbServicegroupMemberDSAPIModel `json:"results"`
-	}
-	if err := d.client.Get(ctx, path, &page); err != nil {
+	items, err := listAll[lbServicegroupMemberDSAPIModel](ctx, d.client, "/api/loadbalancing/lbservicegroupmember/")
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading lb_servicegroup_members", err.Error())
 		return
 	}
@@ -148,12 +153,13 @@ func (d *LbServicegroupMemberDataSource) Read(ctx context.Context, req datasourc
 		Port:                  types.Int64Null(),
 		Servername:            types.StringNull(),
 		Weight:                types.Int64Null(),
+		State:                 types.StringNull(),
 		Customer:              types.StringNull(),
 		Loadbalancer:          types.StringNull(),
-		LbServicegroupMembers: make([]LbServicegroupMemberListModel, 0, len(page.Results)),
+		LbServicegroupMembers: make([]LbServicegroupMemberListModel, 0, len(items)),
 	}
-	for i := range page.Results {
-		state.LbServicegroupMembers = append(state.LbServicegroupMembers, toLbServicegroupMemberListModel(&page.Results[i]))
+	for i := range items {
+		state.LbServicegroupMembers = append(state.LbServicegroupMembers, toLbServicegroupMemberListModel(&items[i]))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -172,6 +178,7 @@ func setSingleLbServicegroupMember(state *LbServicegroupMemberDataSourceModel, m
 	} else {
 		state.Weight = types.Int64Null()
 	}
+	state.State = types.StringPointerValue(m.State)
 	state.Customer = types.StringPointerValue(m.Customer)
 	state.Loadbalancer = types.StringPointerValue(m.Loadbalancer)
 	state.LbServicegroupMembers = []LbServicegroupMemberListModel{}
@@ -192,6 +199,7 @@ func toLbServicegroupMemberListModel(m *lbServicegroupMemberDSAPIModel) LbServic
 		Port:         port,
 		Servername:   types.StringValue(m.Servername),
 		Weight:       weight,
+		State:        types.StringPointerValue(m.State),
 		Customer:     types.StringPointerValue(m.Customer),
 		Loadbalancer: types.StringPointerValue(m.Loadbalancer),
 	}

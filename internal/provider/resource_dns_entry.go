@@ -1,17 +1,20 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -77,6 +80,7 @@ func (r *DnsEntryResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"expire": schema.Int64Attribute{
 				Required:      true,
 				Description:   "TTL in seconds (minimum 60, maximum 604800).",
+				Validators:    []validator.Int64{int64validator.Between(60, 604800)},
 				PlanModifiers: []planmodifier.Int64{int64planmodifier.RequiresReplace()},
 			},
 		},
@@ -131,7 +135,7 @@ func (r *DnsEntryResource) Read(ctx context.Context, req resource.ReadRequest, r
 	}
 
 	domainUUID := state.DomainUUID.ValueString()
-	raw, err := r.client.ListAll(ctx, fmt.Sprintf("/api/dns/domains/%s/entries/", domainUUID))
+	entries, err := r.listEntries(ctx, domainUUID)
 	if err != nil {
 		if apiclient.IsNotFound(err) {
 			resp.State.RemoveResource(ctx)
@@ -146,14 +150,9 @@ func (r *DnsEntryResource) Read(ctx context.Context, req resource.ReadRequest, r
 	wantContent := state.Content.ValueString()
 
 	var found *dnsEntryAPIModel
-	for _, item := range raw {
-		var entry dnsEntryAPIModel
-		if err := json.Unmarshal(item, &entry); err != nil {
-			resp.Diagnostics.AddError("Error parsing DNS entry", err.Error())
-			return
-		}
-		if entry.Name == wantName && entry.Type == wantType && entry.Content == wantContent {
-			found = &entry
+	for i := range entries {
+		if entries[i].Name == wantName && entries[i].Type == wantType && entries[i].Content == wantContent {
+			found = &entries[i]
 			break
 		}
 	}
@@ -206,4 +205,22 @@ func (r *DnsEntryResource) Delete(ctx context.Context, req resource.DeleteReques
 
 func buildDnsEntryID(domainUUID, name, entryType, content string) string {
 	return strings.Join([]string{domainUUID, name, entryType, content}, "/")
+}
+
+// listEntries fetches the entries of a domain. The spec documents a bare JSON array, but the
+// paginated {results} envelope is accepted as well.
+func (r *DnsEntryResource) listEntries(ctx context.Context, domainUUID string) ([]dnsEntryAPIModel, error) {
+	path := fmt.Sprintf("/api/dns/domains/%s/entries/", domainUUID)
+	var raw json.RawMessage
+	if err := r.client.Get(ctx, path, &raw); err != nil {
+		return nil, err
+	}
+	if trimmed := bytes.TrimSpace(raw); len(trimmed) > 0 && trimmed[0] == '[' {
+		var entries []dnsEntryAPIModel
+		if err := json.Unmarshal(trimmed, &entries); err != nil {
+			return nil, fmt.Errorf("parsing DNS entries: %w", err)
+		}
+		return entries, nil
+	}
+	return listAll[dnsEntryAPIModel](ctx, r.client, path)
 }
