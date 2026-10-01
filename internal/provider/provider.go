@@ -102,6 +102,7 @@ func (p *MCSProvider) Resources(_ context.Context) []func() resource.Resource {
 		NewDblResource,
 		NewDnsEntryResource,
 		NewDomainDblResource,
+		NewFirewallResource,
 		NewFirewallObjectResource,
 		NewFirewallObjectGroupResource,
 		NewFirewallRuleResource,
