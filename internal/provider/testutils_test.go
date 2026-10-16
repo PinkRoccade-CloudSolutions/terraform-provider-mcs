@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
 func regexpMustCompile(s string) *regexp.Regexp {
@@ -189,4 +190,129 @@ provider "mcs" {
   insecure = true
 }
 `, serverURL)
+}
+
+// statefulObject is a single API object served by OnStateful. Writes merge the
+// request body into the stored object, so reads reflect the latest write.
+type statefulObject struct {
+	mu      sync.Mutex
+	data    map[string]interface{}
+	deleted bool
+	// deleteStatus, when non-zero, makes DELETE fail with this status.
+	deleteStatus int
+}
+
+func (o *statefulObject) SetDeleteStatus(status int) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.deleteStatus = status
+}
+
+func (o *statefulObject) merge(body []byte) {
+	if len(body) == 0 {
+		return
+	}
+	var req map[string]interface{}
+	_ = json.Unmarshal(body, &req)
+	for k, v := range req {
+		o.data[k] = v
+	}
+}
+
+// OnStateful serves collection POST/GET and item GET/PUT/PATCH/DELETE for one
+// object under basePath (e.g. "/api/loadbalancing/application"). The id field
+// of initial is preserved across writes.
+func (m *mockAPIServer) OnStateful(basePath string, initial map[string]interface{}) *statefulObject {
+	obj := &statefulObject{data: map[string]interface{}{}}
+	for k, v := range initial {
+		obj.data[k] = v
+	}
+	idKey := "id"
+	if _, ok := initial["uuid"]; ok {
+		if _, hasID := initial["id"]; !hasID {
+			idKey = "uuid"
+		}
+	}
+	id := obj.data[idKey]
+
+	m.On(basePath, func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		obj.mu.Lock()
+		defer obj.mu.Unlock()
+
+		isItem := strings.Trim(strings.TrimPrefix(r.URL.Path, basePath), "/") != ""
+		if isItem && obj.deleted {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = fmt.Fprint(w, `{"detail":"Not found."}`)
+			return
+		}
+		switch {
+		case r.Method == http.MethodPost && !isItem:
+			obj.merge(body)
+			obj.data[idKey] = id
+			obj.deleted = false
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(obj.data)
+		case r.Method == http.MethodGet && !isItem:
+			results := []interface{}{}
+			if !obj.deleted {
+				results = append(results, obj.data)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"count": len(results), "next": nil, "previous": nil, "results": results,
+			})
+		case r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(obj.data)
+		case r.Method == http.MethodPut || r.Method == http.MethodPatch:
+			obj.merge(body)
+			obj.data[idKey] = id
+			_ = json.NewEncoder(w).Encode(obj.data)
+		case r.Method == http.MethodDelete && obj.deleteStatus != 0:
+			w.WriteHeader(obj.deleteStatus)
+			_, _ = fmt.Fprint(w, `{"detail":"delete refused"}`)
+		case r.Method == http.MethodDelete:
+			obj.deleted = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+	return obj
+}
+
+// OnList serves a read-only collection under basePath: GET basePath returns
+// all items as a paginated list, GET basePath/{id}/ returns the item whose
+// "id" matches.
+func (m *mockAPIServer) OnList(basePath string, items []map[string]interface{}) {
+	m.On(basePath, func(w http.ResponseWriter, r *http.Request, _ []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		id := strings.Trim(strings.TrimPrefix(r.URL.Path, basePath), "/")
+		if id == "" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"count": len(items), "next": nil, "previous": nil, "results": items,
+			})
+			return
+		}
+		for _, it := range items {
+			if fmt.Sprint(it["id"]) == id {
+				_ = json.NewEncoder(w).Encode(it)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = fmt.Fprint(w, `{"detail":"Not found."}`)
+	})
+}
+
+// checkCalled returns a check that fails unless a request with the given
+// method and path was received.
+func (m *mockAPIServer) checkCalled(method, path string) func(*terraform.State) error {
+	return func(*terraform.State) error {
+		for _, c := range m.Calls() {
+			if c.Method == method && c.Path == path {
+				return nil
+			}
+		}
+		return fmt.Errorf("expected %s %s to be called", method, path)
+	}
 }

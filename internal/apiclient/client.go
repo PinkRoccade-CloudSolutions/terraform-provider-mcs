@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -133,27 +135,70 @@ func (c *Client) ListAll(ctx context.Context, path string) ([]json.RawMessage, e
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body, result interface{}, retry bool) error {
-	if idx := strings.IndexByte(path, '?'); idx != -1 {
-		base := path[:idx]
-		query := path[idx:]
-		if !strings.HasSuffix(base, "/") {
-			base += "/"
-		}
-		path = base + query
-	} else if !strings.HasSuffix(path, "/") {
-		path += "/"
-	}
+	path = normalizePath(path)
 
-	fullURL := c.baseURL + path
-
-	var bodyReader io.Reader
+	var payload []byte
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
 		if err != nil {
 			return fmt.Errorf("marshaling request body: %w", err)
 		}
-		bodyReader = bytes.NewReader(jsonBody)
+		payload = jsonBody
 	}
+	return c.send(ctx, method, path, payload, "application/json", result, retry)
+}
+
+// PostMultipart sends a multipart/form-data POST. Each entry in files becomes a file part
+// whose filename is the field name.
+func (c *Client) PostMultipart(ctx context.Context, path string, fields map[string]string, files map[string][]byte, result interface{}) error {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	for _, k := range sortedKeys(fields) {
+		if err := w.WriteField(k, fields[k]); err != nil {
+			return fmt.Errorf("writing form field %s: %w", k, err)
+		}
+	}
+	for _, k := range sortedKeys(files) {
+		part, err := w.CreateFormFile(k, k)
+		if err != nil {
+			return fmt.Errorf("creating form file %s: %w", k, err)
+		}
+		if _, err := part.Write(files[k]); err != nil {
+			return fmt.Errorf("writing form file %s: %w", k, err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("closing multipart body: %w", err)
+	}
+	return c.send(ctx, http.MethodPost, normalizePath(path), buf.Bytes(), w.FormDataContentType(), result, true)
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// normalizePath ensures the path (before any query string) ends with a slash.
+func normalizePath(path string) string {
+	if idx := strings.IndexByte(path, '?'); idx != -1 {
+		base := path[:idx]
+		if !strings.HasSuffix(base, "/") {
+			base += "/"
+		}
+		return base + path[idx:]
+	}
+	if !strings.HasSuffix(path, "/") {
+		path += "/"
+	}
+	return path
+}
+
+func (c *Client) send(ctx context.Context, method, path string, payload []byte, contentType string, result interface{}, retry bool) error {
+	fullURL := c.baseURL + path
 
 	attempts := maxRetries
 	if !retry {
@@ -177,20 +222,19 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body, resul
 				return ctx.Err()
 			case <-time.After(delay):
 			}
-
-			if body != nil {
-				jsonBody, _ := json.Marshal(body)
-				bodyReader = bytes.NewReader(jsonBody)
-			}
 		}
 
+		var bodyReader io.Reader
+		if payload != nil {
+			bodyReader = bytes.NewReader(payload)
+		}
 		req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
 		if err != nil {
 			return fmt.Errorf("creating request: %w", err)
 		}
 
 		req.Header.Set("Authorization", "Token "+c.token)
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 		req.Header.Set("Accept", "application/json")
 
 		tflog.Debug(ctx, "MCS API request", map[string]interface{}{

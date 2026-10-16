@@ -114,6 +114,10 @@ func waitForNetworkOperation(ctx context.Context, c *apiclient.Client, op *netwo
 
 		var next networkOperationAPIModel
 		if err := c.Get(ctx, fmt.Sprintf("/api/v3/networking/operations/%d/", last.JobID), &next); err != nil {
+			// The deadline can expire mid-request; report that as the timeout it is.
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return last, fmt.Errorf("timed out waiting for network operation: %s", last.describe())
+			}
 			return last, fmt.Errorf("polling network operation %d: %w", last.JobID, err)
 		}
 		if next.JobID == 0 {
