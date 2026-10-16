@@ -596,3 +596,114 @@ func TestTruncateBody(t *testing.T) {
 		t.Errorf("truncated body should end with ...(truncated), got suffix %q", got[len(got)-20:])
 	}
 }
+
+func TestClient_PostMultipart_SendsFieldsAndFiles(t *testing.T) {
+	c, srv := testClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/upload/" {
+			t.Errorf("expected trailing slash path, got %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Token test-token" {
+			t.Errorf("unexpected Authorization header %q", got)
+		}
+		if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data; boundary=") {
+			t.Errorf("unexpected Content-Type %q", r.Header.Get("Content-Type"))
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatalf("parsing multipart form: %v", err)
+		}
+		if got := r.FormValue("format"); got != "PEM" {
+			t.Errorf("expected format=PEM, got %q", got)
+		}
+		f, hdr, err := r.FormFile("certificate")
+		if err != nil {
+			t.Fatalf("missing certificate file: %v", err)
+		}
+		defer f.Close()
+		content, _ := io.ReadAll(f)
+		if string(content) != "-----BEGIN CERTIFICATE-----" {
+			t.Errorf("unexpected file content %q", content)
+		}
+		if hdr.Filename != "certificate" {
+			t.Errorf("unexpected filename %q", hdr.Filename)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = fmt.Fprint(w, `{"id":"cert-1"}`)
+	}))
+	defer srv.Close()
+
+	var result struct {
+		ID string `json:"id"`
+	}
+	err := c.PostMultipart(context.Background(), "/api/upload",
+		map[string]string{"format": "PEM"},
+		map[string][]byte{"certificate": []byte("-----BEGIN CERTIFICATE-----")},
+		&result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.ID != "cert-1" {
+		t.Errorf("expected id cert-1, got %q", result.ID)
+	}
+}
+
+func TestClient_PostMultipart_ReturnsAPIError(t *testing.T) {
+	c, srv := testClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = fmt.Fprint(w, `{"detail":"not synced"}`)
+	}))
+	defer srv.Close()
+
+	err := c.PostMultipart(context.Background(), "/api/upload/", nil, nil, nil)
+	if !IsConflict(err) {
+		t.Fatalf("expected conflict APIError, got %v", err)
+	}
+}
+
+func TestClient_PostMultipart_BodyResentOnRetry(t *testing.T) {
+	var calls atomic.Int32
+	c, srv := testClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Errorf("attempt %d: parsing multipart form: %v", calls.Load()+1, err)
+		}
+		if got := r.FormValue("format"); got != "PFX" {
+			t.Errorf("attempt %d: expected format=PFX, got %q", calls.Load()+1, got)
+		}
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	err := c.PostMultipart(context.Background(), "/api/upload/", map[string]string{"format": "PFX"}, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("expected 2 calls, got %d", got)
+	}
+}
+
+func TestClient_JSONBodyResentOnRetry(t *testing.T) {
+	var calls atomic.Int32
+	c, srv := testClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"name":"x"}` {
+			t.Errorf("attempt %d: unexpected body %q", calls.Load()+1, body)
+		}
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if err := c.Post(context.Background(), "/api/items/", map[string]string{"name": "x"}, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
