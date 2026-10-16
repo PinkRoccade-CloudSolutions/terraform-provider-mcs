@@ -621,7 +621,7 @@ func TestClient_PostMultipart_SendsFieldsAndFiles(t *testing.T) {
 		if err != nil {
 			t.Fatalf("missing certificate file: %v", err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		content, _ := io.ReadAll(f)
 		if string(content) != "-----BEGIN CERTIFICATE-----" {
 			t.Errorf("unexpected file content %q", content)

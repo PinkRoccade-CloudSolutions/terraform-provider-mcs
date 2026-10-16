@@ -216,7 +216,7 @@ func (m *routeMock) handle(w http.ResponseWriter, r *http.Request, body []byte) 
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		buf := make([]byte, 64)
 		n, _ := f.Read(buf)
 		if !strings.HasPrefix(string(buf[:n]), "-----BEGIN CERTIFICATE-----") {
