@@ -44,12 +44,22 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
   - [mcs_customer](#mcs_customer-data-source)
   - [mcs_nat_translation](#mcs_nat_translation-data-source)
   - [mcs_site_to_site_vpn](#mcs_site_to_site_vpn-data-source)
+  - [mcs_loadbalancer_pool](#mcs_loadbalancer_pool-data-source)
+  - [mcs_domain_quota, mcs_loadbalancing_quota, mcs_quota](#mcs_domain_quota-mcs_loadbalancing_quota-mcs_quota-data-sources)
+  - [mcs_integration_type](#mcs_integration_type-data-source)
+  - [mcs_integration](#mcs_integration-data-source)
   - [mcs_secureingress_firewall](#mcs_secureingress_firewall-data-source)
   - [mcs_ingress_cluster](#mcs_ingress_cluster-data-source)
+  - [mcs_secureingress_route](#mcs_secureingress_route-data-source)
 - [Resources](#resources)
   - [Tenant & Customer Management](#tenant--customer-management)
     - [mcs_contact](#mcs_contact)
     - [mcs_customer](#mcs_customer)
+    - [mcs_domain_quota](#mcs_domain_quota)
+    - [mcs_loadbalancing_quota](#mcs_loadbalancing_quota)
+    - [mcs_quota](#mcs_quota)
+    - [mcs_integration_type](#mcs_integration_type)
+    - [mcs_integration](#mcs_integration)
   - [Networking](#networking)
     - [mcs_ippool](#mcs_ippool-resource)
     - [mcs_network](#mcs_network-resource)
@@ -57,9 +67,11 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
     - [mcs_public_ip_address](#mcs_public_ip_address)
     - [mcs_nat_translation](#mcs_nat_translation)
     - [mcs_site_to_site_vpn](#mcs_site_to_site_vpn)
+    - [mcs_loadbalancer_pool](#mcs_loadbalancer_pool)
   - [Secure Ingress](#secure-ingress)
     - [mcs_secureingress_firewall](#mcs_secureingress_firewall)
     - [mcs_ingress_cluster](#mcs_ingress_cluster)
+    - [mcs_secureingress_route](#mcs_secureingress_route)
   - [Firewall](#firewall)
     - [mcs_firewall](#mcs_firewall-resource)
     - [mcs_firewall_object](#mcs_firewall_object)
@@ -1393,6 +1405,141 @@ data "mcs_ingress_cluster" "gold" {
 
 ---
 
+### mcs_loadbalancer_pool (Data Source)
+
+Look up load balancer pools. Provide `name` (exact match) or `id` for a single pool, or omit both to list all of them in `pools`.
+
+#### Example
+
+```hcl
+data "mcs_loadbalancer_pool" "web" {
+  name = "web-pool"
+}
+```
+
+#### Attributes
+
+| Attribute               | Type   | Mode              | Description |
+|-------------------------|--------|-------------------|-------------|
+| `id`                    | String | Optional/Computed | Pool ID. |
+| `name`                  | String | Optional/Computed | Exact pool name. |
+| `description`           | String | Computed          | Description. |
+| `ip_pool`               | String | Computed          | UUID of the IP pool the subnet was cut from. |
+| `ip_pool_name`          | String | Computed          | Name of the IP pool. |
+| `prefix`                | String | Computed          | Allocated subnet in CIDR notation. |
+| `status`                | String | Computed          | `free` or `in_use`. |
+| `customer`              | String | Computed          | Customer the pool belongs to. |
+| `assigned_object_type`  | String | Computed          | Type of the object the pool is assigned to. |
+| `assigned_object_id`    | String | Computed          | ID of the object the pool is assigned to. |
+| `assigned_object_label` | String | Computed          | Label of the object the pool is assigned to. |
+| `pools`                 | List   | Computed          | All pools, each with the attributes above (populated when neither `name` nor `id` is set). |
+
+---
+
+### mcs_domain_quota, mcs_loadbalancing_quota, mcs_quota (Data Sources)
+
+Look up quota profiles. Provide `name` (exact match) or `id` for a single profile, or omit both to list all of them in `domain_quotas`, `loadbalancing_quotas` or `quotas` respectively.
+
+#### Example
+
+```hcl
+data "mcs_quota" "standard" {
+  name = "standard"
+}
+
+data "mcs_domain_quota" "standard" {
+  id = data.mcs_quota.standard.domain_quota
+}
+```
+
+#### Attributes
+
+All three data sources expose `id` (Optional/Computed), `name` (Optional/Computed) and `description` (Computed), plus:
+
+| Data source               | Computed attributes |
+|---------------------------|---------------------|
+| `mcs_domain_quota`        | `max_rules`, `max_objects`, `max_objectgroups`, `max_services`, `max_servicegroups`, `max_networks` (Number), `domain_quotas` (List) |
+| `mcs_loadbalancing_quota` | `max_policies_in_csvserver` (Number), `loadbalancing_quotas` (List) |
+| `mcs_quota`               | `domain_quota`, `loadbalancing_quota` (String, profile IDs), `quotas` (List) |
+
+---
+
+### mcs_integration_type (Data Source)
+
+Look up integration types. Provide `name` (exact match) or `id` for a single type, or omit both to list all of them.
+
+#### Example
+
+```hcl
+data "mcs_integration_type" "monitoring" {
+  name = "monitoring"
+}
+```
+
+#### Attributes
+
+| Attribute           | Type   | Mode              | Description |
+|---------------------|--------|-------------------|-------------|
+| `id`                | Number | Optional/Computed | Integration type ID. |
+| `name`              | String | Optional/Computed | Exact integration type name. |
+| `integration_types` | List   | Computed          | All integration types (populated when neither `name` nor `id` is set). |
+
+---
+
+### mcs_integration (Data Source)
+
+Look up integrations. Provide `name` (exact match) or `id` for a single integration, or omit both to list all of them. Credentials are never returned.
+
+#### Example
+
+```hcl
+data "mcs_integration" "prtg" {
+  name = "prtg-prod"
+}
+```
+
+#### Attributes
+
+| Attribute       | Type   | Mode              | Description |
+|-----------------|--------|-------------------|-------------|
+| `id`            | Number | Optional/Computed | Integration ID. |
+| `name`          | String | Optional/Computed | Exact integration name. |
+| `type_name`     | String | Computed          | Name of the integration type. |
+| `subtype`       | String | Computed          | Integration subtype. |
+| `baseurl`       | String | Computed          | Base URL of the external system. |
+| `username`      | String | Computed          | Username used to authenticate. |
+| `secret_expire` | String | Computed          | Expiry timestamp of the credentials. |
+| `icon`          | String | Computed          | Icon of the integration. |
+| `has_secret`    | Bool   | Computed          | Whether a secret is stored. |
+| `has_key`       | Bool   | Computed          | Whether a key is stored. |
+| `integrations`  | List   | Computed          | All integrations (populated when neither `name` nor `id` is set). |
+
+---
+
+### mcs_secureingress_route (Data Source)
+
+List secure ingress routes, optionally filtered by `id`, `cluster` and exact `server_name`.
+
+#### Example
+
+```hcl
+data "mcs_secureingress_route" "shop" {
+  cluster     = mcs_ingress_cluster.edge.id
+  server_name = "shop.example.com"
+}
+```
+
+#### Attributes
+
+| Attribute     | Type   | Mode     | Description |
+|---------------|--------|----------|-------------|
+| `id`          | String | Optional | Return only the route with this ID. |
+| `cluster`     | String | Optional | Return only routes of this ingress cluster. |
+| `server_name` | String | Optional | Return only the route with this exact server name. |
+| `routes`      | List   | Computed | Matching routes, each with `id`, `cluster`, `server_name`, `target_kind`, `virtualmachine`, `interface`, `kubernetes_cluster`, `upstream_address`, `port`, `scheme`, `path`, `ssl`, `upstream`, `certificate_common_name`, `certificate_issuer` and `certificate_valid_to_timestamp`. |
+
+---
+
 ## Resources
 
 Resources allow you to create, update, and delete objects in MCS.
@@ -1470,6 +1617,188 @@ resource "mcs_customer" "example" {
 
 ```shell
 terraform import mcs_customer.example <customer-id>
+```
+
+---
+
+#### mcs_domain_quota
+
+Manages a domain quota profile that limits the number of firewall objects in a domain. Quota profiles are global (not tenant-scoped). Limits that are omitted get the API default.
+
+##### Example
+
+```hcl
+resource "mcs_domain_quota" "standard" {
+  name         = "standard"
+  description  = "Standard tier"
+  max_rules    = 750
+  max_objects  = 1500
+  max_networks = 20
+}
+```
+
+##### Attributes
+
+| Attribute           | Type   | Required | Description |
+|---------------------|--------|----------|-------------|
+| `name`              | String | **Yes**  | Profile name. |
+| `description`       | String | No       | Description. |
+| `max_rules`         | Number | No       | Max number of firewall rules in a domain. |
+| `max_objects`       | Number | No       | Max number of firewall objects in a domain. |
+| `max_objectgroups`  | Number | No       | Max number of firewall object groups in a domain. |
+| `max_services`      | Number | No       | Max number of firewall services in a domain. |
+| `max_servicegroups` | Number | No       | Max number of firewall service groups in a domain. |
+| `max_networks`      | Number | No       | Max number of networks (VLANs) in a domain. |
+
+**Read-only attributes:** `id` (String).
+
+
+##### Import
+
+```shell
+terraform import mcs_domain_quota.standard <domain-quota-uuid>
+```
+
+---
+
+#### mcs_loadbalancing_quota
+
+Manages a loadbalancing quota profile. Quota profiles are global (not tenant-scoped).
+
+##### Example
+
+```hcl
+resource "mcs_loadbalancing_quota" "standard" {
+  name                      = "standard"
+  max_policies_in_csvserver = 40
+}
+```
+
+##### Attributes
+
+| Attribute                   | Type   | Required | Description |
+|-----------------------------|--------|----------|-------------|
+| `name`                      | String | **Yes**  | Profile name. |
+| `description`               | String | No       | Description. |
+| `max_policies_in_csvserver` | Number | No       | Max number of policies linked to a content switching virtual server. API default when omitted. |
+
+**Read-only attributes:** `id` (String).
+
+
+##### Import
+
+```shell
+terraform import mcs_loadbalancing_quota.standard <loadbalancing-quota-uuid>
+```
+
+---
+
+#### mcs_quota
+
+Manages a quota profile that combines a domain quota and a loadbalancing quota. Quota profiles are global (not tenant-scoped).
+
+##### Example
+
+```hcl
+resource "mcs_quota" "standard" {
+  name                = "standard"
+  domain_quota        = mcs_domain_quota.standard.id
+  loadbalancing_quota = mcs_loadbalancing_quota.standard.id
+}
+```
+
+##### Attributes
+
+| Attribute             | Type   | Required | Description |
+|-----------------------|--------|----------|-------------|
+| `name`                | String | **Yes**  | Profile name. |
+| `description`         | String | No       | Description. |
+| `domain_quota`        | String | No       | ID of the domain quota profile. |
+| `loadbalancing_quota` | String | No       | ID of the loadbalancing quota profile. |
+
+**Read-only attributes:** `id` (String).
+
+
+##### Import
+
+```shell
+terraform import mcs_quota.standard <quota-uuid>
+```
+
+---
+
+#### mcs_integration_type
+
+Manages an integration type within the tenant.
+
+##### Example
+
+```hcl
+resource "mcs_integration_type" "monitoring" {
+  name = "monitoring"
+}
+```
+
+##### Attributes
+
+| Attribute | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `name`    | String | **Yes**  | Integration type name. |
+
+**Read-only attributes:** `id` (Number).
+
+
+##### Import
+
+The import ID is the numeric ID of the integration type.
+
+```shell
+terraform import mcs_integration_type.monitoring <integration-type-id>
+```
+
+---
+
+#### mcs_integration
+
+Manages an integration with an external system (e.g. PRTG) within the tenant. Set the type with either `type_id` or `catalog_key`. When you use `catalog_key`, the API resolves the type, subtype and icon from the integration catalog at creation.
+
+`secret` and `key` are write-only and sensitive. The API never returns them, so Terraform keeps the configured values in state and cannot detect credential changes made outside Terraform. Use `has_secret`/`has_key` to see whether a credential is stored.
+
+##### Example
+
+```hcl
+resource "mcs_integration" "prtg" {
+  name        = "prtg-prod"
+  catalog_key = "prtg"
+  baseurl     = "https://prtg.example.com"
+  username    = "svc-mcs"
+  secret      = var.prtg_password
+}
+```
+
+##### Attributes
+
+| Attribute       | Type   | Required | Description |
+|-----------------|--------|----------|-------------|
+| `name`          | String | **Yes**  | Integration name. Cannot contain special characters or a dot. |
+| `baseurl`       | String | **Yes**  | Base URL of the external system. |
+| `type_id`       | Number | No       | ID of the integration type. Write-only. |
+| `catalog_key`   | String | No       | Integration catalog entry. Write-only; changing it forces replacement. |
+| `subtype`       | String | No       | Integration subtype. Resolved from `catalog_key` when omitted. |
+| `username`      | String | No       | Username used to authenticate. |
+| `secret`        | String | No       | Secret or password. Sensitive, write-only. |
+| `key`           | String | No       | API key. Sensitive, write-only. |
+| `secret_expire` | String | No       | Expiry timestamp of the credentials (RFC 3339). |
+
+**Read-only attributes:** `id` (Number), `type_name` (String), `icon` (String), `has_secret` (Bool), `has_key` (Bool).
+
+
+##### Import
+
+The import ID is the numeric ID of the integration. `secret` and `key` are never returned by the API, so they stay empty after import until they are set in the configuration.
+
+```shell
+terraform import mcs_integration.prtg <integration-id>
 ```
 
 ---
@@ -1807,6 +2136,39 @@ terraform import mcs_site_to_site_vpn.office <vpn-id>
 
 ---
 
+#### mcs_loadbalancer_pool
+
+Manages a load balancer pool: a subnet allocated from an `lbpools` IP pool. Only `name` and `description` can be changed in place; setting a different `ip_pool` replaces the pool. A pool can only be destroyed while it is `free`. If it is still assigned to a load balancer, destroy fails with a clear "pool is still in use" error.
+
+##### Example
+
+```hcl
+resource "mcs_loadbalancer_pool" "web" {
+  name        = "web-pool"
+  description = "Web frontends"
+  ip_pool     = data.mcs_ippool.lbpools.id
+}
+```
+
+##### Attributes
+
+| Attribute     | Type   | Required | Description |
+|---------------|--------|----------|-------------|
+| `name`        | String | **Yes**  | Pool name. |
+| `description` | String | No       | Description. |
+| `ip_pool`     | String | No       | UUID of the `lbpools` IP pool to allocate from. Selected by the API when omitted. Changing it forces replacement. |
+
+**Read-only attributes:** `id` (String), `ip_pool_name` (String), `prefix` (String), `status` (String), `customer` (String), `assigned_object_type` (String), `assigned_object_id` (String), `assigned_object_label` (String).
+
+
+##### Import
+
+```shell
+terraform import mcs_loadbalancer_pool.web <loadbalancer-pool-uuid>
+```
+
+---
+
 ### Secure Ingress
 
 #### mcs_secureingress_firewall
@@ -1886,6 +2248,149 @@ resource "mcs_ingress_cluster" "webshop" {
 
 ```shell
 terraform import mcs_ingress_cluster.webshop <ingress-cluster-uuid>
+```
+
+---
+
+#### mcs_secureingress_route
+
+Manages a route on a secure ingress cluster. A route publishes a hostname and proxies it to an upstream: a virtual machine interface (`vm`), a Kubernetes cluster's load balancer (`kubernetes`), or a fixed IP address (`address`). The target kind is inferred from the target fields you set. A route can carry BunkerWeb setting overrides, extra locations (paths with their own upstream), WAF exceptions and a custom certificate. Without a custom certificate it uses Let's Encrypt.
+
+Writes fail until the ingress cluster has been deployed. In that case the provider reports **"Ingress cluster not deployed yet"**; wait for the cluster to sync and apply again.
+
+> The route API is not yet part of the published MCS API specification; this resource follows the MCS backend implementation.
+
+Behaviour to be aware of:
+
+- **Settings.** All values are strings, and booleans are written `"yes"`/`"no"`. Keys you remove from `settings` are reset to their default. The API drops values that equal the default and normalises some values, such as list order, case and duplicates. Terraform keeps your configured value in those cases, so no diff appears. As a trade-off, resetting a configured setting to its default outside Terraform is not detected.
+- **Secret settings.** Write-only settings such as `AUTH_BASIC_PASSWORD` go in the sensitive `secret_settings` map. The API never returns them; `secrets_set` lists which ones are stored.
+- **Locations** are matched to existing locations by `path`, so reordering them updates locations in place instead of recreating them. Locations that are left out are deleted.
+- **WAF exceptions** are applied in list order and matched to existing exceptions by position. Raw rules (`kind = "raw"`) need the raw WAF rule permission.
+- **Custom certificate.** The certificate is uploaded after the route is saved and re-uploaded when any input changes. Removing the block reverts to Let's Encrypt. The inputs are sensitive and kept in state because the API only returns certificate metadata. For binary PFX/P7B bundles, pass base64 content, e.g. `filebase64("bundle.pfx")`.
+
+##### Example — VM upstream with settings, a location and a WAF exception
+
+```hcl
+resource "mcs_secureingress_route" "shop" {
+  cluster        = mcs_ingress_cluster.edge.id
+  server_name    = "shop.example.com"
+  virtualmachine = data.mcs_virtualmachine.web.id
+  interface      = data.mcs_interface.web.id
+  port           = 8080
+
+  settings = {
+    USE_MODSECURITY = "yes"
+    ALLOWED_METHODS = "GET|POST"
+    USE_AUTH_BASIC  = "yes"
+  }
+  secret_settings = {
+    AUTH_BASIC_PASSWORD = var.shop_basic_auth_password
+  }
+
+  locations = [{
+    path             = "/api"
+    upstream_address = "10.0.0.9"
+    port             = 9000
+  }]
+
+  waf_exceptions = [{
+    rules  = "942100"
+    path   = "/search"
+    target = "ARGS:q"
+    reason = "Search box triggers SQLi false positives"
+  }]
+}
+```
+
+##### Example — Fixed address with a custom certificate
+
+```hcl
+resource "mcs_secureingress_route" "legacy" {
+  cluster          = mcs_ingress_cluster.edge.id
+  server_name      = "legacy.example.com"
+  target_kind      = "address"
+  upstream_address = "192.0.2.10"
+  port             = 443
+  scheme           = "https"
+
+  custom_certificate = {
+    certificate = file("certs/legacy-fullchain.pem")
+    private_key = file("certs/legacy-key.pem")
+  }
+}
+```
+
+##### Attributes
+
+| Attribute            | Type        | Required | Description |
+|----------------------|-------------|----------|-------------|
+| `cluster`            | String      | **Yes**  | UUID of the ingress cluster. Forces replacement. |
+| `server_name`        | String      | **Yes**  | Fully qualified hostname, e.g. `shop.example.com`. |
+| `port`               | Number      | **Yes**  | Upstream port (1–65535). |
+| `target_kind`        | String      | No       | `vm`, `kubernetes` or `address`. Inferred when omitted. |
+| `virtualmachine`     | String      | No       | Upstream VM UUID (`vm`). |
+| `interface`          | String      | No       | Upstream VM interface UUID (`vm`). |
+| `kubernetes_cluster` | String      | No       | Upstream Kubernetes cluster UUID (`kubernetes`). |
+| `upstream_address`   | String      | No       | Upstream IP. Required for `address`, optional for `kubernetes`, derived for `vm`. |
+| `scheme`             | String      | No       | `http` (default) or `https`. |
+| `path`               | String      | No       | Path served by the route. Default `/`. |
+| `ssl`                | Bool        | No       | Serve over HTTPS. Default `true`. |
+| `settings`           | Map(String) | No       | BunkerWeb setting overrides. |
+| `secret_settings`    | Map(String) | No       | Write-only BunkerWeb settings. Sensitive. |
+| `locations`          | List(Object)| No       | Extra locations, see below. |
+| `waf_exceptions`     | List(Object)| No       | WAF exceptions, see below. |
+| `custom_certificate` | Object      | No       | Custom certificate, see below. |
+
+**Read-only attributes:** `id` (String), `upstream` (String), `secrets_set` (List of String).
+
+`locations` items:
+
+| Attribute            | Type        | Required | Description |
+|----------------------|-------------|----------|-------------|
+| `path`               | String      | **Yes**  | Location path; must start with `/` and not be `/`. |
+| `port`               | Number      | **Yes**  | Upstream port. |
+| `target_kind`        | String      | No       | `vm`, `kubernetes` or `address`. Inferred when omitted. |
+| `virtualmachine`     | String      | No       | Upstream VM UUID. |
+| `interface`          | String      | No       | Upstream VM interface UUID. |
+| `kubernetes_cluster` | String      | No       | Upstream Kubernetes cluster UUID. |
+| `upstream_address`   | String      | No       | Upstream IP address. |
+| `scheme`             | String      | No       | `http` (default) or `https`. |
+| `settings`           | Map(String) | No       | Location-level BunkerWeb settings. |
+
+Read-only: `id` (String), `slot` (Number), `upstream` (String).
+
+`waf_exceptions` items:
+
+| Attribute    | Type   | Required | Description |
+|--------------|--------|----------|-------------|
+| `reason`     | String | **Yes**  | Why the exception is needed. |
+| `kind`       | String | No       | `structured` (default) or `raw`. |
+| `rules`      | String | No       | ModSecurity rule IDs to disable (structured). |
+| `path`       | String | No       | Path the exception applies to (structured). |
+| `path_match` | String | No       | `exact` (default) or `prefix` (structured). |
+| `target`     | String | No       | Request part to exclude, e.g. `ARGS:q` (structured). |
+| `raw`        | String | No       | Raw ModSecurity configuration (raw). |
+
+Read-only: `id` (Number).
+
+`custom_certificate`:
+
+| Attribute     | Type   | Required | Description |
+|---------------|--------|----------|-------------|
+| `certificate` | String | **Yes**  | PEM certificate with intermediates, or base64 PFX/P7B bundle. Sensitive. |
+| `format`      | String | No       | `PEM` (default), `PFX` or `P7B`. |
+| `private_key` | String | No       | PEM private key (PEM and P7B). Sensitive. |
+| `passphrase`  | String | No       | Passphrase of the PFX bundle or encrypted key. Sensitive. |
+
+Read-only: `id`, `common_name`, `subject_alt_names` (List of String), `issuer`, `serial_number`, `fingerprint_sha256`, `valid_from_timestamp`, `valid_to_timestamp`.
+
+
+##### Import
+
+The API never returns `secret_settings` or the `custom_certificate` inputs, so the first `terraform apply` after an import sends them again: secret settings are re-set and a configured certificate is re-uploaded.
+
+```shell
+terraform import mcs_secureingress_route.shop <route-uuid>
 ```
 
 ---
