@@ -686,7 +686,7 @@ func (r *NetworkResource) deployPlanned(ctx context.Context, id string) error {
 			"before trying again.\n\n%w", err)
 	}
 	if _, err := waitForNetworkOperation(ctx, r.client, &op); err != nil {
-		return fmt.Errorf("%w\n\nThe network is still planned; fix the cause and apply again.", err)
+		return fmt.Errorf("%w\n\nThe network is still planned; fix the cause and apply again", err)
 	}
 	return nil
 }
