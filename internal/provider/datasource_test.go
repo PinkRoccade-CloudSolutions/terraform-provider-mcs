@@ -204,7 +204,10 @@ func TestAccNetworkDataSource_ByName(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"results": []map[string]interface{}{
 				{"id": "net-001", "name": "mgmt", "ipv4_prefix": "10.0.0.0/24", "vlanid": 100,
-					"type": "vlan", "dhcp_server": true, "dhcp_server_lease_time": 3600, "ipv6_prefix": "2001:db8::/64", "visible": true},
+					"type": "vlan", "dhcp_server": true, "dhcp_server_lease_time": 3600, "ipv6_prefix": "2001:db8::/64", "visible": true,
+					"deploy_flow": "v2", "state": "undeploy_failed",
+					"datacenters":    []map[string]interface{}{{"id": 1, "name": "DC-A"}, {"id": 2, "name": "DC-B"}},
+					"leftover_steps": []string{"apstra_vn", "fortigate_interface"}},
 			},
 		})
 	})
@@ -218,6 +221,13 @@ data "mcs_network" "test" {
   name = "mgmt"
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_network.test", "deploy_flow", "v2"),
+					resource.TestCheckResourceAttr("data.mcs_network.test", "datacenters.#", "2"),
+					resource.TestCheckResourceAttr("data.mcs_network.test", "datacenters.0.id", "1"),
+					resource.TestCheckResourceAttr("data.mcs_network.test", "datacenters.1.name", "DC-B"),
+					resource.TestCheckResourceAttr("data.mcs_network.test", "leftover_steps.#", "2"),
+					resource.TestCheckResourceAttr("data.mcs_network.test", "leftover_steps.1", "fortigate_interface"),
+					resource.TestCheckNoResourceAttr("data.mcs_network.test", "state"),
 					resource.TestCheckResourceAttr("data.mcs_network.test", "id", "net-001"),
 					resource.TestCheckResourceAttr("data.mcs_network.test", "name", "mgmt"),
 					resource.TestCheckResourceAttr("data.mcs_network.test", "ipv4_prefix", "10.0.0.0/24"),
@@ -258,6 +268,9 @@ data "mcs_network" "all" {
 					resource.TestCheckResourceAttr("data.mcs_network.all", "networks.#", "2"),
 					resource.TestCheckResourceAttr("data.mcs_network.all", "networks.0.name", "mgmt"),
 					resource.TestCheckResourceAttr("data.mcs_network.all", "networks.1.name", "data"),
+					resource.TestCheckResourceAttr("data.mcs_network.all", "networks.0.datacenters.#", "0"),
+					resource.TestCheckResourceAttr("data.mcs_network.all", "networks.0.leftover_steps.#", "0"),
+					resource.TestCheckNoResourceAttr("data.mcs_network.all", "datacenters.#"),
 				),
 			},
 		},

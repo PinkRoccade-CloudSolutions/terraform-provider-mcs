@@ -2,11 +2,13 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -40,6 +42,9 @@ type NetworkDataSourceModel struct {
 	DhcpServerDnsServers  types.String   `tfsdk:"dhcp_server_dns_servers"`
 	DhcpServerLeaseTime   types.Int64    `tfsdk:"dhcp_server_lease_time"`
 	Visible               types.Bool     `tfsdk:"visible"`
+	DeployFlow            types.String   `tfsdk:"deploy_flow"`
+	Datacenters           types.List     `tfsdk:"datacenters"`
+	LeftoverSteps         types.List     `tfsdk:"leftover_steps"`
 	CreatedAt             types.String   `tfsdk:"created_at"`
 	UpdatedAt             types.String   `tfsdk:"updated_at"`
 	Networks              []NetworkModel `tfsdk:"networks"`
@@ -67,6 +72,9 @@ type NetworkModel struct {
 	DhcpServerDnsServers  types.String `tfsdk:"dhcp_server_dns_servers"`
 	DhcpServerLeaseTime   types.Int64  `tfsdk:"dhcp_server_lease_time"`
 	Visible               types.Bool   `tfsdk:"visible"`
+	DeployFlow            types.String `tfsdk:"deploy_flow"`
+	Datacenters           types.List   `tfsdk:"datacenters"`
+	LeftoverSteps         types.List   `tfsdk:"leftover_steps"`
 	CreatedAt             types.String `tfsdk:"created_at"`
 	UpdatedAt             types.String `tfsdk:"updated_at"`
 }
@@ -82,24 +90,80 @@ type networkV3APIModel struct {
 		VdomId string `json:"vdom_id"`
 		Name   string `json:"name"`
 	} `json:"domain_detail"`
-	Customer              *string `json:"customer"`
-	CustomerName          string  `json:"customer_name"`
-	Description           string  `json:"description"`
-	Type                  string  `json:"type"`
-	Parent                string  `json:"parent"`
-	VlanId                *int64  `json:"vlanid"`
-	Ipv4Prefix            string  `json:"ipv4_prefix"`
-	Ipv4Address           string  `json:"ipv4_address"`
-	Ipv6Prefix            string  `json:"ipv6_prefix"`
-	Ipv6Address           string  `json:"ipv6_address"`
-	DhcpServer            *bool   `json:"dhcp_server"`
-	DhcpServerAddressPool string  `json:"dhcp_server_address_pool"`
-	DhcpServerNetmask     string  `json:"dhcp_server_netmask"`
-	DhcpServerDnsServers  string  `json:"dhcp_server_dns_servers"`
-	DhcpServerLeaseTime   *int64  `json:"dhcp_server_lease_time"`
-	Visible               *bool   `json:"visible"`
-	CreatedAt             string  `json:"created_at_timestamp"`
-	UpdatedAt             string  `json:"updated_at_timestamp"`
+	Customer              *string                 `json:"customer"`
+	CustomerName          string                  `json:"customer_name"`
+	Description           string                  `json:"description"`
+	Type                  string                  `json:"type"`
+	Parent                string                  `json:"parent"`
+	VlanId                *int64                  `json:"vlanid"`
+	Ipv4Prefix            string                  `json:"ipv4_prefix"`
+	Ipv4Address           string                  `json:"ipv4_address"`
+	Ipv6Prefix            string                  `json:"ipv6_prefix"`
+	Ipv6Address           string                  `json:"ipv6_address"`
+	DhcpServer            *bool                   `json:"dhcp_server"`
+	DhcpServerAddressPool string                  `json:"dhcp_server_address_pool"`
+	DhcpServerNetmask     string                  `json:"dhcp_server_netmask"`
+	DhcpServerDnsServers  string                  `json:"dhcp_server_dns_servers"`
+	DhcpServerLeaseTime   *int64                  `json:"dhcp_server_lease_time"`
+	Visible               *bool                   `json:"visible"`
+	DeployFlow            string                  `json:"deploy_flow"`
+	Datacenters           []datacenterRefAPIModel `json:"datacenters"`
+	LeftoverSteps         json.RawMessage         `json:"leftover_steps"`
+	// State is never exposed in a schema; it only tells a planned (dry-run) network apart.
+	State     string `json:"state"`
+	CreatedAt string `json:"created_at_timestamp"`
+	UpdatedAt string `json:"updated_at_timestamp"`
+}
+
+const networkStatePlanned = "planned"
+
+type datacenterRefAPIModel struct {
+	Id   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+var datacenterRefAttrTypes = map[string]attr.Type{"id": types.Int64Type, "name": types.StringType}
+
+var datacenterRefObjectType = types.ObjectType{AttrTypes: datacenterRefAttrTypes}
+
+func datacenterRefList(refs []datacenterRefAPIModel) types.List {
+	elems := make([]attr.Value, 0, len(refs))
+	for _, dc := range refs {
+		elems = append(elems, types.ObjectValueMust(datacenterRefAttrTypes, map[string]attr.Value{
+			"id": types.Int64Value(dc.Id), "name": types.StringValue(dc.Name),
+		}))
+	}
+	return types.ListValueMust(datacenterRefObjectType, elems)
+}
+
+// leftoverStepsList decodes leftover_steps, which the spec leaves untyped: a list of step names,
+// a list of objects with a name, or null.
+func leftoverStepsList(raw json.RawMessage) types.List {
+	names := []string{}
+	var asStrings []string
+	var asObjects []struct {
+		Name string `json:"name"`
+	}
+	var asAny []interface{}
+	switch {
+	case len(raw) == 0 || string(raw) == "null":
+	case json.Unmarshal(raw, &asStrings) == nil:
+		names = asStrings
+	case json.Unmarshal(raw, &asObjects) == nil:
+		for _, o := range asObjects {
+			names = append(names, o.Name)
+		}
+	case json.Unmarshal(raw, &asAny) == nil:
+		for _, v := range asAny {
+			b, _ := json.Marshal(v)
+			names = append(names, string(b))
+		}
+	}
+	elems := make([]attr.Value, 0, len(names))
+	for _, n := range names {
+		elems = append(elems, types.StringValue(n))
+	}
+	return types.ListValueMust(types.StringType, elems)
 }
 
 func (n *networkV3APIModel) toModel() NetworkModel {
@@ -125,6 +189,9 @@ func (n *networkV3APIModel) toModel() NetworkModel {
 		DhcpServerDnsServers:  types.StringValue(n.DhcpServerDnsServers),
 		DhcpServerLeaseTime:   types.Int64PointerValue(n.DhcpServerLeaseTime),
 		Visible:               types.BoolPointerValue(n.Visible),
+		DeployFlow:            types.StringValue(n.DeployFlow),
+		Datacenters:           datacenterRefList(n.Datacenters),
+		LeftoverSteps:         leftoverStepsList(n.LeftoverSteps),
 		CreatedAt:             types.StringValue(n.CreatedAt),
 		UpdatedAt:             types.StringValue(n.UpdatedAt),
 	}
@@ -158,6 +225,9 @@ var networkDetailAttrDescriptions = map[string]string{
 	"dhcp_server_dns_servers":  "Comma-separated DNS servers handed out by the DHCP server.",
 	"dhcp_server_lease_time":   "DHCP lease time.",
 	"visible":                  "Whether the interface is visible to end users.",
+	"deploy_flow":              "Deploy flow that created the network: `v1` or `v2` (beta). Undeploy follows the same flow.",
+	"datacenters":              "Datacenters the network was deployed to (`id` and `name`).",
+	"leftover_steps":           "V2 only: steps whose configuration may still exist after a rollback or undeploy could not finish, in the order they still need reversing.",
 	"created_at":               "Time the network was created.",
 	"updated_at":               "Time the network was last updated.",
 }
@@ -182,8 +252,18 @@ func networkDetailAttrs(withDescriptions bool) map[string]schema.Attribute {
 		"dhcp_server_dns_servers":  schema.StringAttribute{Computed: true, Description: desc("dhcp_server_dns_servers")},
 		"dhcp_server_lease_time":   schema.Int64Attribute{Computed: true, Description: desc("dhcp_server_lease_time")},
 		"visible":                  schema.BoolAttribute{Computed: true, Description: desc("visible")},
-		"created_at":               schema.StringAttribute{Computed: true, Description: desc("created_at")},
-		"updated_at":               schema.StringAttribute{Computed: true, Description: desc("updated_at")},
+		"deploy_flow":              schema.StringAttribute{Computed: true, Description: desc("deploy_flow")},
+		"datacenters": schema.ListNestedAttribute{
+			Computed:    true,
+			Description: desc("datacenters"),
+			NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
+				"id":   schema.Int64Attribute{Computed: true},
+				"name": schema.StringAttribute{Computed: true},
+			}},
+		},
+		"leftover_steps": schema.ListAttribute{Computed: true, ElementType: types.StringType, Description: desc("leftover_steps")},
+		"created_at":     schema.StringAttribute{Computed: true, Description: desc("created_at")},
+		"updated_at":     schema.StringAttribute{Computed: true, Description: desc("updated_at")},
 	}
 }
 
@@ -318,7 +398,10 @@ func (d *NetworkDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		return
 	}
 
-	state := networkDataSourceFromModel(NetworkModel{})
+	state := networkDataSourceFromModel(NetworkModel{
+		Datacenters:   types.ListNull(datacenterRefObjectType),
+		LeftoverSteps: types.ListNull(types.StringType),
+	})
 	state.Name = types.StringNull()
 	state.Domain = config.Domain
 	if state.Domain.IsUnknown() {
@@ -355,6 +438,9 @@ func networkDataSourceFromModel(m NetworkModel) NetworkDataSourceModel {
 		DhcpServerDnsServers:  m.DhcpServerDnsServers,
 		DhcpServerLeaseTime:   m.DhcpServerLeaseTime,
 		Visible:               m.Visible,
+		DeployFlow:            m.DeployFlow,
+		Datacenters:           m.Datacenters,
+		LeftoverSteps:         m.LeftoverSteps,
 		CreatedAt:             m.CreatedAt,
 		UpdatedAt:             m.UpdatedAt,
 	}

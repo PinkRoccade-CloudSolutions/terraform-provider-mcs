@@ -175,7 +175,7 @@ func TestProvider_Resources_Count(t *testing.T) {
 func TestProvider_DataSources_Count(t *testing.T) {
 	p := &MCSProvider{version: "test"}
 	dataSources := p.DataSources(context.Background())
-	if len(dataSources) != 42 {
-		t.Errorf("expected 42 data sources, got %d", len(dataSources))
+	if len(dataSources) != 43 {
+		t.Errorf("expected 43 data sources, got %d", len(dataSources))
 	}
 }

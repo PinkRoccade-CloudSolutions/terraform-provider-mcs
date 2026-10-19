@@ -16,6 +16,7 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
   - [mcs_zone](#mcs_zone)
   - [mcs_network](#mcs_network)
   - [mcs_network_products](#mcs_network_products-data-source)
+  - [mcs_network_placements](#mcs_network_placements-data-source)
   - [mcs_networkpool](#mcs_networkpool)
   - [mcs_firewall](#mcs_firewall)
   - [mcs_interface](#mcs_interface)
@@ -349,6 +350,9 @@ output "network_vlan" {
 | `dhcp_server_dns_servers` | String | Computed | Comma-separated DNS servers handed out by the DHCP server. |
 | `dhcp_server_lease_time` | Number | Computed | DHCP lease time. |
 | `visible`    | Bool   | Computed | Whether the interface is visible to end users. |
+| `deploy_flow` | String | Computed | Deploy flow that created the network: `v1` or `v2` (beta). |
+| `datacenters` | List  | Computed | Datacenters the network was deployed to; each has `id` (Number) and `name` (String). |
+| `leftover_steps` | List(String) | Computed | V2 only: steps whose configuration may still exist after a rollback or undeploy could not finish. |
 | `created_at` | String | Computed | Creation timestamp. |
 | `updated_at` | String | Computed | Last update timestamp. |
 | `networks`   | List   | Computed | List of all networks (populated when `name` is not set). |
@@ -376,6 +380,33 @@ output "network_products" {
 | Attribute | Type         | Mode     | Description |
 |-----------|--------------|----------|-------------|
 | `names`   | List(String) | Computed | Names of the available network products. |
+
+---
+
+### mcs_network_placements (Data Source)
+
+Shows which datacenters a V2 deploy of the [`mcs_network`](#mcs_network-resource) resource would go to in a domain, for each `placement`. An empty `standard` list means the domain's zone is not ready for V2 deploys.
+
+#### Example
+
+```hcl
+data "mcs_network_placements" "production" {
+  domain_uuid = data.mcs_domain.production.uuid
+}
+
+output "kubernetes_datacenters" {
+  value = data.mcs_network_placements.production.kubernetes[*].name
+}
+```
+
+#### Attributes
+
+| Attribute                    | Type   | Mode         | Description |
+|------------------------------|--------|--------------|-------------|
+| `domain_uuid`                | String | **Required** | UUID of the domain (VDOM), e.g. `data.mcs_domain.x.uuid`. |
+| `standard`                   | List   | Computed     | Datacenters for `placement = "standard"`; each has `id` (Number) and `name` (String). |
+| `kubernetes`                 | List   | Computed     | Datacenters for `placement = "kubernetes"`: the standard ones plus the zone's additional datacenters. Same nested attributes. |
+| `kubernetes_equals_standard` | Bool   | Computed     | Whether both placements deploy to the same datacenters. |
 
 ---
 
@@ -1855,7 +1886,13 @@ Deploys a network (VLAN, prefix and interface) in a domain through the v3 networ
 
 Creating the resource queues a deploy job and waits until it has finished; destroying it queues a teardown and waits until the network is gone. The deploy request is sent exactly once (it is never retried automatically, so a flaky connection cannot queue a second network). If the job fails after MCS has already written the network, the network is kept in state as tainted and is replaced on the next apply.
 
-Networks cannot be changed in place: changing any argument destroys the network and deploys a new one.
+Networks cannot be changed in place: changing any argument destroys the network and deploys a new one. The one exception is `dry_run`: changing it from `true` to `false` deploys the planned network in place.
+
+**Deploy flows.** `deploy_flow = "v1"` (the default) is the classic deploy. `deploy_flow = "v2"` (beta) deploys step by step to the datacenters chosen by `placement`, and enables `dry_run`. If a V2 deploy fails, MCS rolls back the steps it already ran; the error then reports the rollback state, the failed step and any steps whose configuration may remain (also exposed afterwards as `leftover_steps`).
+
+**Kubernetes placement.** With V2, `placement = "standard"` (the default) deploys to the zone's default datacenters and `placement = "kubernetes"` also deploys to the zone's additional datacenters. Use the [`mcs_network_placements`](#mcs_network_placements-data-source) data source to see which datacenters each placement resolves to before deploying.
+
+**Dry run.** With V2, `dry_run = true` checks every system without changing anything: MCS reserves the VLAN and prefix and keeps the network *planned*. The changes the deploy would make are listed in `dry_run_changes`; changes with action `conflict` are also reported as a warning, since the deploy would fail on them. Change `dry_run` to `false` to deploy the planned network in place (the `update` timeout applies). If that deploy fails it is rolled back, the network stays planned and `dry_run` stays `true` in state, so the next apply retries the deploy. Changing `dry_run` from `false` to `true` destroys the deployed network and creates a new planned one.
 
 ##### Example
 
@@ -1885,6 +1922,35 @@ output "web_vlan" {
 }
 ```
 
+##### Example — V2 dry run on Kubernetes placement, then deploy
+
+```hcl
+data "mcs_network_placements" "production" {
+  domain_uuid = data.mcs_domain.production.uuid
+}
+
+resource "mcs_network" "k8s" {
+  domain_uuid     = data.mcs_domain.production.uuid
+  product         = "DMZ"
+  bitmask         = 26
+  description     = "Kubernetes ingress"
+  network_pool_id = data.mcs_networkpool.lan.id
+  deploy_flow     = "v2"
+  placement       = "kubernetes"
+
+  # Apply with true to see what the deploy would do, then set to false to deploy in place.
+  dry_run = true
+}
+
+output "k8s_datacenters" {
+  value = data.mcs_network_placements.production.kubernetes[*].name
+}
+
+output "k8s_planned_changes" {
+  value = mcs_network.k8s.dry_run_changes
+}
+```
+
 ##### Attributes
 
 | Attribute         | Type   | Required | Description |
@@ -1895,9 +1961,12 @@ output "web_vlan" {
 | `description`     | String | **Yes**  | What the network is for (max 4096 characters). |
 | `network_pool_id` | String | No       | UUID of the root network pool to allocate the prefix from. Conflicts with `prefix`. |
 | `prefix`          | String | No       | Explicit network address to use instead of allocating from a pool, e.g. `10.0.0.0`. Conflicts with `network_pool_id`. |
-| `timeouts`        | Block  | No       | `create` and `delete` durations (e.g. `"45m"`). Both default to 30 minutes. |
+| `deploy_flow`     | String | No       | `v1` (default) or `v2` (beta). Undeploy follows the same flow. |
+| `placement`       | String | No       | V2 only: `standard` (default for V2) or `kubernetes`. Null with V1. |
+| `dry_run`         | Bool   | No       | V2 only: plan the deploy without changing anything (default `false`). See *Dry run* above. |
+| `timeouts`        | Block  | No       | `create`, `update` (deploying a planned network) and `delete` durations (e.g. `"45m"`). All default to 30 minutes. |
 
-All arguments except `timeouts` force a new network when changed.
+All arguments except `timeouts` force a new network when changed, apart from `dry_run` going from `true` to `false`, which deploys in place. Setting `placement` or `dry_run = true` without `deploy_flow = "v2"` is rejected at plan time.
 
 **Read-only attributes:**
 
@@ -1923,6 +1992,9 @@ All arguments except `timeouts` force a new network when changed.
 | `dhcp_server_dns_servers` | String | Comma-separated DNS servers handed out by the DHCP server. |
 | `dhcp_server_lease_time` | Number | DHCP lease time. |
 | `visible`         | Bool   | Whether the interface is visible to end users. |
+| `datacenters`     | List   | Datacenters the network was deployed to; each has `id` (Number) and `name` (String). |
+| `leftover_steps`  | List(String) | V2 only: steps whose configuration may still exist after a rollback or undeploy could not finish, in the order they still need reversing. |
+| `dry_run_changes` | List   | Changes the dry run reported, captured when the planned network was created; empty once deployed. Each has `step`, `system`, `datacenter` (null when not datacenter-specific), `action` (`create`, `update`, `present` or `conflict`), `object` and `detail`. |
 | `created_at`      | String | Creation timestamp. |
 | `updated_at`      | String | Last update timestamp. |
 
@@ -1932,7 +2004,7 @@ All arguments except `timeouts` force a new network when changed.
 terraform import mcs_network.web <network-uuid>
 ```
 
-The API does not return `product`, `network_pool_id` or `prefix`, so after an import they are taken from your configuration on the next apply as an in-place update, without recreating the network. `domain_uuid` is looked up from the network's domain and `bitmask` is derived from `ipv4_prefix`.
+The API does not return `product`, `network_pool_id`, `prefix` or `placement`, so after an import they are taken from your configuration on the next apply as an in-place update, without recreating the network. `domain_uuid` is looked up from the network's domain, `bitmask` is derived from `ipv4_prefix`, `deploy_flow` is read from the network, and `dry_run` is `true` when the network is still planned. `dry_run_changes` is empty after an import.
 
 ---
 

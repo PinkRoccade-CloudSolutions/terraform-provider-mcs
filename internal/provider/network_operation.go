@@ -17,13 +17,41 @@ var networkOperationPollInterval = 5 * time.Second
 
 // networkOperationAPIModel is a queued deploy or undeploy job (NetworkOperation in the v3 API).
 // Network is filled in once the deploy has written the Network row.
+// Steps and Rollback are only filled in for V2 jobs.
 type networkOperationAPIModel struct {
-	JobID   int64              `json:"job_id"`
-	Jobname string             `json:"jobname"`
-	Status  jobNestedString    `json:"status"`
-	Result  jobNestedString    `json:"result"`
-	Message *string            `json:"message"`
-	Network *networkV3APIModel `json:"network"`
+	JobID    int64                        `json:"job_id"`
+	Jobname  string                       `json:"jobname"`
+	DryRun   bool                         `json:"dry_run"`
+	Status   jobNestedString              `json:"status"`
+	Result   jobNestedString              `json:"result"`
+	Message  *string                      `json:"message"`
+	Network  *networkV3APIModel           `json:"network"`
+	Steps    []networkOperationStep       `json:"steps"`
+	Rollback *networkOperationRollbackAPI `json:"rollback"`
+}
+
+type networkOperationStep struct {
+	Name      string                   `json:"name"`
+	State     string                   `json:"state"`
+	Attempts  int64                    `json:"attempts"`
+	LastError string                   `json:"last_error"`
+	Changes   []networkOperationChange `json:"changes"`
+}
+
+// networkOperationChange is what a dry run found an infrastructure step would do.
+type networkOperationChange struct {
+	System     string  `json:"system"`
+	Datacenter *string `json:"datacenter"`
+	Action     string  `json:"action"`
+	Object     string  `json:"object"`
+	Detail     string  `json:"detail"`
+}
+
+type networkOperationRollbackAPI struct {
+	State         string   `json:"state"`
+	FailedStep    *string  `json:"failed_step"`
+	Error         string   `json:"error"`
+	LeftoverSteps []string `json:"leftover_steps"`
 }
 
 type networkOperationState int
@@ -86,6 +114,18 @@ func (op *networkOperationAPIModel) describe() string {
 	}
 	if op.Message != nil && *op.Message != "" {
 		s += fmt.Sprintf(": %s", *op.Message)
+	}
+	if rb := op.Rollback; rb != nil {
+		s += fmt.Sprintf("; rollback %s", rb.State)
+		if rb.FailedStep != nil && *rb.FailedStep != "" {
+			s += fmt.Sprintf(" after step %q failed", *rb.FailedStep)
+		}
+		if rb.Error != "" {
+			s += fmt.Sprintf(": %s", rb.Error)
+		}
+		if len(rb.LeftoverSteps) > 0 {
+			s += fmt.Sprintf(" (configuration may remain for: %s)", strings.Join(rb.LeftoverSteps, ", "))
+		}
 	}
 	return s
 }
