@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -19,10 +20,22 @@ func init() {
 }
 
 type networkMockJob struct {
-	id        int
-	undeploy  bool
-	remaining int // polls answered as pending before the job finishes
-	networkID string
+	id            int
+	undeploy      bool
+	dryRun        bool
+	deployPlanned bool // a deploy of a planned network via networks/{id}/deploy/
+	remaining     int  // polls answered as pending before the job finishes
+	networkID     string
+}
+
+var networkMockDryRunSteps = []interface{}{
+	map[string]interface{}{"name": "apstra_vn", "state": "planned", "attempts": 1, "last_error": "", "changes": []interface{}{
+		map[string]interface{}{"system": "apstra", "datacenter": "DC-A", "action": "create", "object": "VN-120", "detail": "virtual network"},
+		map[string]interface{}{"system": "apstra", "datacenter": "DC-B", "action": "present", "object": "VN-120", "detail": "already exists"},
+	}},
+	map[string]interface{}{"name": "fortigate_interface", "state": "planned", "attempts": 1, "last_error": "", "changes": []interface{}{
+		map[string]interface{}{"system": "fortigate", "datacenter": nil, "action": "conflict", "object": "vlan120", "detail": "VLAN in use"},
+	}},
 }
 
 // networkV3Mock serves the v3 networking API for one tenant: deploys and teardowns are queued
@@ -40,6 +53,8 @@ type networkV3Mock struct {
 	conflictOnce bool // the next DELETE answers 409 and the network disappears after a few GETs
 	goneAfter    int
 	lastPostBody map[string]interface{}
+	// plannedDeployFails makes deploys of planned networks fail and roll back.
+	plannedDeployFails bool
 }
 
 func newNetworkV3Mock(mock *mockAPIServer) *networkV3Mock {
@@ -70,6 +85,8 @@ func (m *networkV3Mock) addNetwork(id string, description string, prefix string)
 		"ipv4_prefix": prefix, "ipv4_address": "10.20.0.1", "ipv6_prefix": "", "ipv6_address": "",
 		"dhcp_server": false, "dhcp_server_address_pool": "", "dhcp_server_netmask": "",
 		"dhcp_server_dns_servers": "", "dhcp_server_lease_time": 86400, "visible": true,
+		"deploy_flow": "v1", "state": "active", "leftover_steps": nil,
+		"datacenters":          []interface{}{map[string]interface{}{"id": 1, "name": "DC-A"}},
 		"created_at_timestamp": "2026-10-01T10:00:00Z", "updated_at_timestamp": "2026-10-01T10:00:00Z",
 	}
 	m.networks[id] = n
@@ -85,9 +102,20 @@ func (m *networkV3Mock) jobJSON(j *networkMockJob, status, result string, messag
 	if n, ok := m.networks[j.networkID]; ok && j.networkID != "" {
 		network = n
 	}
-	return map[string]interface{}{
-		"job_id": j.id, "jobname": name, "message": message, "network": network,
+	resp := map[string]interface{}{
+		"job_id": j.id, "jobname": name, "message": message, "network": network, "dry_run": j.dryRun,
 		"status": map[string]interface{}{"status": status}, "result": map[string]interface{}{"result": result},
+		"steps": []interface{}{}, "rollback": nil,
+	}
+	if j.dryRun && result == "SUCCESS" {
+		resp["steps"] = networkMockDryRunSteps
+	}
+	return resp
+}
+
+func (m *networkV3Mock) setState(id, state string) {
+	if n, ok := m.networks[id]; ok {
+		n["state"] = state
 	}
 }
 
@@ -113,11 +141,52 @@ func (m *networkV3Mock) handleOperation(w http.ResponseWriter, r *http.Request, 
 		_ = json.NewEncoder(w).Encode(m.jobJSON(j, "PROCESSED", "SUCCESS", "Network removed"))
 		return
 	}
+	if j.deployPlanned {
+		if m.plannedDeployFails {
+			m.setState(j.networkID, networkStatePlanned)
+			resp := m.jobJSON(j, "PROCESSED", "EXCEPTION", "Deploy failed")
+			resp["rollback"] = map[string]interface{}{
+				"state": "rolled_back", "failed_step": "fortigate_interface", "error": "VLAN in use", "leftover_steps": []string{},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+		m.setState(j.networkID, "active")
+		_ = json.NewEncoder(w).Encode(m.jobJSON(j, "PROCESSED", "SUCCESS", "Network deployed"))
+		return
+	}
 	if m.deployFails {
 		_ = json.NewEncoder(w).Encode(m.jobJSON(j, "PROCESSED", "EXCEPTION", "FortiGate rejected the interface"))
 		return
 	}
+	if j.dryRun {
+		m.setState(j.networkID, networkStatePlanned)
+		_ = json.NewEncoder(w).Encode(m.jobJSON(j, "PROCESSED", "SUCCESS", "Dry run finished"))
+		return
+	}
+	m.setState(j.networkID, "active")
 	_ = json.NewEncoder(w).Encode(m.jobJSON(j, "PROCESSED", "SUCCESS", "Network deployed"))
+}
+
+// handleDeploy serves POST networks/{id}/deploy/ for planned networks.
+func (m *networkV3Mock) handleDeploy(w http.ResponseWriter, r *http.Request, id string) {
+	n, ok := m.networks[id]
+	switch {
+	case r.Method != http.MethodPost:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	case !ok:
+		w.WriteHeader(http.StatusNotFound)
+	case n["state"] != networkStatePlanned:
+		w.WriteHeader(http.StatusConflict)
+		_, _ = fmt.Fprint(w, `{"detail":"The Network is not planned"}`)
+	default:
+		n["state"] = "deploying"
+		m.nextJob++
+		j := &networkMockJob{id: m.nextJob, deployPlanned: true, remaining: m.pendingPolls, networkID: id}
+		m.jobs[j.id] = j
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(m.jobJSON(j, "QUEUED", "PENDING", nil))
+	}
 }
 
 func (m *networkV3Mock) handleNetworks(w http.ResponseWriter, r *http.Request, body []byte) {
@@ -146,15 +215,30 @@ func (m *networkV3Mock) handleNetworks(w http.ResponseWriter, r *http.Request, b
 		if p, ok := req["prefix"].(string); ok {
 			prefix = p
 		}
-		m.addNetwork(netID, fmt.Sprint(req["description"]), fmt.Sprintf("%s/%v", prefix, req["bitmask"]))
+		n := m.addNetwork(netID, fmt.Sprint(req["description"]), fmt.Sprintf("%s/%v", prefix, req["bitmask"]))
+		n["state"] = "deploying"
+		if flow, ok := req["deploy_flow"].(string); ok {
+			n["deploy_flow"] = flow
+		}
+		if req["placement"] == "kubernetes" {
+			n["datacenters"] = []interface{}{
+				map[string]interface{}{"id": 1, "name": "DC-A"}, map[string]interface{}{"id": 2, "name": "DC-K8S"},
+			}
+		}
+		dryRun, _ := req["dry_run"].(bool)
 
 		m.nextJob++
-		j := &networkMockJob{id: m.nextJob, remaining: m.pendingPolls, networkID: netID}
+		j := &networkMockJob{id: m.nextJob, dryRun: dryRun, remaining: m.pendingPolls, networkID: netID}
 		m.jobs[j.id] = j
 		w.WriteHeader(http.StatusAccepted)
 		resp := m.jobJSON(j, "QUEUED", "PENDING", nil)
 		resp["network"] = nil
 		_ = json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	if netID, ok := strings.CutSuffix(id, "/deploy"); ok {
+		m.handleDeploy(w, r, netID)
 		return
 	}
 
@@ -257,6 +341,15 @@ func TestAccNetworkResource_CreateImportDestroy(t *testing.T) {
 					resource.TestCheckResourceAttr(addr, "visible", "true"),
 					resource.TestCheckResourceAttr(addr, "customer_name", "Customer One"),
 					resource.TestCheckNoResourceAttr(addr, "prefix"),
+					resource.TestCheckResourceAttr(addr, "deploy_flow", "v1"),
+					resource.TestCheckNoResourceAttr(addr, "placement"),
+					resource.TestCheckResourceAttr(addr, "dry_run", "false"),
+					resource.TestCheckResourceAttr(addr, "dry_run_changes.#", "0"),
+					resource.TestCheckResourceAttr(addr, "datacenters.#", "1"),
+					resource.TestCheckResourceAttr(addr, "datacenters.0.id", "1"),
+					resource.TestCheckResourceAttr(addr, "datacenters.0.name", "DC-A"),
+					resource.TestCheckResourceAttr(addr, "leftover_steps.#", "0"),
+					resource.TestCheckNoResourceAttr(addr, "state"),
 				),
 			},
 			{
@@ -275,16 +368,312 @@ func TestAccNetworkResource_CreateImportDestroy(t *testing.T) {
 	}
 	want := map[string]interface{}{
 		"domain": "dom-uuid-5", "product": "DMZ", "bitmask": float64(26),
-		"description": "web tier", "network_pool": "pool-uuid-1",
+		"description": "web tier", "network_pool": "pool-uuid-1", "deploy_flow": "v1",
 	}
 	for k, v := range want {
 		if nm.lastPostBody[k] != v {
 			t.Errorf("POST body %s = %v, want %v", k, nm.lastPostBody[k], v)
 		}
 	}
-	if _, ok := nm.lastPostBody["prefix"]; ok {
-		t.Errorf("POST body should omit prefix, got %v", nm.lastPostBody)
+	for _, k := range []string{"prefix", "placement", "dry_run"} {
+		if _, ok := nm.lastPostBody[k]; ok {
+			t.Errorf("POST body should omit %s, got %v", k, nm.lastPostBody)
+		}
 	}
+}
+
+func TestAccNetworkResource_V2KubernetesPlacement(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+	nm := newNetworkV3Mock(mock)
+
+	addr := "mcs_network.test"
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: networkResourceConfig(mock.URL(), networkDescription+`
+  deploy_flow     = "v2"
+  placement       = "kubernetes"`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "deploy_flow", "v2"),
+					resource.TestCheckResourceAttr(addr, "placement", "kubernetes"),
+					resource.TestCheckResourceAttr(addr, "dry_run", "false"),
+					resource.TestCheckResourceAttr(addr, "datacenters.#", "2"),
+					resource.TestCheckResourceAttr(addr, "datacenters.1.id", "2"),
+					resource.TestCheckResourceAttr(addr, "datacenters.1.name", "DC-K8S"),
+				),
+			},
+			{
+				// Import cannot see the placement, so it is filled in from the configuration in place.
+				Config:                  networkResourceConfig(mock.URL(), networkDescription+"\n  deploy_flow = \"v2\"\n  placement = \"kubernetes\""),
+				ResourceName:            addr,
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"product", "network_pool_id", "prefix", "placement"},
+			},
+			{
+				Config: networkResourceConfig(mock.URL(), networkDescription+`
+  deploy_flow     = "v2"
+  placement       = "standard"`),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction(addr, plancheck.ResourceActionDestroyBeforeCreate)},
+				},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "id", "net-uuid-2"),
+					resource.TestCheckResourceAttr(addr, "placement", "standard"),
+					resource.TestCheckResourceAttr(addr, "datacenters.#", "1"),
+				),
+			},
+		},
+	})
+
+	if nm.lastPostBody["deploy_flow"] != "v2" || nm.lastPostBody["placement"] != "standard" {
+		t.Errorf("POST body = %v, want deploy_flow v2 and placement standard", nm.lastPostBody)
+	}
+	if _, ok := nm.lastPostBody["dry_run"]; ok {
+		t.Errorf("POST body should omit dry_run when false, got %v", nm.lastPostBody)
+	}
+}
+
+func TestAccNetworkResource_V2DefaultPlacement(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+	nm := newNetworkV3Mock(mock)
+
+	addr := "mcs_network.test"
+	config := networkResourceConfig(mock.URL(), networkDescription+"\n  deploy_flow = \"v2\"")
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check:  resource.TestCheckResourceAttr(addr, "placement", "standard"),
+			},
+			{
+				// An explicit "standard" matches the resolved default.
+				Config: networkResourceConfig(mock.URL(), networkDescription+"\n  deploy_flow = \"v2\"\n  placement = \"standard\""),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+			{
+				Config: config,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+		},
+	})
+
+	if nm.lastPostBody["placement"] != "standard" {
+		t.Errorf("POST body placement = %v, want standard", nm.lastPostBody["placement"])
+	}
+}
+
+func TestAccNetworkResource_DryRunThenDeploy(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+	nm := newNetworkV3Mock(mock)
+
+	addr := "mcs_network.test"
+	dryRun := func(v bool) string {
+		return networkResourceConfig(mock.URL(), networkDescription+fmt.Sprintf(`
+  deploy_flow     = "v2"
+  dry_run         = %t`, v))
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: dryRun(true),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "id", "net-uuid-1"),
+					resource.TestCheckResourceAttr(addr, "dry_run", "true"),
+					resource.TestCheckResourceAttr(addr, "dry_run_changes.#", "3"),
+					resource.TestCheckResourceAttr(addr, "dry_run_changes.0.step", "apstra_vn"),
+					resource.TestCheckResourceAttr(addr, "dry_run_changes.0.system", "apstra"),
+					resource.TestCheckResourceAttr(addr, "dry_run_changes.0.datacenter", "DC-A"),
+					resource.TestCheckResourceAttr(addr, "dry_run_changes.0.action", "create"),
+					resource.TestCheckResourceAttr(addr, "dry_run_changes.0.object", "VN-120"),
+					resource.TestCheckResourceAttr(addr, "dry_run_changes.0.detail", "virtual network"),
+					resource.TestCheckResourceAttr(addr, "dry_run_changes.2.step", "fortigate_interface"),
+					resource.TestCheckResourceAttr(addr, "dry_run_changes.2.action", "conflict"),
+					resource.TestCheckNoResourceAttr(addr, "dry_run_changes.2.datacenter"),
+					func(_ *terraform.State) error {
+						nm.mu.Lock()
+						defer nm.mu.Unlock()
+						if got := nm.networks["net-uuid-1"]["state"]; got != networkStatePlanned {
+							return fmt.Errorf("network state = %v, want planned", got)
+						}
+						return nil
+					},
+				),
+			},
+			{
+				Config: dryRun(true),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+			{
+				Config: dryRun(false),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction(addr, plancheck.ResourceActionUpdate)},
+				},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "id", "net-uuid-1"),
+					resource.TestCheckResourceAttr(addr, "dry_run", "false"),
+					resource.TestCheckResourceAttr(addr, "dry_run_changes.#", "0"),
+					func(_ *terraform.State) error {
+						nm.mu.Lock()
+						defer nm.mu.Unlock()
+						if got := nm.networks["net-uuid-1"]["state"]; got != "active" {
+							return fmt.Errorf("network state = %v, want active", got)
+						}
+						return nil
+					},
+				),
+			},
+			{
+				// A deployed network cannot become planned again.
+				Config: dryRun(true),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction(addr, plancheck.ResourceActionDestroyBeforeCreate)},
+				},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "id", "net-uuid-2"),
+					resource.TestCheckResourceAttr(addr, "dry_run", "true"),
+				),
+			},
+		},
+	})
+
+	if got := countCalls(mock, http.MethodPost, "/api/v3/networking/networks/net-uuid-1/deploy/"); got != 1 {
+		t.Errorf("expected 1 deploy of the planned network, got %d", got)
+	}
+	if nm.lastPostBody["dry_run"] != true {
+		t.Errorf("POST body dry_run = %v, want true", nm.lastPostBody["dry_run"])
+	}
+}
+
+func TestAccNetworkResource_PlannedDeployFails(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+	nm := newNetworkV3Mock(mock)
+
+	addr := "mcs_network.test"
+	dryRun := func(v bool) string {
+		return networkResourceConfig(mock.URL(), networkDescription+fmt.Sprintf(`
+  deploy_flow     = "v2"
+  dry_run         = %t`, v))
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: dryRun(true),
+			},
+			{
+				PreConfig: func() {
+					nm.mu.Lock()
+					nm.plannedDeployFails = true
+					nm.mu.Unlock()
+				},
+				Config: dryRun(false),
+				ExpectError: regexpMustCompile(`(?s)Error deploying planned network.*rollback rolled_back after step\s+` +
+					`"fortigate_interface" failed: VLAN in use.*still planned`),
+			},
+			{
+				PreConfig: func() {
+					nm.mu.Lock()
+					nm.plannedDeployFails = false
+					nm.mu.Unlock()
+				},
+				// The failed deploy kept dry_run = true in state, so the deploy is retried in place.
+				Config: dryRun(false),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction(addr, plancheck.ResourceActionUpdate)},
+				},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "id", "net-uuid-1"),
+					resource.TestCheckResourceAttr(addr, "dry_run", "false"),
+				),
+			},
+		},
+	})
+
+	if got := countCalls(mock, http.MethodPost, "/api/v3/networking/networks/net-uuid-1/deploy/"); got != 2 {
+		t.Errorf("expected 2 deploys of the planned network, got %d", got)
+	}
+}
+
+func TestAccNetworkResource_PlannedDeployedOutOfBand(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+	nm := newNetworkV3Mock(mock)
+
+	addr := "mcs_network.test"
+	dryRun := func(v bool) string {
+		return networkResourceConfig(mock.URL(), networkDescription+fmt.Sprintf(`
+  deploy_flow     = "v2"
+  dry_run         = %t`, v))
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: dryRun(true),
+			},
+			{
+				PreConfig: func() {
+					nm.mu.Lock()
+					nm.setState("net-uuid-1", "active")
+					nm.mu.Unlock()
+				},
+				// The deploy endpoint answers 409 because the network is no longer planned.
+				Config: dryRun(false),
+				Check:  resource.TestCheckResourceAttr(addr, "dry_run", "false"),
+			},
+		},
+	})
+}
+
+func TestAccNetworkResource_ImportPlanned(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+	nm := newNetworkV3Mock(mock)
+	n := nm.addNetwork("net-planned", "web tier", "10.20.0.0/26")
+	n["deploy_flow"] = "v2"
+	n["state"] = networkStatePlanned
+
+	addr := "mcs_network.test"
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config:             networkResourceConfig(mock.URL(), networkDescription+"\n  deploy_flow = \"v2\"\n  dry_run = true"),
+				ResourceName:       addr,
+				ImportState:        true,
+				ImportStateId:      "net-planned",
+				ImportStatePersist: true,
+				ImportStateCheck: func(states []*terraform.InstanceState) error {
+					attrs := states[0].Attributes
+					if attrs["dry_run"] != "true" || attrs["deploy_flow"] != "v2" {
+						return fmt.Errorf("dry_run = %q, deploy_flow = %q, want true and v2", attrs["dry_run"], attrs["deploy_flow"])
+					}
+					return nil
+				},
+			},
+			{
+				Config: networkResourceConfig(mock.URL(), networkDescription+"\n  deploy_flow = \"v2\"\n  dry_run = true"),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction(addr, plancheck.ResourceActionUpdate)},
+				},
+				Check: resource.TestCheckResourceAttr(addr, "placement", "standard"),
+			},
+		},
+	})
 }
 
 func TestAccNetworkResource_ImportAdoptsWithoutReplace(t *testing.T) {
@@ -542,6 +931,44 @@ func TestAccNetworkResource_Validation(t *testing.T) {
   description = "x"`,
 			err: `must be between 24 and 29`,
 		},
+		"placement with v1": {
+			config: `
+  domain_uuid = "dom-uuid-5"
+  product     = "DMZ"
+  bitmask     = 26
+  description = "x"
+  placement   = "kubernetes"`,
+			err: `Placement requires deploy_flow v2`,
+		},
+		"dry run with explicit v1": {
+			config: `
+  domain_uuid = "dom-uuid-5"
+  product     = "DMZ"
+  bitmask     = 26
+  description = "x"
+  deploy_flow = "v1"
+  dry_run     = true`,
+			err: `Dry run requires deploy_flow v2`,
+		},
+		"unknown placement": {
+			config: `
+  domain_uuid = "dom-uuid-5"
+  product     = "DMZ"
+  bitmask     = 26
+  description = "x"
+  deploy_flow = "v2"
+  placement   = "edge"`,
+			err: `value must be one of`,
+		},
+		"unknown deploy flow": {
+			config: `
+  domain_uuid = "dom-uuid-5"
+  product     = "DMZ"
+  bitmask     = 26
+  description = "x"
+  deploy_flow = "v3"`,
+			err: `value must be one of`,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -623,4 +1050,91 @@ func TestNetworkOperationState(t *testing.T) {
 			t.Errorf("describe() = %q", got)
 		}
 	}
+
+	var op networkOperationAPIModel
+	body := `{"job_id": 7, "jobname": "deploy_network", "status": "PROCESSED", "result": "EXCEPTION", "message": "Deploy failed",
+		"dry_run": false, "steps": [{"name": "apstra_vn", "state": "done", "attempts": 2, "last_error": "", "changes": []}],
+		"rollback": {"state": "rollback_failed", "failed_step": "fortigate_interface", "error": "VLAN in use",
+			"leftover_steps": ["apstra_vn", "infoblox"]}}`
+	if err := json.Unmarshal([]byte(body), &op); err != nil {
+		t.Fatalf("decoding rollback: %v", err)
+	}
+	want := `job 7 (deploy_network), status "PROCESSED", result "EXCEPTION": Deploy failed; rollback rollback_failed ` +
+		`after step "fortigate_interface" failed: VLAN in use (configuration may remain for: apstra_vn, infoblox)`
+	if got := op.describe(); got != want {
+		t.Errorf("describe() = %q, want %q", got, want)
+	}
+	if len(op.Steps) != 1 || op.Steps[0].Attempts != 2 {
+		t.Errorf("steps = %+v", op.Steps)
+	}
+}
+
+func TestLeftoverStepsList(t *testing.T) {
+	cases := map[string][]string{
+		`null`:                       {},
+		``:                           {},
+		`["apstra_vn", "infoblox"]`:  {"apstra_vn", "infoblox"},
+		`[{"name": "apstra_vn"}]`:    {"apstra_vn"},
+		`[1, {"step": "fortigate"}]`: {"1", `{"step":"fortigate"}`},
+		`"not a list"`:               {},
+	}
+	for raw, want := range cases {
+		got := leftoverStepsList(json.RawMessage(raw)).Elements()
+		if len(got) != len(want) {
+			t.Errorf("%s: got %v, want %v", raw, got, want)
+			continue
+		}
+		for i, v := range got {
+			if s := v.(types.String).ValueString(); s != want[i] {
+				t.Errorf("%s: element %d = %q, want %q", raw, i, s, want[i])
+			}
+		}
+	}
+}
+
+func TestAccNetworkPlacementsDataSource(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	mock.On("/api/v3/networking/network-placements/", func(w http.ResponseWriter, r *http.Request, _ []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("domain") != "dom-uuid-5" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = fmt.Fprint(w, `{"detail":"Domain not found"}`)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"standard": [{"id": 1, "name": "DC-A"}],
+			"kubernetes": [{"id": 1, "name": "DC-A"}, {"id": 2, "name": "DC-K8S"}],
+			"kubernetes_equals_standard": false}`)
+	})
+
+	ds := "data.mcs_network_placements.prod"
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_network_placements" "prod" {
+  domain_uuid = "dom-uuid-5"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(ds, "domain_uuid", "dom-uuid-5"),
+					resource.TestCheckResourceAttr(ds, "standard.#", "1"),
+					resource.TestCheckResourceAttr(ds, "standard.0.id", "1"),
+					resource.TestCheckResourceAttr(ds, "standard.0.name", "DC-A"),
+					resource.TestCheckResourceAttr(ds, "kubernetes.#", "2"),
+					resource.TestCheckResourceAttr(ds, "kubernetes.1.id", "2"),
+					resource.TestCheckResourceAttr(ds, "kubernetes.1.name", "DC-K8S"),
+					resource.TestCheckResourceAttr(ds, "kubernetes_equals_standard", "false"),
+				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_network_placements" "prod" {
+  domain_uuid = "dom-uuid-missing"
+}`,
+				ExpectError: regexpMustCompile(`(?s)Error reading network placements.*404`),
+			},
+		},
+	})
 }

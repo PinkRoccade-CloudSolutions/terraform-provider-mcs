@@ -11,13 +11,17 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -25,8 +29,10 @@ import (
 )
 
 var (
-	_ resource.Resource                = &NetworkResource{}
-	_ resource.ResourceWithImportState = &NetworkResource{}
+	_ resource.Resource                   = &NetworkResource{}
+	_ resource.ResourceWithImportState    = &NetworkResource{}
+	_ resource.ResourceWithValidateConfig = &NetworkResource{}
+	_ resource.ResourceWithModifyPlan     = &NetworkResource{}
 )
 
 const (
@@ -71,6 +77,12 @@ type NetworkResourceModel struct {
 	DhcpServerDnsServers  types.String   `tfsdk:"dhcp_server_dns_servers"`
 	DhcpServerLeaseTime   types.Int64    `tfsdk:"dhcp_server_lease_time"`
 	Visible               types.Bool     `tfsdk:"visible"`
+	DeployFlow            types.String   `tfsdk:"deploy_flow"`
+	Placement             types.String   `tfsdk:"placement"`
+	DryRun                types.Bool     `tfsdk:"dry_run"`
+	DryRunChanges         types.List     `tfsdk:"dry_run_changes"`
+	Datacenters           types.List     `tfsdk:"datacenters"`
+	LeftoverSteps         types.List     `tfsdk:"leftover_steps"`
 	CreatedAt             types.String   `tfsdk:"created_at"`
 	UpdatedAt             types.String   `tfsdk:"updated_at"`
 	Timeouts              timeouts.Value `tfsdk:"timeouts"`
@@ -83,6 +95,65 @@ type networkCreateAPIModel struct {
 	Bitmask     int64   `json:"bitmask"`
 	Description string  `json:"description"`
 	Product     string  `json:"product"`
+	DeployFlow  string  `json:"deploy_flow"`
+	Placement   *string `json:"placement,omitempty"`
+	DryRun      *bool   `json:"dry_run,omitempty"`
+}
+
+const (
+	networkDeployFlowV1         = "v1"
+	networkDeployFlowV2         = "v2"
+	networkPlacementStandard    = "standard"
+	networkDefaultUpdateTimeout = 30 * time.Minute
+)
+
+var dryRunChangeAttrTypes = map[string]attr.Type{
+	"step": types.StringType, "system": types.StringType, "datacenter": types.StringType,
+	"action": types.StringType, "object": types.StringType, "detail": types.StringType,
+}
+
+var dryRunChangeObjectType = types.ObjectType{AttrTypes: dryRunChangeAttrTypes}
+
+// dryRunChangesList flattens the per-step changes a dry run reported.
+func dryRunChangesList(steps []networkOperationStep) types.List {
+	elems := []attr.Value{}
+	for _, s := range steps {
+		for _, c := range s.Changes {
+			elems = append(elems, types.ObjectValueMust(dryRunChangeAttrTypes, map[string]attr.Value{
+				"step": types.StringValue(s.Name), "system": types.StringValue(c.System),
+				"datacenter": types.StringPointerValue(c.Datacenter), "action": types.StringValue(c.Action),
+				"object": types.StringValue(c.Object), "detail": types.StringValue(c.Detail),
+			}))
+		}
+	}
+	return types.ListValueMust(dryRunChangeObjectType, elems)
+}
+
+func emptyDryRunChanges() types.List {
+	return types.ListValueMust(dryRunChangeObjectType, []attr.Value{})
+}
+
+// resolvePlacement fills in the placement the API applies when none is configured:
+// standard for V2, none for V1.
+func resolvePlacement(m *NetworkResourceModel) {
+	if !m.Placement.IsUnknown() || m.DeployFlow.IsUnknown() {
+		return
+	}
+	if m.DeployFlow.ValueString() == networkDeployFlowV2 {
+		m.Placement = types.StringValue(networkPlacementStandard)
+	} else {
+		m.Placement = types.StringNull()
+	}
+}
+
+// replaceWhenReplanning recreates the network when dry_run goes from false to true: a deployed
+// network cannot be turned back into a planned one. The opposite direction deploys in place.
+func replaceWhenReplanning() planmodifier.Bool {
+	const desc = "Setting this to true on a deployed network recreates it as a planned network."
+	return boolplanmodifier.RequiresReplaceIf(
+		func(_ context.Context, req planmodifier.BoolRequest, resp *boolplanmodifier.RequiresReplaceIfFuncResponse) {
+			resp.RequiresReplace = !req.StateValue.IsNull() && !req.StateValue.ValueBool() && req.PlanValue.ValueBool()
+		}, desc, desc)
 }
 
 func NewNetworkResource() resource.Resource {
@@ -98,6 +169,24 @@ func (r *NetworkResource) Metadata(_ context.Context, req resource.MetadataReque
 // by the API, so after an import they are null in state, and filling them in from the
 // configuration must not recreate the network.
 const replaceIfStateKnownDesc = "Changing this value recreates the network, unless it is not yet known in state (e.g. after an import)."
+
+// useKnownStateForUnknownString is UseStateForUnknown without copying a null state value, so
+// an attribute missing after an import is still resolved by ModifyPlan.
+type useKnownStateForUnknownString struct{}
+
+func (useKnownStateForUnknownString) Description(context.Context) string {
+	return "Uses the prior state value, when known, for an unknown plan value."
+}
+
+func (m useKnownStateForUnknownString) MarkdownDescription(ctx context.Context) string {
+	return m.Description(ctx)
+}
+
+func (useKnownStateForUnknownString) PlanModifyString(_ context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	if req.PlanValue.IsUnknown() && !req.ConfigValue.IsUnknown() && !req.StateValue.IsNull() && !req.StateValue.IsUnknown() {
+		resp.PlanValue = req.StateValue
+	}
+}
 
 func replaceIfStateKnownString() planmodifier.String {
 	return stringplanmodifier.RequiresReplaceIf(
@@ -141,7 +230,8 @@ func (r *NetworkResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 	resp.Schema = schema.Schema{
 		Description: "Manages an MCS network through the v3 networking API. Creating the resource queues a deploy " +
 			"(VLAN, prefix and interface) and waits for it to finish; destroying it queues a teardown and waits " +
-			"for the network to be gone. Networks cannot be changed in place, so changing any argument recreates the network.",
+			"for the network to be gone. Networks cannot be changed in place, so changing any argument recreates the network. " +
+			"The exception is `dry_run`: switching it from `true` to `false` deploys the planned network in place.",
 		Attributes: map[string]schema.Attribute{
 			"id":   networkComputedString("UUID of the network."),
 			"name": networkComputedString("Name of the network, assigned by MCS."),
@@ -206,11 +296,66 @@ func (r *NetworkResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 			"dhcp_server_dns_servers":  networkComputedString("Comma-separated DNS servers handed out by the DHCP server."),
 			"dhcp_server_lease_time":   networkComputedInt64("DHCP lease time."),
 			"visible":                  networkComputedBool("Whether the interface is visible to end users."),
-			"created_at":               networkComputedString("Time the network was created."),
-			"updated_at":               networkComputedString("Time the network was last updated."),
+			"deploy_flow": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				Default:  stringdefault.StaticString(networkDeployFlowV1),
+				Description: "Deploy flow: `v1` (default) or `v2` (beta). V2 deploys to the datacenters of its `placement` " +
+					"and rolls back fully when a step fails. Undeploy follows the same flow.",
+				Validators:    []validator.String{stringvalidator.OneOf(networkDeployFlowV1, networkDeployFlowV2)},
+				PlanModifiers: []planmodifier.String{replaceIfStateKnownString()},
+			},
+			"placement": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				Description: "V2 only: `standard` (the zone's default datacenters, the default for V2) or `kubernetes` " +
+					"(adds the zone's additional datacenters). See `data.mcs_network_placements`.",
+				Validators: []validator.String{stringvalidator.OneOf(networkPlacementStandard, "kubernetes")},
+				PlanModifiers: []planmodifier.String{
+					useKnownStateForUnknownString{},
+					replaceIfStateKnownString(),
+				},
+			},
+			"dry_run": schema.BoolAttribute{
+				Optional: true,
+				Computed: true,
+				Default:  booldefault.StaticBool(false),
+				Description: "V2 only: claim the VLAN, prefix and gateway and record the network as planned, but only check " +
+					"the infrastructure and report what would change (see `dry_run_changes`). Set it to `false` " +
+					"afterwards to deploy the planned network in place.",
+				PlanModifiers: []planmodifier.Bool{replaceWhenReplanning()},
+			},
+			"dry_run_changes": schema.ListNestedAttribute{
+				Computed:    true,
+				Description: "What the dry run found each infrastructure step would change. Empty unless `dry_run` is `true`.",
+				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
+					"step":       schema.StringAttribute{Computed: true, Description: "Deploy step that would make the change."},
+					"system":     schema.StringAttribute{Computed: true, Description: "System the change applies to."},
+					"datacenter": schema.StringAttribute{Computed: true, Description: "Datacenter the change applies to, if any."},
+					"action":     schema.StringAttribute{Computed: true, Description: "`create`, `update`, `present` or `conflict`."},
+					"object":     schema.StringAttribute{Computed: true, Description: "Object that would change."},
+					"detail":     schema.StringAttribute{Computed: true, Description: "Details of the change."},
+				}},
+				PlanModifiers: []planmodifier.List{listplanmodifier.UseStateForUnknown()},
+			},
+			"datacenters": schema.ListNestedAttribute{
+				Computed:    true,
+				Description: "Datacenters the network was deployed to.",
+				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
+					"id":   schema.Int64Attribute{Computed: true, Description: "Datacenter ID."},
+					"name": schema.StringAttribute{Computed: true, Description: "Datacenter name."},
+				}},
+			},
+			"leftover_steps": schema.ListAttribute{
+				Computed:    true,
+				ElementType: types.StringType,
+				Description: "V2 only: steps whose configuration may still exist after a rollback or undeploy could not finish.",
+			},
+			"created_at": networkComputedString("Time the network was created."),
+			"updated_at": networkComputedString("Time the network was last updated."),
 		},
 		Blocks: map[string]schema.Block{
-			"timeouts": timeouts.Block(ctx, timeouts.Opts{Create: true, Delete: true}),
+			"timeouts": timeouts.Block(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
 	}
 }
@@ -228,20 +373,65 @@ func (r *NetworkResource) Configure(_ context.Context, req resource.ConfigureReq
 	r.client = client
 }
 
+// ValidateConfig rejects the V2-only arguments with V1, as the API does.
+func (r *NetworkResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var config NetworkResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() || config.DeployFlow.IsUnknown() {
+		return
+	}
+	if config.DeployFlow.ValueString() == networkDeployFlowV2 {
+		return
+	}
+	if !config.Placement.IsNull() && !config.Placement.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("placement"), "Placement requires deploy_flow v2",
+			"`placement` is only supported with `deploy_flow = \"v2\"`.")
+	}
+	if config.DryRun.ValueBool() {
+		resp.Diagnostics.AddAttributeError(path.Root("dry_run"), "Dry run requires deploy_flow v2",
+			"`dry_run` is only supported with `deploy_flow = \"v2\"`.")
+	}
+}
+
+// ModifyPlan resolves the default placement and empties dry_run_changes once dry_run is false.
+func (r *NetworkResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.Plan.Raw.IsNull() {
+		return
+	}
+	var plan NetworkResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	resolvePlacement(&plan)
+	if !plan.DryRun.IsUnknown() && !plan.DryRun.ValueBool() {
+		plan.DryRunChanges = emptyDryRunChanges()
+	}
+	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+}
+
 func networkToAPI(plan *NetworkResourceModel) networkCreateAPIModel {
-	return networkCreateAPIModel{
+	body := networkCreateAPIModel{
 		Domain:      plan.DomainUuid.ValueString(),
 		NetworkPool: stringPtr(plan.NetworkPoolId),
 		Prefix:      stringPtr(plan.Prefix),
 		Bitmask:     plan.Bitmask.ValueInt64(),
 		Description: plan.Description.ValueString(),
 		Product:     plan.Product.ValueString(),
+		DeployFlow:  plan.DeployFlow.ValueString(),
 	}
+	if body.DeployFlow == networkDeployFlowV2 {
+		body.Placement = stringPtr(plan.Placement)
+		if plan.DryRun.ValueBool() {
+			body.DryRun = boolPtr(plan.DryRun)
+		}
+	}
+	return body
 }
 
 // networkFromAPI copies the API record into the model. The create-only arguments the API never
-// returns (domain_uuid, product, network_pool_id, prefix) are left untouched; bitmask is only
-// derived from ipv4_prefix when it is not known yet (after an import).
+// returns (domain_uuid, product, network_pool_id, prefix, placement, dry_run) are left untouched;
+// bitmask is only derived from ipv4_prefix when it is not known yet (after an import).
 func networkFromAPI(m *NetworkResourceModel, api *networkV3APIModel) {
 	n := api.toModel()
 	m.Id = n.Id
@@ -265,8 +455,16 @@ func networkFromAPI(m *NetworkResourceModel, api *networkV3APIModel) {
 	m.DhcpServerDnsServers = n.DhcpServerDnsServers
 	m.DhcpServerLeaseTime = n.DhcpServerLeaseTime
 	m.Visible = n.Visible
+	m.Datacenters = n.Datacenters
+	m.LeftoverSteps = n.LeftoverSteps
 	m.CreatedAt = n.CreatedAt
 	m.UpdatedAt = n.UpdatedAt
+	switch {
+	case api.DeployFlow != "":
+		m.DeployFlow = n.DeployFlow
+	case m.DeployFlow.IsNull() || m.DeployFlow.IsUnknown():
+		m.DeployFlow = types.StringValue(networkDeployFlowV1)
+	}
 
 	if m.Bitmask.IsNull() || m.Bitmask.IsUnknown() {
 		m.Bitmask = types.Int64Null()
@@ -288,6 +486,9 @@ func (r *NetworkResource) Create(ctx context.Context, req resource.CreateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	resolvePlacement(&plan)
+	plan.DryRunChanges = emptyDryRunChanges()
 
 	createTimeout, diags := plan.Timeouts.Create(ctx, networkDefaultCreateTimeout)
 	resp.Diagnostics.Append(diags...)
@@ -338,7 +539,32 @@ func (r *NetworkResource) Create(ctx context.Context, req resource.CreateRequest
 	// Keep the configured description so the apply result matches the plan; a normalised value
 	// returned by the API shows up on the next refresh.
 	plan.Description = description
+	if plan.DryRun.ValueBool() {
+		plan.DryRunChanges = dryRunChangesList(final.Steps)
+		addDryRunConflictWarning(final.Steps, &resp.Diagnostics)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+// addDryRunConflictWarning reports the changes a dry run could not make, since deploying the
+// planned network would run into them.
+func addDryRunConflictWarning(steps []networkOperationStep, diags *diag.Diagnostics) {
+	var conflicts []string
+	for _, s := range steps {
+		for _, c := range s.Changes {
+			if c.Action == "conflict" {
+				where := c.System
+				if c.Datacenter != nil && *c.Datacenter != "" {
+					where += " in " + *c.Datacenter
+				}
+				conflicts = append(conflicts, fmt.Sprintf("- %s: %s on %s: %s", s.Name, c.Object, where, c.Detail))
+			}
+		}
+	}
+	if len(conflicts) > 0 {
+		diags.AddWarning("Dry run found conflicts",
+			"Deploying this planned network would fail on these conflicts:\n"+strings.Join(conflicts, "\n"))
+	}
 }
 
 func (r *NetworkResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -358,6 +584,14 @@ func (r *NetworkResource) Read(ctx context.Context, req resource.ReadRequest, re
 		return
 	}
 	networkFromAPI(&state, &apiResp)
+
+	// After an import, dry_run and dry_run_changes are not in state yet.
+	if state.DryRun.IsNull() || state.DryRun.IsUnknown() {
+		state.DryRun = types.BoolValue(apiResp.State == networkStatePlanned)
+	}
+	if state.DryRunChanges.IsNull() || state.DryRunChanges.IsUnknown() {
+		state.DryRunChanges = emptyDryRunChanges()
+	}
 
 	if state.DomainUuid.IsNull() || state.DomainUuid.IsUnknown() {
 		state.DomainUuid = r.lookupDomainUuid(ctx, apiResp.Domain, &resp.Diagnostics)
@@ -390,16 +624,71 @@ func (r *NetworkResource) lookupDomainUuid(ctx context.Context, domainID *int64,
 	return types.StringNull()
 }
 
-// Update is only reached when nothing has to change in MCS: the timeouts changed, or create-only
-// arguments the API does not return (e.g. after an import) are filled in from the configuration.
-// Every other change forces replacement.
+// Update deploys a planned network when dry_run goes from true to false. Otherwise nothing has to
+// change in MCS: the timeouts changed, or create-only arguments the API does not return (e.g.
+// after an import) are filled in from the configuration. Every other change forces replacement.
 func (r *NetworkResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan NetworkResourceModel
+	var plan, state NetworkResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	resolvePlacement(&plan)
+	id := state.Id.ValueString()
+
+	if state.DryRun.ValueBool() && !plan.DryRun.ValueBool() {
+		updateTimeout, diags := plan.Timeouts.Update(ctx, networkDefaultUpdateTimeout)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		waitCtx, cancel := context.WithTimeout(ctx, updateTimeout)
+		defer cancel()
+		if err := r.deployPlanned(waitCtx, id); err != nil {
+			resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+			resp.Diagnostics.AddError("Error deploying planned network", err.Error())
+			return
+		}
+	}
+
+	var fresh networkV3APIModel
+	if err := r.client.Get(ctx, networkPath(id), &fresh); err != nil {
+		resp.Diagnostics.AddError("Error reading network after update", err.Error())
+		return
+	}
+	description := plan.Description
+	networkFromAPI(&plan, &fresh)
+	plan.Description = description
+	if plan.DryRunChanges.IsUnknown() {
+		plan.DryRunChanges = state.DryRunChanges
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+// deployPlanned deploys a network left planned by a dry run and waits for the deploy. A failed
+// deploy rolls back and leaves the network planned.
+func (r *NetworkResource) deployPlanned(ctx context.Context, id string) error {
+	// Sent once, like the create: a retry could queue a second deploy.
+	var op networkOperationAPIModel
+	err := r.client.PostOnce(ctx, networkPath(id)+"deploy/", nil, &op)
+	if apiclient.IsConflict(err) {
+		// The network is no longer planned, e.g. it was deployed outside Terraform.
+		var fresh networkV3APIModel
+		if getErr := r.client.Get(ctx, networkPath(id), &fresh); getErr == nil && fresh.State != networkStatePlanned {
+			tflog.Info(ctx, "planned network was already deployed", map[string]interface{}{"id": id})
+			return nil
+		}
+		return err
+	}
+	if err != nil {
+		return fmt.Errorf("the deploy request failed and was not retried; check in MCS whether a deploy was queued "+
+			"before trying again.\n\n%w", err)
+	}
+	if _, err := waitForNetworkOperation(ctx, r.client, &op); err != nil {
+		return fmt.Errorf("%w\n\nThe network is still planned; fix the cause and apply again.", err)
+	}
+	return nil
 }
 
 func (r *NetworkResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

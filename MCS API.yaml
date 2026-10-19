@@ -3663,10 +3663,13 @@ paths:
     get:
       operationId: dns_domains_list
       description: |-
-        API endpoint that allows DNS zones to be listed, retrieved, edited and deleted.
+        API endpoint that allows DNS zones to be listed, created, retrieved,
+        edited and deleted.
 
-        Zones are not created here — they are synced from the DNS provider — so the
-        create verb is intentionally omitted. ``provider`` is read-only on the
+        Create makes the zone on its provider (``dns.create_zone``); only
+        providers whose driver manages zones can. DELETE on a zone only removes it
+        from MCS, while DELETE on ``provider-zone/`` also deletes it on the
+        provider (``dns.delete_zone``). ``provider`` is read-only on the
         serializer, so update (PATCH) can never change the provider.
       parameters:
       - in: query
@@ -3730,6 +3733,42 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedDnsDomainList'
           description: ''
+    post:
+      operationId: dns_domains_create
+      description: |-
+        API endpoint that allows DNS zones to be listed, created, retrieved,
+        edited and deleted.
+
+        Create makes the zone on its provider (``dns.create_zone``); only
+        providers whose driver manages zones can. DELETE on a zone only removes it
+        from MCS, while DELETE on ``provider-zone/`` also deletes it on the
+        provider (``dns.delete_zone``). ``provider`` is read-only on the
+        serializer, so update (PATCH) can never change the provider.
+      tags:
+      - dns
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DnsZoneCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DnsZoneCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DnsZoneCreate'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DnsDomain'
+          description: ''
   /api/dns/domains/{domainuuid}/entries/:
     get:
       operationId: dns_domains_entries_list
@@ -3788,6 +3827,53 @@ paths:
                 $ref: '#/components/schemas/DnsEntry'
           description: ''
   /api/dns/domains/{domainuuid}/entries/{name}/:
+    put:
+      operationId: dns_domains_entries_update
+      description: |-
+        Edit a record set: replace ``old`` records with ``new`` ones.
+
+        Providers only know create and delete, so an edit needs both the add
+        and delete permission. The driver swaps the set in one call where the
+        provider allows it (PowerDNS), so an SOA or NS set is never missing.
+      parameters:
+      - in: path
+        name: domainuuid
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: name
+        schema:
+          type: string
+          pattern: ^[^/]+$
+        required: true
+      tags:
+      - dns
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DnsEntryReplace'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DnsEntryReplace'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DnsEntryReplace'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DnsEntry'
+          description: ''
     delete:
       operationId: dns_domains_entries_destroy
       parameters:
@@ -3815,10 +3901,13 @@ paths:
     get:
       operationId: dns_domains_retrieve
       description: |-
-        API endpoint that allows DNS zones to be listed, retrieved, edited and deleted.
+        API endpoint that allows DNS zones to be listed, created, retrieved,
+        edited and deleted.
 
-        Zones are not created here — they are synced from the DNS provider — so the
-        create verb is intentionally omitted. ``provider`` is read-only on the
+        Create makes the zone on its provider (``dns.create_zone``); only
+        providers whose driver manages zones can. DELETE on a zone only removes it
+        from MCS, while DELETE on ``provider-zone/`` also deletes it on the
+        provider (``dns.delete_zone``). ``provider`` is read-only on the
         serializer, so update (PATCH) can never change the provider.
       parameters:
       - in: path
@@ -3843,10 +3932,13 @@ paths:
     put:
       operationId: dns_domains_update
       description: |-
-        API endpoint that allows DNS zones to be listed, retrieved, edited and deleted.
+        API endpoint that allows DNS zones to be listed, created, retrieved,
+        edited and deleted.
 
-        Zones are not created here — they are synced from the DNS provider — so the
-        create verb is intentionally omitted. ``provider`` is read-only on the
+        Create makes the zone on its provider (``dns.create_zone``); only
+        providers whose driver manages zones can. DELETE on a zone only removes it
+        from MCS, while DELETE on ``provider-zone/`` also deletes it on the
+        provider (``dns.delete_zone``). ``provider`` is read-only on the
         serializer, so update (PATCH) can never change the provider.
       parameters:
       - in: path
@@ -3882,10 +3974,13 @@ paths:
     patch:
       operationId: dns_domains_partial_update
       description: |-
-        API endpoint that allows DNS zones to be listed, retrieved, edited and deleted.
+        API endpoint that allows DNS zones to be listed, created, retrieved,
+        edited and deleted.
 
-        Zones are not created here — they are synced from the DNS provider — so the
-        create verb is intentionally omitted. ``provider`` is read-only on the
+        Create makes the zone on its provider (``dns.create_zone``); only
+        providers whose driver manages zones can. DELETE on a zone only removes it
+        from MCS, while DELETE on ``provider-zone/`` also deletes it on the
+        provider (``dns.delete_zone``). ``provider`` is read-only on the
         serializer, so update (PATCH) can never change the provider.
       parameters:
       - in: path
@@ -3921,10 +4016,13 @@ paths:
     delete:
       operationId: dns_domains_destroy
       description: |-
-        API endpoint that allows DNS zones to be listed, retrieved, edited and deleted.
+        API endpoint that allows DNS zones to be listed, created, retrieved,
+        edited and deleted.
 
-        Zones are not created here — they are synced from the DNS provider — so the
-        create verb is intentionally omitted. ``provider`` is read-only on the
+        Create makes the zone on its provider (``dns.create_zone``); only
+        providers whose driver manages zones can. DELETE on a zone only removes it
+        from MCS, while DELETE on ``provider-zone/`` also deletes it on the
+        provider (``dns.delete_zone``). ``provider`` is read-only on the
         serializer, so update (PATCH) can never change the provider.
       parameters:
       - in: path
@@ -3942,6 +4040,43 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/dns/domains/{uuid}/provider-zone/:
+    delete:
+      operationId: dns_domains_provider_zone_destroy
+      description: Delete the zone, with all its records, on the provider and in MCS.
+      parameters:
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - dns
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/dns/domains/providers/:
+    get:
+      operationId: dns_domains_providers_retrieve
+      description: The tenant's DNS providers and whether each can create zones.
+      tags:
+      - dns
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DnsDomain'
+          description: ''
   /api/jobs/job/:
     get:
       operationId: jobs_job_list
@@ -4887,6 +5022,16 @@ paths:
         description: Number of results to return per page.
         schema:
           type: integer
+      - in: query
+        name: source
+        schema:
+          type: string
+          enum:
+          - netscaler
+          - secure_ingress
+        description: |-
+          * `netscaler` - NetScaler
+          * `secure_ingress` - Secure Ingress
       tags:
       - loadbalancing
       security:
@@ -8370,6 +8515,7 @@ paths:
         schema:
           type: string
           enum:
+          - lbpools
           - loadbalancer
           - nat
           - vip
@@ -8377,6 +8523,7 @@ paths:
           * `nat` - NAT
           * `vip` - VIP
           * `loadbalancer` - Loadbalancer
+          * `lbpools` - Loadbalancer pools
       tags:
       - networking
       security:
@@ -8524,6 +8671,228 @@ paths:
           type: string
           format: uuid
         description: A UUID string identifying this ip pool.
+        required: true
+      tags:
+      - networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/networking/loadbalancerpools/:
+    get:
+      operationId: networking_loadbalancerpools_list
+      description: |-
+        API endpoint for Load Balancer Pools: subnets cut from an ``lbpools`` IP
+        pool. Create allocates the subnet in NetBox; only name and description can
+        be edited; a pool can only be deleted while it is free.
+      parameters:
+      - in: query
+        name: customer
+        schema:
+          type: string
+      - in: query
+        name: ip_pool
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: name__icontains
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: prefix__icontains
+        schema:
+          type: string
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Search
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - free
+          - in_use
+        description: |-
+          * `free` - Free
+          * `in_use` - In use
+      tags:
+      - networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedLoadBalancerPoolList'
+          description: ''
+    post:
+      operationId: networking_loadbalancerpools_create
+      description: |-
+        API endpoint for Load Balancer Pools: subnets cut from an ``lbpools`` IP
+        pool. Create allocates the subnet in NetBox; only name and description can
+        be edited; a pool can only be deleted while it is free.
+      tags:
+      - networking
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoadBalancerPool'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoadBalancerPool'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoadBalancerPool'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoadBalancerPool'
+          description: ''
+  /api/networking/loadbalancerpools/{id}/:
+    get:
+      operationId: networking_loadbalancerpools_retrieve
+      description: |-
+        API endpoint for Load Balancer Pools: subnets cut from an ``lbpools`` IP
+        pool. Create allocates the subnet in NetBox; only name and description can
+        be edited; a pool can only be deleted while it is free.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this load balancer pool.
+        required: true
+      tags:
+      - networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoadBalancerPool'
+          description: ''
+    put:
+      operationId: networking_loadbalancerpools_update
+      description: |-
+        API endpoint for Load Balancer Pools: subnets cut from an ``lbpools`` IP
+        pool. Create allocates the subnet in NetBox; only name and description can
+        be edited; a pool can only be deleted while it is free.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this load balancer pool.
+        required: true
+      tags:
+      - networking
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoadBalancerPool'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoadBalancerPool'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoadBalancerPool'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoadBalancerPool'
+          description: ''
+    patch:
+      operationId: networking_loadbalancerpools_partial_update
+      description: |-
+        API endpoint for Load Balancer Pools: subnets cut from an ``lbpools`` IP
+        pool. Create allocates the subnet in NetBox; only name and description can
+        be edited; a pool can only be deleted while it is free.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this load balancer pool.
+        required: true
+      tags:
+      - networking
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedLoadBalancerPool'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedLoadBalancerPool'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedLoadBalancerPool'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoadBalancerPool'
+          description: ''
+    delete:
+      operationId: networking_loadbalancerpools_destroy
+      description: |-
+        API endpoint for Load Balancer Pools: subnets cut from an ``lbpools`` IP
+        pool. Create allocates the subnet in NetBox; only name and description can
+        be edited; a pool can only be deleted while it is free.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this load balancer pool.
         required: true
       tags:
       - networking
@@ -9890,11 +10259,36 @@ paths:
               schema:
                 $ref: '#/components/schemas/IngressCluster'
           description: ''
+  /api/secureingress/ingresscluster/{id}/upstream-kubernetes-targets/:
+    get:
+      operationId: secureingress_ingresscluster_upstream_kubernetes_targets_retrieve
+      description: Kubernetes clusters a route on this cluster may point at, with
+        their Load Balancer Pool.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this ingress cluster.
+        required: true
+      tags:
+      - secureingress
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngressCluster'
+          description: ''
   /api/secureingress/ingresscluster/{id}/upstream-targets/:
     get:
       operationId: secureingress_ingresscluster_upstream_targets_retrieve
-      description: VMs of the cluster's Customer, with the interfaces a route can
-        point at.
+      description: VMs a route on this cluster may point at, with their interfaces.
       parameters:
       - in: path
         name: id
@@ -13250,6 +13644,40 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v3/networking/network-placements/:
+    get:
+      operationId: v3_networking_network_placements_retrieve
+      description: |-
+        GET /api/v3/networking/network-placements/?domain=<uuid>
+
+        The Datacenters a V2 deploy to this Domain would go to, per Placement.
+        The Zone's Datacenter fields need ``tenants.full_config``; the people
+        creating Networks usually lack it, but still have to see where a V2
+        Network lands. Empty ``standard`` means the Zone isn't ready for V2.
+      parameters:
+      - in: query
+        name: domain
+        schema:
+          type: string
+        description: UUID of the Domain.
+        required: true
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkPlacements'
+          description: ''
+        '400':
+          description: domain missing or not a UUID
+        '404':
+          description: Domain not found
   /api/v3/networking/network-products/:
     get:
       operationId: v3_networking_network_products_list
@@ -13442,7 +13870,46 @@ paths:
         '404':
           description: Not found
         '409':
-          description: Nothing to tear down, or a teardown is already running
+          description: Nothing to tear down, a teardown or the deploy of this planned
+            Network is already queued or running, or the Network is deploying, rolling
+            back or undeploying
+  /api/v3/networking/networks/{id}/deploy/:
+    post:
+      operationId: v3_networking_networks_deploy_create
+      description: |-
+        POST /api/v3/networking/networks/<id>/deploy/
+
+        Deploy a planned Network (left by a V2 dry run) for real. The deploy reuses
+        the VLAN, prefix and gateway its dry run claimed and the Datacenters it
+        recorded; it refuses when NetBox no longer holds those claims. A deploy
+        that fails rolls back its infrastructure changes and leaves the Network
+        planned.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkOperation'
+          description: ''
+        '403':
+          description: networking.add_network required
+        '404':
+          description: Not found
+        '409':
+          description: The Network is not planned
   /api/v3/networking/operations/{job_id}/:
     get:
       operationId: v3_networking_operations_retrieve
@@ -14123,18 +14590,6 @@ paths:
           description: No response body
 components:
   schemas:
-    ActionEnum:
-      enum:
-      - add
-      - update
-      - created
-      - delete
-      type: string
-      description: |-
-        * `add` - add
-        * `update` - update
-        * `created` - created
-        * `delete` - delete
     Alert:
       type: object
       properties:
@@ -14477,7 +14932,7 @@ components:
           type: string
           maxLength: 255
         action:
-          $ref: '#/components/schemas/ActionEnum'
+          $ref: '#/components/schemas/AuditActionEnum'
         context:
           $ref: '#/components/schemas/ContextEnum'
         subject:
@@ -14508,6 +14963,18 @@ components:
       - updated_at_timestamp
       - updated_by_user
       - user
+    AuditActionEnum:
+      enum:
+      - add
+      - update
+      - created
+      - delete
+      type: string
+      description: |-
+        * `add` - add
+        * `update` - update
+        * `created` - created
+        * `delete` - delete
     BandwidthEnum:
       enum:
       - 50
@@ -14533,6 +15000,28 @@ components:
     BlankEnum:
       enum:
       - ''
+    CertificateRoute:
+      type: object
+      description: The Secure Ingress route a certificate belongs to.
+      properties:
+        id:
+          type: string
+        server_name:
+          type: string
+        cluster:
+          type: string
+      required:
+      - cluster
+      - id
+      - server_name
+    CertificateSourceEnum:
+      enum:
+      - netscaler
+      - secure_ingress
+      type: string
+      description: |-
+        * `netscaler` - NetScaler
+        * `secure_ingress` - Secure Ingress
     Certificater:
       type: object
       properties:
@@ -14557,11 +15046,48 @@ components:
         protected:
           type: boolean
           readOnly: true
+        source:
+          allOf:
+          - $ref: '#/components/schemas/CertificateSourceEnum'
+          readOnly: true
+        common_name:
+          type: string
+          readOnly: true
+        subject_alt_names:
+          readOnly: true
+        issuer:
+          type: string
+          readOnly: true
+        serial_number:
+          type: string
+          readOnly: true
+        fingerprint_sha256:
+          type: string
+          readOnly: true
+        valid_from_timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        route:
+          allOf:
+          - $ref: '#/components/schemas/CertificateRoute'
+          nullable: true
+          readOnly: true
+          description: The Secure Ingress route using this certificate, if any.
       required:
+      - common_name
+      - fingerprint_sha256
       - id
+      - issuer
       - loadbalancer
       - name
       - protected
+      - route
+      - serial_number
+      - source
+      - subject_alt_names
+      - valid_from_timestamp
     CipEnum:
       enum:
       - ENABLED
@@ -15054,6 +15580,19 @@ components:
       - cve
       - firewalls
       - signatures
+    DatacenterRef:
+      type: object
+      description: A Datacenter a Network was deployed to.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - name
     DayEnum:
       enum:
       - '*'
@@ -15200,6 +15739,14 @@ components:
       - updated_at_timestamp
       - updated_by_user
       - username
+    DeployFlowEnum:
+      enum:
+      - v1
+      - v2
+      type: string
+      description: |-
+        * `v1` - V1
+        * `v2` - V2 (beta)
     Device:
       type: object
       properties:
@@ -15513,7 +16060,7 @@ components:
             * `external` - External
             * `internal` - Internal
           oneOf:
-          - $ref: '#/components/schemas/DnsDomainTypeEnum'
+          - $ref: '#/components/schemas/Type3b5Enum'
           - $ref: '#/components/schemas/BlankEnum'
         zone_type:
           allOf:
@@ -15523,17 +16070,14 @@ components:
 
             * `forward` - Forward
             * `reverse` - Reverse
+        manages_zones:
+          type: boolean
+          readOnly: true
+          description: Whether the provider can delete this zone (Delete zone).
       required:
+      - manages_zones
       - provider
       - uuid
-    DnsDomainTypeEnum:
-      enum:
-      - external
-      - internal
-      type: string
-      description: |-
-        * `external` - External
-        * `internal` - Internal
     DnsEntry:
       type: object
       properties:
@@ -15555,6 +16099,100 @@ components:
       - expire
       - name
       - type
+    DnsEntryReplace:
+      type: object
+      description: |-
+        An edit: the records as the caller last saw them and what replaces
+        them. Each side is one record set (shared name and type).
+      properties:
+        old:
+          type: array
+          items:
+            $ref: '#/components/schemas/DnsEntry'
+        new:
+          type: array
+          items:
+            $ref: '#/components/schemas/DnsEntry'
+      required:
+      - new
+      - old
+    DnsZoneCreate:
+      type: object
+      description: |-
+        Create a zone on its provider. A forward zone is named by ``name``, a
+        reverse zone by the network ``prefix`` it serves. Zone settings come from
+        ``template`` (if any); fields given here override it.
+      properties:
+        provider:
+          type: integer
+        zone_type:
+          $ref: '#/components/schemas/ZoneTypeEnum'
+        type:
+          allOf:
+          - $ref: '#/components/schemas/Type3b5Enum'
+          description: |-
+            Scope: internal or external.
+
+            * `external` - External
+            * `internal` - Internal
+        name:
+          type: string
+          maxLength: 253
+        prefix:
+          type: string
+          maxLength: 64
+        customer:
+          type: string
+          nullable: true
+        comment:
+          type: string
+          default: ''
+          maxLength: 255
+        enddate:
+          type: string
+          format: date
+          nullable: true
+        template:
+          type: string
+          format: uuid
+          nullable: true
+        replication:
+          $ref: '#/components/schemas/ReplicationEnum'
+        nameservers:
+          type: array
+          items:
+            type: string
+            maxLength: 253
+        soa_primary:
+          type: string
+          maxLength: 253
+        soa_email:
+          type: string
+          format: email
+        soa_refresh:
+          type: integer
+          maximum: 2147483647
+          minimum: 1
+        soa_retry:
+          type: integer
+          maximum: 2147483647
+          minimum: 1
+        soa_expire:
+          type: integer
+          maximum: 2147483647
+          minimum: 1
+        soa_minimum:
+          type: integer
+          maximum: 2147483647
+          minimum: 1
+        ttl:
+          type: integer
+          maximum: 604800
+          minimum: 60
+      required:
+      - provider
+      - type
+      - zone_type
     Domain:
       type: object
       properties:
@@ -16410,22 +17048,32 @@ components:
         free_ips:
           type: string
           readOnly: true
+        total_subnets:
+          type: string
+          readOnly: true
+        free_subnets:
+          type: string
+          readOnly: true
       required:
       - free_ips
+      - free_subnets
       - id
       - name
       - subnet
       - total_ips
+      - total_subnets
     IPPoolTypeEnum:
       enum:
       - nat
       - vip
       - loadbalancer
+      - lbpools
       type: string
       description: |-
         * `nat` - NAT
         * `vip` - VIP
         * `loadbalancer` - Loadbalancer
+        * `lbpools` - Loadbalancer pools
     IngressCluster:
       type: object
       properties:
@@ -16440,6 +17088,18 @@ components:
         ipaddress_detail:
           allOf:
           - $ref: '#/components/schemas/_PublicIPSlim'
+          readOnly: true
+        customer_detail:
+          allOf:
+          - $ref: '#/components/schemas/_NamedSlim'
+          readOnly: true
+        firewall_detail:
+          allOf:
+          - $ref: '#/components/schemas/_NamedSlim'
+          readOnly: true
+        error_message:
+          type: string
+          nullable: true
           readOnly: true
         created_at_timestamp:
           type: string
@@ -16495,7 +17155,10 @@ components:
       - created_at_timestamp
       - created_by_user
       - customer
+      - customer_detail
+      - error_message
       - firewall
+      - firewall_detail
       - id
       - ipaddress
       - ipaddress_detail
@@ -17231,6 +17894,67 @@ components:
       - src_intf
       - tags
       - uuid
+    LoadBalancerPool:
+      type: object
+      description: Read and edit shape. Create goes through ``LoadBalancerPoolCreateSerializer``.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 255
+        ip_pool:
+          type: string
+          format: uuid
+          readOnly: true
+        ip_pool_name:
+          type: string
+          readOnly: true
+        prefix:
+          type: string
+          readOnly: true
+          description: CIDR, e.g. 203.0.113.16/28.
+        status:
+          allOf:
+          - $ref: '#/components/schemas/LoadBalancerPoolStatusEnum'
+          readOnly: true
+        customer:
+          type: string
+          readOnly: true
+        assigned_object_type:
+          type: string
+          readOnly: true
+        assigned_object_id:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        assigned_object_label:
+          type: string
+          readOnly: true
+      required:
+      - assigned_object_id
+      - assigned_object_label
+      - assigned_object_type
+      - customer
+      - id
+      - ip_pool
+      - ip_pool_name
+      - prefix
+      - status
+    LoadBalancerPoolStatusEnum:
+      enum:
+      - free
+      - in_use
+      type: string
+      description: |-
+        * `free` - Free
+        * `in_use` - In use
     LoadbalancingQuota:
       type: object
       properties:
@@ -17552,6 +18276,30 @@ components:
             * `Quarant` - Quarant
             * `ValueCare` - ValueCare
             * `Windex` - Windex
+        deploy_flow:
+          allOf:
+          - $ref: '#/components/schemas/DeployFlowEnum'
+          default: v1
+          description: |-
+            v1 (default) or v2 (beta). V2 deploys to the Datacenters of its Placement and rolls back fully when a step fails.
+
+            * `v1` - V1
+            * `v2` - V2 (beta)
+        placement:
+          allOf:
+          - $ref: '#/components/schemas/PlacementEnum'
+          description: |-
+            V2 only: standard (the Zone's default Datacenters, the default) or kubernetes (adds the Zone's additional Datacenters). Refused with v1.
+
+            * `standard` - standard
+            * `kubernetes` - kubernetes
+        dry_run:
+          type: boolean
+          default: false
+          description: 'V2 only: claim the VLAN, prefix and gateway in NetBox and
+            record the Network as planned, but only check FortiGate, FortiManager
+            and Apstra and report what would change. Deploy the planned Network later
+            with POST .../networks/<id>/deploy/. Refused with v1.'
       required:
       - bitmask
       - description
@@ -17577,12 +18325,19 @@ components:
       - id
     NetworkOperation:
       type: object
-      description: A queued deploy or undeploy, and its Network once there is one.
+      description: |-
+        A queued deploy or undeploy, and its Network once there is one.
+
+        ``steps`` and ``rollback`` are V2 only: V1 jobs have no step table, so
+        they answer an empty list and null.
       properties:
         job_id:
           type: integer
         jobname:
           type: string
+        dry_run:
+          type: boolean
+          description: Whether this is a V2 dry run.
         status:
           type: string
           nullable: true
@@ -17596,13 +18351,41 @@ components:
           allOf:
           - $ref: '#/components/schemas/NetworkV3'
           nullable: true
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperationStep'
+        rollback:
+          allOf:
+          - $ref: '#/components/schemas/OperationRollback'
+          nullable: true
       required:
+      - dry_run
       - job_id
       - jobname
       - message
       - network
       - result
+      - rollback
       - status
+      - steps
+    NetworkPlacements:
+      type: object
+      properties:
+        standard:
+          type: array
+          items:
+            $ref: '#/components/schemas/DatacenterRef'
+        kubernetes:
+          type: array
+          items:
+            $ref: '#/components/schemas/DatacenterRef'
+        kubernetes_equals_standard:
+          type: boolean
+      required:
+      - kubernetes
+      - kubernetes_equals_standard
+      - standard
     NetworkPool:
       type: object
       properties:
@@ -17720,6 +18503,39 @@ components:
           type: boolean
           readOnly: true
           description: Make interface visible to end users.
+        deploy_flow:
+          allOf:
+          - $ref: '#/components/schemas/DeployFlowEnum'
+          readOnly: true
+          description: |-
+            The Deploy Flow that created the network; Undeploy follows the same one.
+
+            * `v1` - V1
+            * `v2` - V2 (beta)
+        state:
+          allOf:
+          - $ref: '#/components/schemas/NetworkV3StateEnum'
+          readOnly: true
+          description: |-
+            Lifecycle state. V1 networks are written when their deploy finishes, so they start active.
+
+            * `deploying` - Deploying
+            * `planned` - Planned (dry run)
+            * `active` - Active
+            * `rolling_back` - Rolling back
+            * `rollback_failed` - Rollback failed
+            * `undeploying` - Undeploying
+            * `undeploy_failed` - Undeploy failed
+        datacenters:
+          type: array
+          items:
+            $ref: '#/components/schemas/DatacenterRef'
+          readOnly: true
+        leftover_steps:
+          readOnly: true
+          description: 'V2 only: the steps whose configuration may still exist after
+            a Rollback or Undeploy could not finish, in the order they still need
+            reversing.'
         created_at_timestamp:
           type: string
           format: date-time
@@ -17734,6 +18550,8 @@ components:
       - created_at_timestamp
       - customer
       - customer_name
+      - datacenters
+      - deploy_flow
       - description
       - dhcp_server
       - dhcp_server_address_pool
@@ -17747,12 +18565,32 @@ components:
       - ipv4_prefix
       - ipv6_address
       - ipv6_prefix
+      - leftover_steps
       - name
       - parent
+      - state
       - type
       - updated_at_timestamp
       - visible
       - vlanid
+    NetworkV3StateEnum:
+      enum:
+      - deploying
+      - planned
+      - active
+      - rolling_back
+      - rollback_failed
+      - undeploying
+      - undeploy_failed
+      type: string
+      description: |-
+        * `deploying` - Deploying
+        * `planned` - Planned (dry run)
+        * `active` - Active
+        * `rolling_back` - Rolling back
+        * `rollback_failed` - Rollback failed
+        * `undeploying` - Undeploying
+        * `undeploy_failed` - Undeploy failed
     NetworkV3TypeEnum:
       enum:
       - vlan
@@ -17820,6 +18658,111 @@ components:
     NullEnum:
       enum:
       - null
+    OperationChange:
+      type: object
+      description: What a dry run found an infrastructure step would do.
+      properties:
+        system:
+          type: string
+        datacenter:
+          type: string
+          nullable: true
+        action:
+          $ref: '#/components/schemas/OperationChangeActionEnum'
+        object:
+          type: string
+        detail:
+          type: string
+      required:
+      - action
+      - datacenter
+      - detail
+      - object
+      - system
+    OperationChangeActionEnum:
+      enum:
+      - create
+      - update
+      - present
+      - conflict
+      type: string
+      description: |-
+        * `create` - create
+        * `update` - update
+        * `present` - present
+        * `conflict` - conflict
+    OperationRollback:
+      type: object
+      description: How a failed V2 deploy was reversed.
+      properties:
+        state:
+          $ref: '#/components/schemas/OperationRollbackStateEnum'
+        failed_step:
+          type: string
+          nullable: true
+        error:
+          type: string
+        leftover_steps:
+          type: array
+          items:
+            type: string
+      required:
+      - error
+      - failed_step
+      - leftover_steps
+      - state
+    OperationRollbackStateEnum:
+      enum:
+      - rolled_back
+      - rollback_failed
+      type: string
+      description: |-
+        * `rolled_back` - rolled_back
+        * `rollback_failed` - rollback_failed
+    OperationStep:
+      type: object
+      description: One step of a V2 deploy, from the step table.
+      properties:
+        name:
+          type: string
+        state:
+          $ref: '#/components/schemas/OperationStepStateEnum'
+        attempts:
+          type: integer
+        last_error:
+          type: string
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperationChange'
+          description: 'Dry run only: what this infrastructure step would change;
+            empty otherwise.'
+      required:
+      - attempts
+      - changes
+      - last_error
+      - name
+      - state
+    OperationStepStateEnum:
+      enum:
+      - pending
+      - applying
+      - applied
+      - verified
+      - planned
+      - compensating
+      - compensated
+      - failed
+      type: string
+      description: |-
+        * `pending` - pending
+        * `applying` - applying
+        * `applied` - applied
+        * `verified` - verified
+        * `planned` - planned
+        * `compensating` - compensating
+        * `compensated` - compensated
+        * `failed` - failed
     OutcomeEnum:
       enum:
       - block
@@ -18950,6 +19893,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/LiveFirewallRule'
+    PaginatedLoadBalancerPoolList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoadBalancerPool'
     PaginatedLoadbalancingQuotaList:
       type: object
       required:
@@ -19816,6 +20782,35 @@ components:
         protected:
           type: boolean
           readOnly: true
+        source:
+          allOf:
+          - $ref: '#/components/schemas/CertificateSourceEnum'
+          readOnly: true
+        common_name:
+          type: string
+          readOnly: true
+        subject_alt_names:
+          readOnly: true
+        issuer:
+          type: string
+          readOnly: true
+        serial_number:
+          type: string
+          readOnly: true
+        fingerprint_sha256:
+          type: string
+          readOnly: true
+        valid_from_timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        route:
+          allOf:
+          - $ref: '#/components/schemas/CertificateRoute'
+          nullable: true
+          readOnly: true
+          description: The Secure Ingress route using this certificate, if any.
     PatchedComponent:
       type: object
       properties:
@@ -20512,7 +21507,7 @@ components:
             * `external` - External
             * `internal` - Internal
           oneOf:
-          - $ref: '#/components/schemas/DnsDomainTypeEnum'
+          - $ref: '#/components/schemas/Type3b5Enum'
           - $ref: '#/components/schemas/BlankEnum'
         zone_type:
           allOf:
@@ -20522,6 +21517,10 @@ components:
 
             * `forward` - Forward
             * `reverse` - Reverse
+        manages_zones:
+          type: boolean
+          readOnly: true
+          description: Whether the provider can delete this zone (Delete zone).
     PatchedDomain:
       type: object
       properties:
@@ -21005,6 +22004,12 @@ components:
         free_ips:
           type: string
           readOnly: true
+        total_subnets:
+          type: string
+          readOnly: true
+        free_subnets:
+          type: string
+          readOnly: true
     PatchedIngressCluster:
       type: object
       properties:
@@ -21019,6 +22024,18 @@ components:
         ipaddress_detail:
           allOf:
           - $ref: '#/components/schemas/_PublicIPSlim'
+          readOnly: true
+        customer_detail:
+          allOf:
+          - $ref: '#/components/schemas/_NamedSlim'
+          readOnly: true
+        firewall_detail:
+          allOf:
+          - $ref: '#/components/schemas/_NamedSlim'
+          readOnly: true
+        error_message:
+          type: string
+          nullable: true
           readOnly: true
         created_at_timestamp:
           type: string
@@ -21435,6 +22452,49 @@ components:
           format: date-time
           readOnly: true
           description: Time when this object was last updated
+    PatchedLoadBalancerPool:
+      type: object
+      description: Read and edit shape. Create goes through ``LoadBalancerPoolCreateSerializer``.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 255
+        ip_pool:
+          type: string
+          format: uuid
+          readOnly: true
+        ip_pool_name:
+          type: string
+          readOnly: true
+        prefix:
+          type: string
+          readOnly: true
+          description: CIDR, e.g. 203.0.113.16/28.
+        status:
+          allOf:
+          - $ref: '#/components/schemas/LoadBalancerPoolStatusEnum'
+          readOnly: true
+        customer:
+          type: string
+          readOnly: true
+        assigned_object_type:
+          type: string
+          readOnly: true
+        assigned_object_id:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        assigned_object_label:
+          type: string
+          readOnly: true
     PatchedLoadbalancingQuota:
       type: object
       properties:
@@ -22275,6 +23335,14 @@ components:
       - content_type
       - id
       - name
+    PlacementEnum:
+      enum:
+      - standard
+      - kubernetes
+      type: string
+      description: |-
+        * `standard` - standard
+        * `kubernetes` - kubernetes
     Port:
       type: object
       properties:
@@ -22483,6 +23551,14 @@ components:
       - id
       - updated_at_timestamp
       - updated_by_user
+    ReplicationEnum:
+      enum:
+      - native
+      - primary
+      type: string
+      description: |-
+        * `native` - Native
+        * `primary` - Primary
     ResourceLink:
       type: object
       properties:
@@ -23214,6 +24290,14 @@ components:
         * `one_to_one` - 1:1 NAT
         * `port_forward` - Port Forward
         * `snat` - SNAT
+    Type3b5Enum:
+      enum:
+      - external
+      - internal
+      type: string
+      description: |-
+        * `external` - External
+        * `internal` - Internal
     User:
       type: object
       description: |-
@@ -23570,6 +24654,18 @@ components:
       properties:
         id:
           type: integer
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - name
+    _NamedSlim:
+      type: object
+      properties:
+        id:
+          type: string
           readOnly: true
         name:
           type: string
