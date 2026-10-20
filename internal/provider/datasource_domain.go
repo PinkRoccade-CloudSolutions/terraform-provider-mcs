@@ -1,7 +1,9 @@
 package provider
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 
@@ -62,6 +64,39 @@ type domainCustomerAPI struct {
 	Name       string `json:"name"`
 }
 
+// domainTagList accepts tag entries as either JSON strings or numbers: the OpenAPI spec
+// declares integers, but the live API returns strings.
+type domainTagList []string
+
+func (l *domainTagList) UnmarshalJSON(b []byte) error {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	out := make(domainTagList, 0, len(raw))
+	for i, v := range raw {
+		v = bytes.TrimSpace(v)
+		if bytes.Equal(v, []byte("null")) {
+			continue
+		}
+		if len(v) > 0 && v[0] == '"' {
+			var s string
+			if err := json.Unmarshal(v, &s); err != nil {
+				return fmt.Errorf("tag[%d]: %w", i, err)
+			}
+			out = append(out, s)
+			continue
+		}
+		var n json.Number
+		if err := json.Unmarshal(v, &n); err != nil {
+			return fmt.Errorf("tag[%d]: expected string or number: %w", i, err)
+		}
+		out = append(out, n.String())
+	}
+	*l = out
+	return nil
+}
+
 type domainAPIModel struct {
 	Id          int64              `json:"id"`
 	Uuid        string             `json:"uuid"`
@@ -71,7 +106,7 @@ type domainAPIModel struct {
 	Adom        string             `json:"adom"`
 	Zone        *domainZoneRefAPI  `json:"zone"`
 	Customer    *domainCustomerAPI `json:"customer"`
-	Tag         []int64            `json:"tag"`
+	Tag         domainTagList      `json:"tag"`
 	CompErrors  int64              `json:"comp_errors"`
 	MaxNetworks int64              `json:"max_networks"`
 }
@@ -96,7 +131,7 @@ func (d *DomainDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 		"zone_name":     schema.StringAttribute{Computed: true},
 		"customer":      schema.StringAttribute{Computed: true},
 		"customer_name": schema.StringAttribute{Computed: true},
-		"tag":           schema.ListAttribute{Computed: true, ElementType: types.Int64Type},
+		"tag":           schema.ListAttribute{Computed: true, ElementType: types.StringType},
 		"comp_errors":   schema.Int64Attribute{Computed: true},
 		"max_networks":  schema.Int64Attribute{Computed: true},
 	}
@@ -146,8 +181,8 @@ func (d *DomainDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 			},
 			"tag": schema.ListAttribute{
 				Computed:    true,
-				ElementType: types.Int64Type,
-				Description: "Tag IDs of the matched domain (only set when `name` is provided).",
+				ElementType: types.StringType,
+				Description: "Tags of the matched domain (only set when `name` is provided).",
 			},
 			"comp_errors": schema.Int64Attribute{
 				Computed:    true,
@@ -193,7 +228,7 @@ func domainModelFromAPI(ctx context.Context, item *domainAPIModel, diags *diag.D
 		ZoneName:     types.StringNull(),
 		Customer:     types.StringNull(),
 		CustomerName: types.StringNull(),
-		Tag:          computedListValue(ctx, types.Int64Type, item.Tag, diags),
+		Tag:          computedListValue(ctx, types.StringType, []string(item.Tag), diags),
 		CompErrors:   types.Int64Value(item.CompErrors),
 		MaxNetworks:  types.Int64Value(item.MaxNetworks),
 	}
@@ -269,7 +304,7 @@ func (d *DomainDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		ZoneName:     types.StringNull(),
 		Customer:     types.StringNull(),
 		CustomerName: types.StringNull(),
-		Tag:          types.ListNull(types.Int64Type),
+		Tag:          types.ListNull(types.StringType),
 		CompErrors:   types.Int64Null(),
 		MaxNetworks:  types.Int64Null(),
 		Domains:      make([]DomainModel, 0, len(items)),

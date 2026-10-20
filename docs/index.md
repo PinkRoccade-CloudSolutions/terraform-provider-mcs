@@ -243,7 +243,7 @@ output "all_domains" {
 | `zone_name` | String | Computed | Name of the associated network zone. |
 | `customer` | String | Computed | Customer ID. |
 | `customer_name` | String | Computed | Customer name. |
-| `tag`      | List(Number) | Computed | Tag IDs. |
+| `tag`      | List(String) | Computed | Tags of the domain, as returned by the API. |
 | `comp_errors` | Number | Computed | Number of compliance errors. |
 | `max_networks` | Number | Computed | Maximum number of networks in the domain. |
 | `domains`  | List   | Computed | List of all domains (populated when `name` is not set). |
@@ -251,6 +251,8 @@ output "all_domains" {
 **Nested `domains` attributes:** `id`, `uuid`, `vdom_id`, `name`, `description`, `adom`, `zone_id`, `zone_name`, `customer`, `customer_name`, `tag`, `comp_errors`, `max_networks` — all Computed.
 
 > The former `zone` attribute was removed: the API now returns the zone as an object, exposed as `zone_id` and `zone_name`.
+
+> `tag` changed from `List(Number)` to `List(String)` because the API returns tags as strings.
 
 ---
 
