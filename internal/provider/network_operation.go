@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
@@ -28,6 +29,8 @@ type networkOperationAPIModel struct {
 	Network  *networkV3APIModel           `json:"network"`
 	Steps    []networkOperationStep       `json:"steps"`
 	Rollback *networkOperationRollbackAPI `json:"rollback"`
+	// Warnings (V2) lists what succeeded with a caveat, e.g. a deferred FortiManager install.
+	Warnings []string `json:"warnings"`
 }
 
 type networkOperationStep struct {
@@ -128,6 +131,18 @@ func (op *networkOperationAPIModel) describe() string {
 		}
 	}
 	return s
+}
+
+// addWarnings reports the caveats a finished operation returned as Terraform warnings.
+func (op *networkOperationAPIModel) addWarnings(summary string, diags *diag.Diagnostics) {
+	if op == nil {
+		return
+	}
+	for _, w := range op.Warnings {
+		if w = strings.TrimSpace(w); w != "" {
+			diags.AddWarning(summary, w)
+		}
+	}
 }
 
 // waitForNetworkOperation polls a networking job until it succeeds, fails, or ctx is done

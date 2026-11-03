@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -23,6 +24,9 @@ var (
 	_ resource.ResourceWithImportState = &CustomerResource{}
 )
 
+// customerSlugPattern is the DNS label pattern the API enforces on Customer.slug.
+var customerSlugPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+
 type CustomerResource struct {
 	client *apiclient.Client
 }
@@ -30,6 +34,7 @@ type CustomerResource struct {
 type CustomerResourceModel struct {
 	Id            types.String `tfsdk:"id"`
 	Name          types.String `tfsdk:"name"`
+	Slug          types.String `tfsdk:"slug"`
 	ContractId    types.String `tfsdk:"contractid"`
 	Sdm           types.Int64  `tfsdk:"sdm"`
 	TechContacts  types.List   `tfsdk:"tech_contacts"`
@@ -39,6 +44,7 @@ type CustomerResourceModel struct {
 type customerAPIModel struct {
 	Id            string   `json:"id,omitempty"`
 	Name          string   `json:"name"`
+	Slug          *string  `json:"slug,omitempty"`
 	ContractId    *string  `json:"contractid,omitempty"`
 	Sdm           *int64   `json:"sdm,omitempty"`
 	TechContacts  *[]int64 `json:"tech_contacts,omitempty"`
@@ -63,6 +69,17 @@ func (r *CustomerResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"name": schema.StringAttribute{
 				Required:   true,
 				Validators: []validator.String{stringvalidator.LengthBetween(1, 255)},
+			},
+			"slug": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				Description: "Short DNS label, unique within the tenant. Prefixes the customer's Kubernetes cluster names " +
+					"and names its folder in the cluster repository. Set by administrators.",
+				Validators: []validator.String{
+					stringvalidator.LengthBetween(1, 63),
+					stringvalidator.RegexMatches(customerSlugPattern, "must be a lowercase DNS label: a-z, 0-9 and '-', starting and ending with a letter or digit"),
+				},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"contractid": schema.StringAttribute{
 				Optional:      true,
@@ -108,6 +125,7 @@ func (r *CustomerResource) Configure(_ context.Context, req resource.ConfigureRe
 func customerBodyFromPlan(ctx context.Context, plan *CustomerResourceModel, diags *diag.Diagnostics) customerAPIModel {
 	return customerAPIModel{
 		Name:          plan.Name.ValueString(),
+		Slug:          stringPtr(plan.Slug),
 		ContractId:    stringPtr(plan.ContractId),
 		Sdm:           int64Ptr(plan.Sdm),
 		TechContacts:  listElems[int64](ctx, plan.TechContacts, diags),
@@ -118,6 +136,7 @@ func customerBodyFromPlan(ctx context.Context, plan *CustomerResourceModel, diag
 func customerStateFromAPI(ctx context.Context, apiResp *customerAPIModel, state *CustomerResourceModel, diags *diag.Diagnostics) {
 	state.Id = types.StringValue(apiResp.Id)
 	state.Name = types.StringValue(apiResp.Name)
+	state.Slug = types.StringValue(derefString(apiResp.Slug))
 	if apiResp.ContractId != nil {
 		state.ContractId = types.StringValue(*apiResp.ContractId)
 	} else {

@@ -21,6 +21,7 @@ type CustomerDataSource struct {
 type CustomerDataSourceModel struct {
 	Id            types.String        `tfsdk:"id"`
 	Name          types.String        `tfsdk:"name"`
+	Slug          types.String        `tfsdk:"slug"`
 	ContractId    types.String        `tfsdk:"contractid"`
 	Sdm           types.Int64         `tfsdk:"sdm"`
 	AdminContacts types.List          `tfsdk:"admin_contacts"`
@@ -31,6 +32,7 @@ type CustomerDataSourceModel struct {
 type CustomerListModel struct {
 	Id            types.String `tfsdk:"id"`
 	Name          types.String `tfsdk:"name"`
+	Slug          types.String `tfsdk:"slug"`
 	ContractId    types.String `tfsdk:"contractid"`
 	Sdm           types.Int64  `tfsdk:"sdm"`
 	AdminContacts types.List   `tfsdk:"admin_contacts"`
@@ -40,11 +42,14 @@ type CustomerListModel struct {
 type customerDSAPIModel struct {
 	Id            string  `json:"id"`
 	Name          string  `json:"name"`
+	Slug          string  `json:"slug"`
 	ContractId    string  `json:"contractid"`
 	Sdm           *int64  `json:"sdm"`
 	AdminContacts []int64 `json:"admin_contacts"`
 	TechContacts  []int64 `json:"tech_contacts"`
 }
+
+const customerSlugDesc = "Short DNS label of the customer; prefixes its Kubernetes cluster names."
 
 func NewCustomerDataSource() datasource.DataSource {
 	return &CustomerDataSource{}
@@ -60,6 +65,7 @@ func (d *CustomerDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 		"name": schema.StringAttribute{
 			Computed: true,
 		},
+		"slug":       schema.StringAttribute{Computed: true, Description: customerSlugDesc},
 		"contractid": schema.StringAttribute{Computed: true},
 		"sdm":        schema.Int64Attribute{Computed: true},
 		"admin_contacts": schema.ListAttribute{
@@ -83,6 +89,7 @@ func (d *CustomerDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 				Optional:    true,
 				Description: "Filter by name (uses name__icontains then exact match).",
 			},
+			"slug":       schema.StringAttribute{Computed: true, Description: customerSlugDesc},
 			"contractid": schema.StringAttribute{Computed: true},
 			"sdm": schema.Int64Attribute{
 				Computed:    true,
@@ -177,6 +184,7 @@ func (d *CustomerDataSource) Read(ctx context.Context, req datasource.ReadReques
 	state := CustomerDataSourceModel{
 		Id:            types.StringNull(),
 		Name:          types.StringNull(),
+		Slug:          types.StringNull(),
 		ContractId:    types.StringNull(),
 		Sdm:           types.Int64Null(),
 		AdminContacts: types.ListNull(types.Int64Type),
@@ -196,6 +204,7 @@ func setSingleCustomer(ctx context.Context, state *CustomerDataSourceModel, item
 	lm := customerToListModel(ctx, item, diags)
 	state.Id = lm.Id
 	state.Name = lm.Name
+	state.Slug = lm.Slug
 	state.ContractId = lm.ContractId
 	state.Sdm = lm.Sdm
 	state.AdminContacts = lm.AdminContacts
@@ -211,6 +220,7 @@ func customerToListModel(ctx context.Context, item *customerDSAPIModel, diags *d
 	return CustomerListModel{
 		Id:            types.StringValue(item.Id),
 		Name:          types.StringValue(item.Name),
+		Slug:          types.StringValue(item.Slug),
 		ContractId:    types.StringValue(item.ContractId),
 		Sdm:           sdm,
 		AdminContacts: computedListValue(ctx, types.Int64Type, item.AdminContacts, diags),

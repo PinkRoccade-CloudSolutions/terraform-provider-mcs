@@ -6,10 +6,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -28,6 +33,8 @@ type IntegrationResourceModel struct {
 	Icon         types.String `tfsdk:"icon"`
 	HasSecret    types.Bool   `tfsdk:"has_secret"`
 	HasKey       types.Bool   `tfsdk:"has_key"`
+
+	KubernetesEndpoint types.Object `tfsdk:"kubernetes_endpoint"`
 }
 
 // flexBool decodes a JSON boolean or a string such as "true"/"True".
@@ -59,6 +66,61 @@ type integrationAPIModel struct {
 	Icon         string                `json:"icon"`
 	HasSecret    flexBool              `json:"has_secret"`
 	HasKey       flexBool              `json:"has_key"`
+
+	KubernetesEndpoint *kubernetesEndpointAPIModel `json:"kubernetes_endpoint"`
+}
+
+// kubernetesEndpointAPIModel is the KubernetesEndpoint schema: the Kubernetes settings of a
+// vSphere integration.
+type kubernetesEndpointAPIModel struct {
+	CredentialsKey  string `json:"credentials_key"`
+	ContentLibrary  string `json:"content_library"`
+	DataDiskMaxSize *int64 `json:"data_disk_max_size,omitempty"`
+	NodestorageStep *int64 `json:"nodestorage_step,omitempty"`
+}
+
+var kubernetesEndpointAttrTypes = map[string]attr.Type{
+	"credentials_key":    types.StringType,
+	"content_library":    types.StringType,
+	"data_disk_max_size": types.Int64Type,
+	"nodestorage_step":   types.Int64Type,
+}
+
+func kubernetesEndpointFromAPI(a *kubernetesEndpointAPIModel) types.Object {
+	if a == nil {
+		return types.ObjectNull(kubernetesEndpointAttrTypes)
+	}
+	return types.ObjectValueMust(kubernetesEndpointAttrTypes, map[string]attr.Value{
+		"credentials_key":    types.StringValue(a.CredentialsKey),
+		"content_library":    types.StringValue(a.ContentLibrary),
+		"data_disk_max_size": types.Int64PointerValue(a.DataDiskMaxSize),
+		"nodestorage_step":   types.Int64PointerValue(a.NodestorageStep),
+	})
+}
+
+func kubernetesEndpointToAPI(o types.Object) *kubernetesEndpointAPIModel {
+	if !known(o) {
+		return nil
+	}
+	a := o.Attributes()
+	str := func(k string) string {
+		if v, ok := a[k].(types.String); ok {
+			return v.ValueString()
+		}
+		return ""
+	}
+	num := func(k string) *int64 {
+		if v, ok := a[k].(types.Int64); ok {
+			return int64Ptr(v)
+		}
+		return nil
+	}
+	return &kubernetesEndpointAPIModel{
+		CredentialsKey:  str("credentials_key"),
+		ContentLibrary:  str("content_library"),
+		DataDiskMaxSize: num("data_disk_max_size"),
+		NodestorageStep: num("nodestorage_step"),
+	}
 }
 
 type integrationBody struct {
@@ -71,6 +133,15 @@ type integrationBody struct {
 	Secret       *string `json:"secret,omitempty"`
 	Key          *string `json:"key,omitempty"`
 	SecretExpire *string `json:"secret_expire,omitempty"`
+
+	KubernetesEndpoint *kubernetesEndpointAPIModel `json:"kubernetes_endpoint,omitempty"`
+}
+
+// integrationUpdateBody always sends kubernetes_endpoint, so removing the block from the
+// configuration clears it: an omitted field is left unchanged by the API.
+type integrationUpdateBody struct {
+	integrationBody
+	KubernetesEndpoint *kubernetesEndpointAPIModel `json:"kubernetes_endpoint"`
 }
 
 // sameInstant keeps the configured timestamp when the API returns the same
@@ -122,21 +193,43 @@ func NewIntegrationResource() resource.Resource {
 				"icon":          rsVolatileString("Icon of the integration."),
 				"has_secret":    rsVolatileBool("Whether a secret is stored."),
 				"has_key":       rsVolatileBool("Whether a key is stored."),
+				"kubernetes_endpoint": schema.SingleNestedAttribute{
+					Optional:    true,
+					Description: "Kubernetes endpoint settings of a vSphere integration. Removing it clears the settings.",
+					Attributes: map[string]schema.Attribute{
+						"credentials_key": schema.StringAttribute{
+							Required:    true,
+							Description: "Key of the vCenter credentials in the Azure DevOps Library. Not a secret.",
+							Validators:  []validator.String{stringvalidator.LengthBetween(1, 255)},
+						},
+						"content_library": schema.StringAttribute{
+							Required:    true,
+							Description: "vSphere Content Library with the node images.",
+							Validators:  []validator.String{stringvalidator.LengthBetween(1, 255)},
+						},
+						"data_disk_max_size": schema.Int64Attribute{
+							Optional:      true,
+							Computed:      true,
+							Description:   "Largest node storage disk (GB) on this endpoint; at least 500. Set by the API when omitted.",
+							Validators:    []validator.Int64{int64validator.Between(500, 4294967295)},
+							PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
+						},
+						"nodestorage_step": schema.Int64Attribute{
+							Optional:      true,
+							Computed:      true,
+							Description:   "Node storage sizes (GB) are a multiple of this. Set by the API when omitted.",
+							Validators:    []validator.Int64{int64validator.Between(1, 4294967295)},
+							PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
+						},
+					},
+				},
 			},
 		},
-		idOf: func(m *IntegrationResourceModel) string { return strconv.FormatInt(m.Id.ValueInt64(), 10) },
-		toAPI: func(m *IntegrationResourceModel) any {
-			return integrationBody{
-				Name:         m.Name.ValueString(),
-				TypeId:       int64Ptr(m.TypeId),
-				CatalogKey:   stringPtr(m.CatalogKey),
-				Subtype:      stringPtr(m.Subtype),
-				Baseurl:      m.Baseurl.ValueString(),
-				Username:     stringPtr(m.Username),
-				Secret:       stringPtr(m.Secret),
-				Key:          stringPtr(m.Key),
-				SecretExpire: stringPtr(m.SecretExpire),
-			}
+		idOf:  func(m *IntegrationResourceModel) string { return strconv.FormatInt(m.Id.ValueInt64(), 10) },
+		toAPI: func(m *IntegrationResourceModel) any { return integrationBodyFromModel(m) },
+		updateAPI: func(m *IntegrationResourceModel) any {
+			body := integrationBodyFromModel(m)
+			return integrationUpdateBody{integrationBody: body, KubernetesEndpoint: body.KubernetesEndpoint}
 		},
 		fromAPI: func(a *integrationAPIModel, m *IntegrationResourceModel) {
 			m.Id = types.Int64Value(a.ID)
@@ -149,6 +242,23 @@ func NewIntegrationResource() resource.Resource {
 			m.Icon = types.StringValue(a.Icon)
 			m.HasSecret = types.BoolValue(bool(a.HasSecret))
 			m.HasKey = types.BoolValue(bool(a.HasKey))
+			m.KubernetesEndpoint = kubernetesEndpointFromAPI(a.KubernetesEndpoint)
 		},
+	}
+}
+
+func integrationBodyFromModel(m *IntegrationResourceModel) integrationBody {
+	return integrationBody{
+		Name:         m.Name.ValueString(),
+		TypeId:       int64Ptr(m.TypeId),
+		CatalogKey:   stringPtr(m.CatalogKey),
+		Subtype:      stringPtr(m.Subtype),
+		Baseurl:      m.Baseurl.ValueString(),
+		Username:     stringPtr(m.Username),
+		Secret:       stringPtr(m.Secret),
+		Key:          stringPtr(m.Key),
+		SecretExpire: stringPtr(m.SecretExpire),
+
+		KubernetesEndpoint: kubernetesEndpointToAPI(m.KubernetesEndpoint),
 	}
 }

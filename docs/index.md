@@ -246,9 +246,11 @@ output "all_domains" {
 | `tag`      | List(String) | Computed | Tags of the domain, as returned by the API. |
 | `comp_errors` | Number | Computed | Number of compliance errors. |
 | `max_networks` | Number | Computed | Maximum number of networks in the domain. |
+| `deploy_flow` | String | Computed | Deploy flow that deploys the domain: `v1` (deploy_vdom job) or `v2` (beta, step runner). |
+| `state`    | String | Computed | Lifecycle state: `deploying`, `planned`, `active`, `rolling_back`, `rollback_failed`, `undeploying` or `undeploy_failed`. V1 domains are always `active`. |
 | `domains`  | List   | Computed | List of all domains (populated when `name` is not set). |
 
-**Nested `domains` attributes:** `id`, `uuid`, `vdom_id`, `name`, `description`, `adom`, `zone_id`, `zone_name`, `customer`, `customer_name`, `tag`, `comp_errors`, `max_networks` — all Computed.
+**Nested `domains` attributes:** `id`, `uuid`, `vdom_id`, `name`, `description`, `adom`, `zone_id`, `zone_name`, `customer`, `customer_name`, `tag`, `comp_errors`, `max_networks`, `deploy_flow`, `state` — all Computed.
 
 > The former `zone` attribute was removed: the API now returns the zone as an object, exposed as `zone_id` and `zone_name`.
 
@@ -355,6 +357,8 @@ output "network_vlan" {
 | `deploy_flow` | String | Computed | Deploy flow that created the network: `v1` or `v2` (beta). |
 | `datacenters` | List  | Computed | Datacenters the network was deployed to; each has `id` (Number) and `name` (String). |
 | `leftover_steps` | List(String) | Computed | V2 only: steps whose configuration may still exist after a rollback or undeploy could not finish. |
+| `fortimanager_install_pending_since` | String | Computed | V2 only: since when the network's FortiManager objects wait for an install of the domain's policy package; null once the FortiGate runs them. |
+| `fortimanager_install_error` | String | Computed | V2 only: why the last check found the FortiGate not running the network's objects after the package was installed. |
 | `created_at` | String | Computed | Creation timestamp. |
 | `updated_at` | String | Computed | Last update timestamp. |
 | `networks`   | List   | Computed | List of all networks (populated when `name` is not set). |
@@ -1285,6 +1289,7 @@ data "mcs_customer" "prod" {
 |-----------------|-------------|----------|-------------|
 | `name`          | String       | Optional | Exact customer name (sent as `name__icontains`, matched exactly client-side). |
 | `id`            | String       | Optional/Computed | Customer ID. |
+| `slug`          | String       | Computed | Short DNS label of the customer; prefixes its Kubernetes cluster names. |
 | `contractid`    | String       | Computed | Contract identifier. |
 | `sdm`           | Number       | Computed | Service Delivery Manager user ID; null when not set. |
 | `admin_contacts` | List(Number) | Computed | Administrative contact IDs. |
@@ -1545,6 +1550,7 @@ data "mcs_integration" "prtg" {
 | `icon`          | String | Computed          | Icon of the integration. |
 | `has_secret`    | Bool   | Computed          | Whether a secret is stored. |
 | `has_key`       | Bool   | Computed          | Whether a key is stored. |
+| `kubernetes_endpoint` | Object | Computed    | Kubernetes endpoint settings of a vSphere integration (`credentials_key`, `content_library`, `data_disk_max_size`, `nodestorage_step`); null when not set. |
 | `integrations`  | List   | Computed          | All integrations (populated when neither `name` nor `id` is set). |
 
 ---
@@ -1639,6 +1645,7 @@ resource "mcs_customer" "example" {
 | Attribute        | Type         | Required | Description |
 |-----------------|-------------|----------|-------------|
 | `name`          | String       | **Yes**  | Customer name (max 255 characters). |
+| `slug`          | String       | No       | Short DNS label (lowercase letters, digits and `-`, max 63), unique within the tenant. Prefixes the customer's Kubernetes cluster names and names its folder in the cluster repository. Set by administrators. Computed from the API when omitted. |
 | `contractid`    | String       | No       | Contract identifier (max 255 characters). Computed from the API when omitted. |
 | `sdm`           | Number       | No       | Service Delivery Manager user ID. Null when the API has none set. Computed from the API when omitted. |
 | `tech_contacts` | List(Number) | No       | List of technical contact IDs. Computed from the API when omitted; set `[]` to clear. |
@@ -1822,6 +1829,31 @@ resource "mcs_integration" "prtg" {
 | `secret`        | String | No       | Secret or password. Sensitive, write-only. |
 | `key`           | String | No       | API key. Sensitive, write-only. |
 | `secret_expire` | String | No       | Expiry timestamp of the credentials (RFC 3339). |
+| `kubernetes_endpoint` | Object | No | Kubernetes endpoint settings of a vSphere integration; see below. Removing it clears the settings. |
+
+**`kubernetes_endpoint` attributes:**
+
+| Attribute            | Type   | Required | Description |
+|---------------------|--------|----------|-------------|
+| `credentials_key`    | String | **Yes**  | Key of the vCenter credentials in the Azure DevOps Library. Not a secret. |
+| `content_library`    | String | **Yes**  | vSphere Content Library with the node images. |
+| `data_disk_max_size` | Number | No       | Largest node storage disk (GB) on this endpoint; at least 500. Computed from the API when omitted. |
+| `nodestorage_step`   | Number | No       | Node storage sizes (GB) are a multiple of this. Computed from the API when omitted. |
+
+```hcl
+resource "mcs_integration" "vcenter" {
+  name        = "vcenter01"
+  catalog_key = "vsphere"
+  baseurl     = "https://vcenter01.example.com"
+  username    = "svc-mcs"
+  secret      = var.vcenter_password
+
+  kubernetes_endpoint = {
+    credentials_key = "vcenter01-k8s"
+    content_library = "k8s-node-images"
+  }
+}
+```
 
 **Read-only attributes:** `id` (Number), `type_name` (String), `icon` (String), `has_secret` (Bool), `has_key` (Bool).
 
@@ -1890,7 +1922,7 @@ Creating the resource queues a deploy job and waits until it has finished; destr
 
 Networks cannot be changed in place: changing any argument destroys the network and deploys a new one. The one exception is `dry_run`: changing it from `true` to `false` deploys the planned network in place.
 
-**Deploy flows.** `deploy_flow = "v1"` (the default) is the classic deploy. `deploy_flow = "v2"` (beta) deploys step by step to the datacenters chosen by `placement`, and enables `dry_run`. If a V2 deploy fails, MCS rolls back the steps it already ran; the error then reports the rollback state, the failed step and any steps whose configuration may remain (also exposed afterwards as `leftover_steps`).
+**Deploy flows.** `deploy_flow = "v1"` (the default) is the classic deploy. `deploy_flow = "v2"` (beta) deploys step by step to the datacenters chosen by `placement`, and enables `dry_run`. If a V2 deploy fails, MCS rolls back the steps it already ran; the error then reports the rollback state, the failed step and any steps whose configuration may remain (also exposed afterwards as `leftover_steps`). Caveats of a deploy or undeploy that otherwise succeeded, such as a deferred FortiManager install, are shown as Terraform warnings.
 
 **Kubernetes placement.** With V2, `placement = "standard"` (the default) deploys to the zone's default datacenters and `placement = "kubernetes"` also deploys to the zone's additional datacenters. Use the [`mcs_network_placements`](#mcs_network_placements-data-source) data source to see which datacenters each placement resolves to before deploying.
 
@@ -1996,6 +2028,8 @@ All arguments except `timeouts` force a new network when changed, apart from `dr
 | `visible`         | Bool   | Whether the interface is visible to end users. |
 | `datacenters`     | List   | Datacenters the network was deployed to; each has `id` (Number) and `name` (String). |
 | `leftover_steps`  | List(String) | V2 only: steps whose configuration may still exist after a rollback or undeploy could not finish, in the order they still need reversing. |
+| `fortimanager_install_pending_since` | String | V2 only: since when the network's FortiManager objects wait for an install of the domain's policy package; null once the FortiGate runs them. |
+| `fortimanager_install_error` | String | V2 only: why the last check found the FortiGate not running the network's objects after the package was installed. |
 | `dry_run_changes` | List   | Changes the dry run reported, captured when the planned network was created; empty once deployed. Each has `step`, `system`, `datacenter` (null when not datacenter-specific), `action` (`create`, `update`, `present` or `conflict`), `object` and `detail`. |
 | `created_at`      | String | Creation timestamp. |
 | `updated_at`      | String | Last update timestamp. |

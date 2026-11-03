@@ -45,6 +45,8 @@ type NetworkDataSourceModel struct {
 	DeployFlow            types.String   `tfsdk:"deploy_flow"`
 	Datacenters           types.List     `tfsdk:"datacenters"`
 	LeftoverSteps         types.List     `tfsdk:"leftover_steps"`
+	FmgPendingSince       types.String   `tfsdk:"fortimanager_install_pending_since"`
+	FmgInstallError       types.String   `tfsdk:"fortimanager_install_error"`
 	CreatedAt             types.String   `tfsdk:"created_at"`
 	UpdatedAt             types.String   `tfsdk:"updated_at"`
 	Networks              []NetworkModel `tfsdk:"networks"`
@@ -75,6 +77,8 @@ type NetworkModel struct {
 	DeployFlow            types.String `tfsdk:"deploy_flow"`
 	Datacenters           types.List   `tfsdk:"datacenters"`
 	LeftoverSteps         types.List   `tfsdk:"leftover_steps"`
+	FmgPendingSince       types.String `tfsdk:"fortimanager_install_pending_since"`
+	FmgInstallError       types.String `tfsdk:"fortimanager_install_error"`
 	CreatedAt             types.String `tfsdk:"created_at"`
 	UpdatedAt             types.String `tfsdk:"updated_at"`
 }
@@ -109,10 +113,11 @@ type networkV3APIModel struct {
 	DeployFlow            string                  `json:"deploy_flow"`
 	Datacenters           []datacenterRefAPIModel `json:"datacenters"`
 	LeftoverSteps         json.RawMessage         `json:"leftover_steps"`
-	// State is never exposed in a schema; it only tells a planned (dry-run) network apart.
-	State     string `json:"state"`
-	CreatedAt string `json:"created_at_timestamp"`
-	UpdatedAt string `json:"updated_at_timestamp"`
+	State                 string                  `json:"state"`
+	FmgPendingSince       *string                 `json:"fortimanager_install_pending_since"`
+	FmgInstallError       string                  `json:"fortimanager_install_error"`
+	CreatedAt             string                  `json:"created_at_timestamp"`
+	UpdatedAt             string                  `json:"updated_at_timestamp"`
 }
 
 const networkStatePlanned = "planned"
@@ -192,6 +197,8 @@ func (n *networkV3APIModel) toModel() NetworkModel {
 		DeployFlow:            types.StringValue(n.DeployFlow),
 		Datacenters:           datacenterRefList(n.Datacenters),
 		LeftoverSteps:         leftoverStepsList(n.LeftoverSteps),
+		FmgPendingSince:       types.StringPointerValue(n.FmgPendingSince),
+		FmgInstallError:       types.StringValue(n.FmgInstallError),
 		CreatedAt:             types.StringValue(n.CreatedAt),
 		UpdatedAt:             types.StringValue(n.UpdatedAt),
 	}
@@ -213,24 +220,33 @@ func (d *NetworkDataSource) Metadata(_ context.Context, req datasource.MetadataR
 // networkDetailAttrDescriptions describes the v3 fields shared by the top-level (single network)
 // attributes and the entries of the `networks` list.
 var networkDetailAttrDescriptions = map[string]string{
-	"customer":                 "Customer that owns the network.",
-	"customer_name":            "Name of the customer that owns the network.",
-	"type":                     "Interface type: `vlan`, `tunnel`, `lacp` or `physical`.",
-	"parent":                   "Parent LACP interface.",
-	"ipv6_prefix":              "IPv6 prefix of the network.",
-	"ipv6_address":             "IPv6 address of the network.",
-	"dhcp_server":              "Whether a DHCP server is enabled on the interface.",
-	"dhcp_server_address_pool": "DHCP server address pool.",
-	"dhcp_server_netmask":      "DHCP server netmask.",
-	"dhcp_server_dns_servers":  "Comma-separated DNS servers handed out by the DHCP server.",
-	"dhcp_server_lease_time":   "DHCP lease time.",
-	"visible":                  "Whether the interface is visible to end users.",
-	"deploy_flow":              "Deploy flow that created the network: `v1` or `v2` (beta). Undeploy follows the same flow.",
-	"datacenters":              "Datacenters the network was deployed to (`id` and `name`).",
-	"leftover_steps":           "V2 only: steps whose configuration may still exist after a rollback or undeploy could not finish, in the order they still need reversing.",
-	"created_at":               "Time the network was created.",
-	"updated_at":               "Time the network was last updated.",
+	"customer":                           "Customer that owns the network.",
+	"customer_name":                      "Name of the customer that owns the network.",
+	"type":                               "Interface type: `vlan`, `tunnel`, `lacp` or `physical`.",
+	"parent":                             "Parent LACP interface.",
+	"ipv6_prefix":                        "IPv6 prefix of the network.",
+	"ipv6_address":                       "IPv6 address of the network.",
+	"dhcp_server":                        "Whether a DHCP server is enabled on the interface.",
+	"dhcp_server_address_pool":           "DHCP server address pool.",
+	"dhcp_server_netmask":                "DHCP server netmask.",
+	"dhcp_server_dns_servers":            "Comma-separated DNS servers handed out by the DHCP server.",
+	"dhcp_server_lease_time":             "DHCP lease time.",
+	"visible":                            "Whether the interface is visible to end users.",
+	"deploy_flow":                        "Deploy flow that created the network: `v1` or `v2` (beta). Undeploy follows the same flow.",
+	"datacenters":                        "Datacenters the network was deployed to (`id` and `name`).",
+	"leftover_steps":                     "V2 only: steps whose configuration may still exist after a rollback or undeploy could not finish, in the order they still need reversing.",
+	"fortimanager_install_pending_since": networkFmgPendingDesc,
+	"fortimanager_install_error":         networkFmgErrorDesc,
+	"created_at":                         "Time the network was created.",
+	"updated_at":                         "Time the network was last updated.",
 }
+
+const (
+	networkFmgPendingDesc = "V2 only: since when the network's FortiManager objects wait for an install of the domain's " +
+		"policy package; null once the FortiGate runs them."
+	networkFmgErrorDesc = "V2 only: why the last check found the FortiGate not running the network's objects after the " +
+		"package was installed."
+)
 
 func networkDetailAttrs(withDescriptions bool) map[string]schema.Attribute {
 	desc := func(k string) string {
@@ -261,9 +277,11 @@ func networkDetailAttrs(withDescriptions bool) map[string]schema.Attribute {
 				"name": schema.StringAttribute{Computed: true},
 			}},
 		},
-		"leftover_steps": schema.ListAttribute{Computed: true, ElementType: types.StringType, Description: desc("leftover_steps")},
-		"created_at":     schema.StringAttribute{Computed: true, Description: desc("created_at")},
-		"updated_at":     schema.StringAttribute{Computed: true, Description: desc("updated_at")},
+		"leftover_steps":                     schema.ListAttribute{Computed: true, ElementType: types.StringType, Description: desc("leftover_steps")},
+		"fortimanager_install_pending_since": schema.StringAttribute{Computed: true, Description: desc("fortimanager_install_pending_since")},
+		"fortimanager_install_error":         schema.StringAttribute{Computed: true, Description: desc("fortimanager_install_error")},
+		"created_at":                         schema.StringAttribute{Computed: true, Description: desc("created_at")},
+		"updated_at":                         schema.StringAttribute{Computed: true, Description: desc("updated_at")},
 	}
 }
 
@@ -441,6 +459,8 @@ func networkDataSourceFromModel(m NetworkModel) NetworkDataSourceModel {
 		DeployFlow:            m.DeployFlow,
 		Datacenters:           m.Datacenters,
 		LeftoverSteps:         m.LeftoverSteps,
+		FmgPendingSince:       m.FmgPendingSince,
+		FmgInstallError:       m.FmgInstallError,
 		CreatedAt:             m.CreatedAt,
 		UpdatedAt:             m.UpdatedAt,
 	}

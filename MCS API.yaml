@@ -13644,6 +13644,47 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v3/networking/fortimanager-installs/:
+    post:
+      operationId: v3_networking_fortimanager_installs_create
+      description: |-
+        POST /api/v3/networking/fortimanager-installs/
+
+        "Install now" for a Domain whose V2 Networks wait for a FortiManager
+        install (ADR-0033): installs the Domain's policy package to its VDOM.
+        That installs everything pending in the package, other people's changes
+        too. Needs ``firewall.direct_management``, as a firewall commit does.
+      tags:
+      - v3/networking
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FortiManagerInstall'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FortiManagerInstall'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FortiManagerInstall'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FortiManagerInstallQueued'
+          description: ''
+        '403':
+          description: firewall.direct_management required
+        '404':
+          description: Not found
+        '409':
+          description: Nothing waits for an install, or one is already queued
   /api/v3/networking/network-placements/:
     get:
       operationId: v3_networking_network_placements_retrieve
@@ -15517,6 +15558,13 @@ components:
           type: string
           description: Customer name.
           maxLength: 255
+        slug:
+          type: string
+          description: Short DNS label, unique within the tenant. Prefixes the customer's
+            Kubernetes cluster names and names its folder in the cluster repository.
+            Set by administrators.
+          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+          maxLength: 63
         admin_contacts:
           type: array
           items:
@@ -15554,9 +15602,16 @@ components:
           type: string
           description: Customer name.
           maxLength: 255
+        slug:
+          type: string
+          readOnly: true
+          description: Short DNS label, unique within the tenant. Prefixes the customer's
+            Kubernetes cluster names and names its folder in the cluster repository.
+            Set by administrators.
       required:
       - id
       - name
+      - slug
     CveCheck:
       type: object
       properties:
@@ -16237,10 +16292,35 @@ components:
         max_networks:
           type: integer
           readOnly: true
+        deploy_flow:
+          allOf:
+          - $ref: '#/components/schemas/DeployFlowEnum'
+          readOnly: true
+          description: |-
+            The Deploy Flow that deploys the domain; V1 is the deploy_vdom job, V2 the step runner.
+
+            * `v1` - V1
+            * `v2` - V2 (beta)
+        state:
+          allOf:
+          - $ref: '#/components/schemas/LifecycleStateEnum'
+          readOnly: true
+          description: |-
+            Lifecycle state. V1 domains do not track their deploy, so they are active.
+
+            * `deploying` - Deploying
+            * `planned` - Planned (dry run)
+            * `active` - Active
+            * `rolling_back` - Rolling back
+            * `rollback_failed` - Rollback failed
+            * `undeploying` - Undeploying
+            * `undeploy_failed` - Undeploy failed
       required:
       - customer
+      - deploy_flow
       - id
       - max_networks
+      - state
       - uuid
       - zone
     DomainDbl:
@@ -16430,9 +16510,12 @@ components:
           type: string
           readOnly: true
         type:
-          $ref: '#/components/schemas/FirewallTypeEnum'
+          allOf:
+          - $ref: '#/components/schemas/FirewallTypeEnum'
+          readOnly: true
         device:
           type: string
+          readOnly: true
         device_name:
           type: string
           readOnly: true
@@ -16444,14 +16527,17 @@ components:
           readOnly: true
         context:
           type: string
+          readOnly: true
           description: VDOM on Fortimanager or Device Group on Panorama.
           maxLength: 255
         external_interface:
           type: string
+          readOnly: true
           description: Name of the external interface (internet or wan facing.
           maxLength: 255
         internal_interface:
           type: string
+          readOnly: true
           description: Name of the internal interface (VDOM or transit facing).
           maxLength: 255
         default_log_profile:
@@ -16466,10 +16552,12 @@ components:
           maxLength: 255
         multi_tenant:
           type: boolean
+          readOnly: true
           description: Used device is multi tenant, use the supplied tag name for
             rule separation.
         tag_name:
           type: string
+          readOnly: true
           description: In case of multi tenant firewall, the TAG name for object lookups.
             (PaloAlto only)
           maxLength: 255
@@ -16478,13 +16566,19 @@ components:
           description: Opt in to the daily Panorama NAT public IP import job for this
             device-group. Has no effect unless the sync orchestrator is also scheduled.
       required:
+      - context
       - customer
       - customer_name
       - device
       - device_name
+      - external_interface
       - id
+      - internal_interface
+      - multi_tenant
       - platform
       - supports_threat_protection
+      - tag_name
+      - type
     FirewallCommit:
       type: object
       properties:
@@ -16951,6 +17045,30 @@ components:
       description: |-
         * `internet` - Internet
         * `wan` - WAN
+    FortiManagerInstall:
+      type: object
+      properties:
+        domain:
+          type: string
+          format: uuid
+          description: UUID of the Domain whose V2 Networks wait for an install.
+        changeid:
+          type: string
+          default: ''
+          description: The change this install is done under, for the audit log.
+      required:
+      - domain
+    FortiManagerInstallQueued:
+      type: object
+      properties:
+        job_id:
+          type: integer
+        networks:
+          type: integer
+          description: How many Networks of the Domain wait for the install.
+      required:
+      - job_id
+      - networks
     GotopriorityexpressionEnum:
       enum:
       - NEXT
@@ -17224,6 +17342,10 @@ components:
         has_key:
           type: string
           readOnly: true
+        kubernetes_endpoint:
+          allOf:
+          - $ref: '#/components/schemas/KubernetesEndpoint'
+          nullable: true
         created_at_timestamp:
           type: string
           format: date-time
@@ -17489,6 +17611,34 @@ components:
       - id
       - jobname
       - status
+    KubernetesEndpoint:
+      type: object
+      description: Kubernetes endpoint settings of a vSphere Integration (ADR-0035).
+      properties:
+        credentials_key:
+          type: string
+          description: Key of the vCenter credentials in the Azure DevOps Library.
+            Not a secret.
+          maxLength: 255
+        content_library:
+          type: string
+          description: vSphere Content Library with the node images.
+          maxLength: 255
+        data_disk_max_size:
+          type: integer
+          maximum: 4294967295
+          minimum: 500
+          format: int64
+          description: Largest node storage disk (GB) on this endpoint; at least 500.
+        nodestorage_step:
+          type: integer
+          maximum: 4294967295
+          minimum: 1
+          format: int64
+          description: Node storage sizes (GB) are a multiple of this.
+      required:
+      - content_library
+      - credentials_key
     Label:
       type: object
       description: |-
@@ -17737,6 +17887,24 @@ components:
         * `ssl_bridge` - SSL_BRIDGE
         * `tcp` - TCP
         * `udp` - UDP
+    LifecycleStateEnum:
+      enum:
+      - deploying
+      - planned
+      - active
+      - rolling_back
+      - rollback_failed
+      - undeploying
+      - undeploy_failed
+      type: string
+      description: |-
+        * `deploying` - Deploying
+        * `planned` - Planned (dry run)
+        * `active` - Active
+        * `rolling_back` - Rolling back
+        * `rollback_failed` - Rollback failed
+        * `undeploying` - Undeploying
+        * `undeploy_failed` - Undeploy failed
     Link:
       type: object
       properties:
@@ -18359,6 +18527,12 @@ components:
           allOf:
           - $ref: '#/components/schemas/OperationRollback'
           nullable: true
+        warnings:
+          type: array
+          items:
+            type: string
+          description: 'V2: what succeeded with a caveat, e.g. a FortiManager install
+            that was deferred (ADR-0033).'
       required:
       - dry_run
       - job_id
@@ -18369,6 +18543,7 @@ components:
       - rollback
       - status
       - steps
+      - warnings
     NetworkPlacements:
       type: object
       properties:
@@ -18514,7 +18689,7 @@ components:
             * `v2` - V2 (beta)
         state:
           allOf:
-          - $ref: '#/components/schemas/NetworkV3StateEnum'
+          - $ref: '#/components/schemas/LifecycleStateEnum'
           readOnly: true
           description: |-
             Lifecycle state. V1 networks are written when their deploy finishes, so they start active.
@@ -18536,6 +18711,19 @@ components:
           description: 'V2 only: the steps whose configuration may still exist after
             a Rollback or Undeploy could not finish, in the order they still need
             reversing.'
+        fortimanager_install_pending_since:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: 'V2 only: since when the Network''s FortiManager objects wait
+            for an install of the Domain''s policy package; empty once the FortiGate
+            runs them.'
+        fortimanager_install_error:
+          type: string
+          readOnly: true
+          description: 'V2 only: why the last check found the FortiGate not running
+            the Network''s objects after the package was installed.'
         created_at_timestamp:
           type: string
           format: date-time
@@ -18560,6 +18748,8 @@ components:
       - dhcp_server_netmask
       - domain
       - domain_detail
+      - fortimanager_install_error
+      - fortimanager_install_pending_since
       - id
       - ipv4_address
       - ipv4_prefix
@@ -18573,24 +18763,6 @@ components:
       - updated_at_timestamp
       - visible
       - vlanid
-    NetworkV3StateEnum:
-      enum:
-      - deploying
-      - planned
-      - active
-      - rolling_back
-      - rollback_failed
-      - undeploying
-      - undeploy_failed
-      type: string
-      description: |-
-        * `deploying` - Deploying
-        * `planned` - Planned (dry run)
-        * `active` - Active
-        * `rolling_back` - Rolling back
-        * `rollback_failed` - Rollback failed
-        * `undeploying` - Undeploying
-        * `undeploy_failed` - Undeploy failed
     NetworkV3TypeEnum:
       enum:
       - vlan
@@ -18693,7 +18865,7 @@ components:
         * `conflict` - conflict
     OperationRollback:
       type: object
-      description: How a failed V2 deploy was reversed.
+      description: How a failed V2 run was reversed.
       properties:
         state:
           $ref: '#/components/schemas/OperationRollbackStateEnum'
@@ -18721,7 +18893,7 @@ components:
         * `rollback_failed` - rollback_failed
     OperationStep:
       type: object
-      description: One step of a V2 deploy, from the step table.
+      description: One step of a V2 run, from the step table.
       properties:
         name:
           type: string
@@ -21127,6 +21299,13 @@ components:
           type: string
           description: Customer name.
           maxLength: 255
+        slug:
+          type: string
+          description: Short DNS label, unique within the tenant. Prefixes the customer's
+            Kubernetes cluster names and names its folder in the cluster repository.
+            Set by administrators.
+          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+          maxLength: 63
         admin_contacts:
           type: array
           items:
@@ -21565,6 +21744,29 @@ components:
         max_networks:
           type: integer
           readOnly: true
+        deploy_flow:
+          allOf:
+          - $ref: '#/components/schemas/DeployFlowEnum'
+          readOnly: true
+          description: |-
+            The Deploy Flow that deploys the domain; V1 is the deploy_vdom job, V2 the step runner.
+
+            * `v1` - V1
+            * `v2` - V2 (beta)
+        state:
+          allOf:
+          - $ref: '#/components/schemas/LifecycleStateEnum'
+          readOnly: true
+          description: |-
+            Lifecycle state. V1 domains do not track their deploy, so they are active.
+
+            * `deploying` - Deploying
+            * `planned` - Planned (dry run)
+            * `active` - Active
+            * `rolling_back` - Rolling back
+            * `rollback_failed` - Rollback failed
+            * `undeploying` - Undeploying
+            * `undeploy_failed` - Undeploy failed
     PatchedDomainDbl:
       type: object
       description: Adds nested create feature
@@ -21733,9 +21935,12 @@ components:
           type: string
           readOnly: true
         type:
-          $ref: '#/components/schemas/FirewallTypeEnum'
+          allOf:
+          - $ref: '#/components/schemas/FirewallTypeEnum'
+          readOnly: true
         device:
           type: string
+          readOnly: true
         device_name:
           type: string
           readOnly: true
@@ -21747,14 +21952,17 @@ components:
           readOnly: true
         context:
           type: string
+          readOnly: true
           description: VDOM on Fortimanager or Device Group on Panorama.
           maxLength: 255
         external_interface:
           type: string
+          readOnly: true
           description: Name of the external interface (internet or wan facing.
           maxLength: 255
         internal_interface:
           type: string
+          readOnly: true
           description: Name of the internal interface (VDOM or transit facing).
           maxLength: 255
         default_log_profile:
@@ -21769,10 +21977,12 @@ components:
           maxLength: 255
         multi_tenant:
           type: boolean
+          readOnly: true
           description: Used device is multi tenant, use the supplied tag name for
             rule separation.
         tag_name:
           type: string
+          readOnly: true
           description: In case of multi tenant firewall, the TAG name for object lookups.
             (PaloAlto only)
           maxLength: 255
@@ -22142,6 +22352,10 @@ components:
         has_key:
           type: string
           readOnly: true
+        kubernetes_endpoint:
+          allOf:
+          - $ref: '#/components/schemas/KubernetesEndpoint'
+          nullable: true
         created_at_timestamp:
           type: string
           format: date-time
@@ -23217,6 +23431,7 @@ components:
           nullable: true
         is_superuser:
           type: boolean
+          readOnly: true
           title: Superuser status
           description: Designates that this user has all permissions without explicitly
             assigning them.
@@ -23239,6 +23454,7 @@ components:
           maxLength: 254
         is_staff:
           type: boolean
+          readOnly: true
           title: Staff status
           description: Designates whether the user can log into this admin site.
         is_active:
@@ -24322,6 +24538,7 @@ components:
           nullable: true
         is_superuser:
           type: boolean
+          readOnly: true
           title: Superuser status
           description: Designates that this user has all permissions without explicitly
             assigning them.
@@ -24344,6 +24561,7 @@ components:
           maxLength: 254
         is_staff:
           type: boolean
+          readOnly: true
           title: Staff status
           description: Designates whether the user can log into this admin site.
         is_active:
@@ -24367,6 +24585,8 @@ components:
           description: Specific permissions for this user.
       required:
       - id
+      - is_staff
+      - is_superuser
     UserCapability:
       type: object
       description: Read-only serializer for the v3 user capability response.

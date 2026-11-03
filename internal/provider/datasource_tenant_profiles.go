@@ -159,6 +159,8 @@ type integrationItem struct {
 	Icon         types.String `tfsdk:"icon"`
 	HasSecret    types.Bool   `tfsdk:"has_secret"`
 	HasKey       types.Bool   `tfsdk:"has_key"`
+
+	KubernetesEndpoint types.Object `tfsdk:"kubernetes_endpoint"`
 }
 
 func NewIntegrationDataSource() datasource.DataSource {
@@ -181,6 +183,16 @@ func NewIntegrationDataSource() datasource.DataSource {
 			"icon":          dsString("Icon of the integration."),
 			"has_secret":    dsBool("Whether a secret is stored."),
 			"has_key":       dsBool("Whether a key is stored."),
+			"kubernetes_endpoint": dschema.SingleNestedAttribute{
+				Computed:    true,
+				Description: "Kubernetes endpoint settings of a vSphere integration; null when not set.",
+				Attributes: map[string]dschema.Attribute{
+					"credentials_key":    dsString("Key of the vCenter credentials in the Azure DevOps Library."),
+					"content_library":    dsString("vSphere Content Library with the node images."),
+					"data_disk_max_size": dsInt64("Largest node storage disk (GB) on this endpoint."),
+					"nodestorage_step":   dsInt64("Node storage sizes (GB) are a multiple of this."),
+				},
+			},
 		},
 		nameOf: func(a *integrationAPIModel) string { return a.Name },
 		toItem: func(a *integrationAPIModel) integrationItem {
@@ -195,6 +207,8 @@ func NewIntegrationDataSource() datasource.DataSource {
 				Icon:         types.StringValue(a.Icon),
 				HasSecret:    types.BoolValue(bool(a.HasSecret)),
 				HasKey:       types.BoolValue(bool(a.HasKey)),
+
+				KubernetesEndpoint: kubernetesEndpointFromAPI(a.KubernetesEndpoint),
 			}
 		},
 	}

@@ -83,6 +83,8 @@ type NetworkResourceModel struct {
 	DryRunChanges         types.List     `tfsdk:"dry_run_changes"`
 	Datacenters           types.List     `tfsdk:"datacenters"`
 	LeftoverSteps         types.List     `tfsdk:"leftover_steps"`
+	FmgPendingSince       types.String   `tfsdk:"fortimanager_install_pending_since"`
+	FmgInstallError       types.String   `tfsdk:"fortimanager_install_error"`
 	CreatedAt             types.String   `tfsdk:"created_at"`
 	UpdatedAt             types.String   `tfsdk:"updated_at"`
 	Timeouts              timeouts.Value `tfsdk:"timeouts"`
@@ -351,8 +353,12 @@ func (r *NetworkResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 				ElementType: types.StringType,
 				Description: "V2 only: steps whose configuration may still exist after a rollback or undeploy could not finish.",
 			},
-			"created_at": networkComputedString("Time the network was created."),
-			"updated_at": networkComputedString("Time the network was last updated."),
+			// These change after the deploy (e.g. once FortiManager installs the policy package),
+			// so they are left unknown on updates instead of copied from state.
+			"fortimanager_install_pending_since": schema.StringAttribute{Computed: true, Description: networkFmgPendingDesc},
+			"fortimanager_install_error":         schema.StringAttribute{Computed: true, Description: networkFmgErrorDesc},
+			"created_at":                         networkComputedString("Time the network was created."),
+			"updated_at":                         networkComputedString("Time the network was last updated."),
 		},
 		Blocks: map[string]schema.Block{
 			"timeouts": timeouts.Block(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
@@ -457,6 +463,8 @@ func networkFromAPI(m *NetworkResourceModel, api *networkV3APIModel) {
 	m.Visible = n.Visible
 	m.Datacenters = n.Datacenters
 	m.LeftoverSteps = n.LeftoverSteps
+	m.FmgPendingSince = n.FmgPendingSince
+	m.FmgInstallError = n.FmgInstallError
 	m.CreatedAt = n.CreatedAt
 	m.UpdatedAt = n.UpdatedAt
 	switch {
@@ -543,6 +551,7 @@ func (r *NetworkResource) Create(ctx context.Context, req resource.CreateRequest
 		plan.DryRunChanges = dryRunChangesList(final.Steps)
 		addDryRunConflictWarning(final.Steps, &resp.Diagnostics)
 	}
+	final.addWarnings("Network deployed with a warning", &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -645,7 +654,7 @@ func (r *NetworkResource) Update(ctx context.Context, req resource.UpdateRequest
 		}
 		waitCtx, cancel := context.WithTimeout(ctx, updateTimeout)
 		defer cancel()
-		if err := r.deployPlanned(waitCtx, id); err != nil {
+		if err := r.deployPlanned(waitCtx, id, &resp.Diagnostics); err != nil {
 			resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 			resp.Diagnostics.AddError("Error deploying planned network", err.Error())
 			return
@@ -667,8 +676,8 @@ func (r *NetworkResource) Update(ctx context.Context, req resource.UpdateRequest
 }
 
 // deployPlanned deploys a network left planned by a dry run and waits for the deploy. A failed
-// deploy rolls back and leaves the network planned.
-func (r *NetworkResource) deployPlanned(ctx context.Context, id string) error {
+// deploy rolls back and leaves the network planned. Warnings the deploy returned go to diags.
+func (r *NetworkResource) deployPlanned(ctx context.Context, id string, diags *diag.Diagnostics) error {
 	// Sent once, like the create: a retry could queue a second deploy.
 	var op networkOperationAPIModel
 	err := r.client.PostOnce(ctx, networkPath(id)+"deploy/", nil, &op)
@@ -685,9 +694,11 @@ func (r *NetworkResource) deployPlanned(ctx context.Context, id string) error {
 		return fmt.Errorf("the deploy request failed and was not retried; check in MCS whether a deploy was queued "+
 			"before trying again.\n\n%w", err)
 	}
-	if _, err := waitForNetworkOperation(ctx, r.client, &op); err != nil {
+	final, err := waitForNetworkOperation(ctx, r.client, &op)
+	if err != nil {
 		return fmt.Errorf("%w\n\nThe network is still planned; fix the cause and apply again", err)
 	}
+	final.addWarnings("Network deployed with a warning", diags)
 	return nil
 }
 
@@ -720,10 +731,12 @@ func (r *NetworkResource) Delete(ctx context.Context, req resource.DeleteRequest
 		resp.Diagnostics.AddError("Error deleting network", err.Error())
 		return
 	default:
-		if _, err := waitForNetworkOperation(waitCtx, r.client, &op); err != nil {
+		final, err := waitForNetworkOperation(waitCtx, r.client, &op)
+		if err != nil {
 			resp.Diagnostics.AddError("Error deleting network", err.Error())
 			return
 		}
+		final.addWarnings("Network undeployed with a warning", &resp.Diagnostics)
 	}
 
 	if err := waitForNetworkGone(waitCtx, r.client, networkPath(id)); err != nil {

@@ -34,6 +34,8 @@ type DomainDataSourceModel struct {
 	Tag          types.List    `tfsdk:"tag"`
 	CompErrors   types.Int64   `tfsdk:"comp_errors"`
 	MaxNetworks  types.Int64   `tfsdk:"max_networks"`
+	DeployFlow   types.String  `tfsdk:"deploy_flow"`
+	State        types.String  `tfsdk:"state"`
 	Domains      []DomainModel `tfsdk:"domains"`
 }
 
@@ -51,6 +53,8 @@ type DomainModel struct {
 	Tag          types.List   `tfsdk:"tag"`
 	CompErrors   types.Int64  `tfsdk:"comp_errors"`
 	MaxNetworks  types.Int64  `tfsdk:"max_networks"`
+	DeployFlow   types.String `tfsdk:"deploy_flow"`
+	State        types.String `tfsdk:"state"`
 }
 
 type domainZoneRefAPI struct {
@@ -109,7 +113,15 @@ type domainAPIModel struct {
 	Tag         domainTagList      `json:"tag"`
 	CompErrors  int64              `json:"comp_errors"`
 	MaxNetworks int64              `json:"max_networks"`
+	DeployFlow  string             `json:"deploy_flow"`
+	State       string             `json:"state"`
 }
+
+const (
+	domainDeployFlowDesc = "Deploy flow that deploys the domain: `v1` (the deploy_vdom job) or `v2` (beta, the step runner)."
+	domainStateDesc      = "Lifecycle state: `deploying`, `planned`, `active`, `rolling_back`, `rollback_failed`, " +
+		"`undeploying` or `undeploy_failed`. V1 domains are always `active`."
+)
 
 func NewDomainDataSource() datasource.DataSource {
 	return &DomainDataSource{}
@@ -134,6 +146,8 @@ func (d *DomainDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 		"tag":           schema.ListAttribute{Computed: true, ElementType: types.StringType},
 		"comp_errors":   schema.Int64Attribute{Computed: true},
 		"max_networks":  schema.Int64Attribute{Computed: true},
+		"deploy_flow":   schema.StringAttribute{Computed: true, Description: domainDeployFlowDesc},
+		"state":         schema.StringAttribute{Computed: true, Description: domainStateDesc},
 	}
 
 	resp.Schema = schema.Schema{
@@ -192,6 +206,14 @@ func (d *DomainDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 				Computed:    true,
 				Description: "Maximum number of networks of the matched domain (only set when `name` is provided).",
 			},
+			"deploy_flow": schema.StringAttribute{
+				Computed:    true,
+				Description: domainDeployFlowDesc + " Only set when `name` is provided.",
+			},
+			"state": schema.StringAttribute{
+				Computed:    true,
+				Description: domainStateDesc + " Only set when `name` is provided.",
+			},
 			"domains": schema.ListNestedAttribute{
 				Computed:    true,
 				Description: "All domains (populated when `name` is not set).",
@@ -231,6 +253,8 @@ func domainModelFromAPI(ctx context.Context, item *domainAPIModel, diags *diag.D
 		Tag:          computedListValue(ctx, types.StringType, []string(item.Tag), diags),
 		CompErrors:   types.Int64Value(item.CompErrors),
 		MaxNetworks:  types.Int64Value(item.MaxNetworks),
+		DeployFlow:   types.StringValue(item.DeployFlow),
+		State:        types.StringValue(item.State),
 	}
 	if item.Zone != nil {
 		m.ZoneId = types.Int64PointerValue(item.Zone.Id)
@@ -288,6 +312,8 @@ func (d *DomainDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		config.Tag = m.Tag
 		config.CompErrors = m.CompErrors
 		config.MaxNetworks = m.MaxNetworks
+		config.DeployFlow = m.DeployFlow
+		config.State = m.State
 		config.Domains = []DomainModel{}
 		resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
 		return
@@ -307,6 +333,8 @@ func (d *DomainDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		Tag:          types.ListNull(types.StringType),
 		CompErrors:   types.Int64Null(),
 		MaxNetworks:  types.Int64Null(),
+		DeployFlow:   types.StringNull(),
+		State:        types.StringNull(),
 		Domains:      make([]DomainModel, 0, len(items)),
 	}
 	for i := range items {
