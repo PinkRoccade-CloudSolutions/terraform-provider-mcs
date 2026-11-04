@@ -99,6 +99,8 @@ output "k8s_planned_changes" {
 | `dry_run`         | Bool   | No       | V2 only: plan the deploy without changing anything (default `false`). See *Dry run* above. |
 | `timeouts`        | Block  | No       | `create`, `update` (deploying a planned network) and `delete` durations (e.g. `"45m"`). All default to 30 minutes. |
 
+To manage the network's DHCP server and static leases, use `mcs_network_dhcp_server` and `mcs_network_dhcp_lease`; the `dhcp_server_*` attributes below are read-only.
+
 All arguments except `timeouts` force a new network when changed, apart from `dry_run` going from `true` to `false`, which deploys in place. Setting `placement` or `dry_run = true` without `deploy_flow = "v2"` is rejected at plan time.
 
 **Read-only attributes:**

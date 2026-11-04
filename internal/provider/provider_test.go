@@ -167,15 +167,15 @@ func TestProvider_Configure_ExplicitValues(t *testing.T) {
 func TestProvider_Resources_Count(t *testing.T) {
 	p := &MCSProvider{version: "test"}
 	resources := p.Resources(context.Background())
-	if len(resources) != 39 {
-		t.Errorf("expected 39 resources, got %d", len(resources))
+	if len(resources) != 41 {
+		t.Errorf("expected 41 resources, got %d", len(resources))
 	}
 }
 
 func TestProvider_DataSources_Count(t *testing.T) {
 	p := &MCSProvider{version: "test"}
 	dataSources := p.DataSources(context.Background())
-	if len(dataSources) != 43 {
-		t.Errorf("expected 43 data sources, got %d", len(dataSources))
+	if len(dataSources) != 44 {
+		t.Errorf("expected 44 data sources, got %d", len(dataSources))
 	}
 }
