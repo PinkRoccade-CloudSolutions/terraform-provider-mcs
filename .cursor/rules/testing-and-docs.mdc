@@ -21,15 +21,21 @@ Every code change to this Terraform provider MUST include corresponding test upd
 
 ## Documentation
 
-- All end-user documentation lives in `docs/index.md`.
-- **Every new resource or data source** must be added to the Table of Contents and have a full section with:
+The Terraform Registry only builds per-type pages from `docs/resources/` and `docs/data-sources/`; `docs/index.md` is the provider overview page only.
+
+- **Every resource** has a page `docs/resources/<name>.md` (name without the `mcs_` prefix), an example `examples/resources/mcs_<name>/resource.tf` and, when it supports import, `examples/resources/mcs_<name>/import.sh`.
+- **Every data source** has a page `docs/data-sources/<name>.md` and an example `examples/data-sources/mcs_<name>/data-source.tf`.
+- Each page starts with Registry front matter (`page_title`, `subcategory`, `description`) followed by `# mcs_<name> (Resource)` or `# mcs_<name> (Data Source)`, and has:
   - A description of what it manages.
-  - An example HCL usage block.
-  - An attribute reference table listing all arguments and read-only attributes.
-- **Every modification** (new field, removed field, changed behavior) must update the relevant section in `docs/index.md` to reflect the change.
+  - `## Example Usage` with an HCL block that is byte-for-byte identical to the `examples/` file.
+  - An attribute reference table listing all arguments (with Required/Optional) and read-only attributes.
+  - For resources: `## Import` with the same command as `import.sh`.
+- Examples must be self-contained: declare every object they reference (use a data source lookup for existing objects and a `variable` for secrets) so they pass `terraform validate` and `terraform fmt -check`.
+- **Every modification** (new field, removed field, changed behavior) must update the page and, if the example changes, the `examples/` file.
+- `TestDocs_*` in `internal/provider/docs_test.go` fails when a page, example or import file is missing, when a page does not mention a schema attribute, or when a page and its example drift apart.
 
 ## Checklist (apply after every change)
 
 1. Code change implemented.
 2. Tests added or updated — and passing.
-3. `docs/index.md` updated to reflect the change.
+3. The page in `docs/resources/` or `docs/data-sources/` and its `examples/` file updated, and `TestDocs_*` passing.

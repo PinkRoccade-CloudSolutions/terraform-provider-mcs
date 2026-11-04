@@ -60,9 +60,9 @@ Most resources are imported by their MCS `id`. A few use a different ID:
 | `mcs_firewall_rule` | `<domain>/<policyid>` |
 | `mcs_dns_entry` | `<domain_uuid>/<name>/<type>/<content>` |
 
-After importing, run `terraform plan`. If it shows changes, update your configuration to match the imported object. The Import subsection of each resource in the [docs](./docs/index.md) gives the exact ID format and an example.
+After importing, run `terraform plan`. If it shows changes, update your configuration to match the imported object. The Import section of each resource page in [`docs/resources/`](./docs/resources) gives the exact ID format and an example.
 
-For full documentation on all supported resources and data sources, see the [docs](./docs/index.md).
+For full documentation, see the provider overview in [`docs/index.md`](./docs/index.md), one page per resource in [`docs/resources/`](./docs/resources) and per data source in [`docs/data-sources/`](./docs/data-sources), or the [Terraform Registry](https://registry.terraform.io/providers/PinkRoccade-CloudSolutions/mcs/latest/docs). Runnable examples live in [`examples/`](./examples).
 
 ## Developing the Provider
 
