@@ -111,6 +111,7 @@ func (p *MCSProvider) Resources(_ context.Context) []func() resource.Resource {
 		NewFirewallRuleResource,
 		NewFirewallServiceResource,
 		NewFirewallServiceGroupResource,
+		NewFirewallCommitResource,
 		NewIngressClusterResource,
 		NewIntegrationResource,
 		NewIntegrationTypeResource,
