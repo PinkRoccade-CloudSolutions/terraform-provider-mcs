@@ -16,19 +16,21 @@ import (
 // teardown. It is a variable so tests can shorten it.
 var networkOperationPollInterval = 5 * time.Second
 
-// networkOperationAPIModel is a queued deploy or undeploy job (NetworkOperation in the v3 API).
-// Network is filled in once the deploy has written the Network row.
+// networkOperationAPIModel is a queued deploy, undeploy or DHCP change (NetworkOperation in the
+// v3 API). Network is filled in once the deploy has written the Network row; DhcpLease once a
+// static lease change has written the lease row.
 // Steps and Rollback are only filled in for V2 jobs.
 type networkOperationAPIModel struct {
-	JobID    int64                        `json:"job_id"`
-	Jobname  string                       `json:"jobname"`
-	DryRun   bool                         `json:"dry_run"`
-	Status   jobNestedString              `json:"status"`
-	Result   jobNestedString              `json:"result"`
-	Message  *string                      `json:"message"`
-	Network  *networkV3APIModel           `json:"network"`
-	Steps    []networkOperationStep       `json:"steps"`
-	Rollback *networkOperationRollbackAPI `json:"rollback"`
+	JobID     int64                        `json:"job_id"`
+	Jobname   string                       `json:"jobname"`
+	DryRun    bool                         `json:"dry_run"`
+	Status    jobNestedString              `json:"status"`
+	Result    jobNestedString              `json:"result"`
+	Message   *string                      `json:"message"`
+	Network   *networkV3APIModel           `json:"network"`
+	DhcpLease *dhcpLeaseAPIModel           `json:"dhcp_lease"`
+	Steps     []networkOperationStep       `json:"steps"`
+	Rollback  *networkOperationRollbackAPI `json:"rollback"`
 	// Warnings (V2) lists what succeeded with a caveat, e.g. a deferred FortiManager install.
 	Warnings []string `json:"warnings"`
 }
@@ -180,6 +182,9 @@ func waitForNetworkOperation(ctx context.Context, c *apiclient.Client, op *netwo
 		}
 		if next.Network == nil {
 			next.Network = last.Network
+		}
+		if next.DhcpLease == nil {
+			next.DhcpLease = last.DhcpLease
 		}
 		tflog.Debug(ctx, "polled network operation", map[string]interface{}{
 			"job_id": next.JobID,

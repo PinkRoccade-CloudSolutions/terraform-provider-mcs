@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -275,28 +276,14 @@ func (d *DomainDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	}
 
 	name := config.Name.ValueString()
-	path := "/api/tenant/domains/"
 	if name != "" {
-		path += "?name__icontains=" + url.QueryEscape(name)
-	}
-
-	items, err := listAll[domainAPIModel](ctx, d.client, path)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading domains", err.Error())
-		return
-	}
-
-	if name != "" {
-		var match *domainAPIModel
-		for i := range items {
-			if items[i].Name == name {
-				match = &items[i]
-				break
-			}
+		match, err := findDomainByName(ctx, d.client, name)
+		if errors.Is(err, errDomainNotFound) {
+			resp.Diagnostics.AddError("Domain not found", err.Error())
+			return
 		}
-		if match == nil {
-			resp.Diagnostics.AddError("Domain not found",
-				fmt.Sprintf("No domain with exact name %q was found.", name))
+		if err != nil {
+			resp.Diagnostics.AddError("Error reading domains", err.Error())
 			return
 		}
 		m := domainModelFromAPI(ctx, match, &resp.Diagnostics)
@@ -316,6 +303,12 @@ func (d *DomainDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		config.State = m.State
 		config.Domains = []DomainModel{}
 		resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
+		return
+	}
+
+	items, err := listAll[domainAPIModel](ctx, d.client, "/api/tenant/domains/")
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading domains", err.Error())
 		return
 	}
 
@@ -341,4 +334,22 @@ func (d *DomainDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		state.Domains = append(state.Domains, domainModelFromAPI(ctx, &items[i], &resp.Diagnostics))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+// errDomainNotFound is returned by findDomainByName when no domain has exactly that name.
+var errDomainNotFound = errors.New("domain not found")
+
+// findDomainByName returns the domain whose name matches exactly. The API only filters on a
+// substring, so the exact match is picked from the results.
+func findDomainByName(ctx context.Context, c *apiclient.Client, name string) (*domainAPIModel, error) {
+	items, err := listAll[domainAPIModel](ctx, c, "/api/tenant/domains/?name__icontains="+url.QueryEscape(name))
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if items[i].Name == name {
+			return &items[i], nil
+		}
+	}
+	return nil, fmt.Errorf("%w: no domain with exact name %q was found", errDomainNotFound, name)
 }

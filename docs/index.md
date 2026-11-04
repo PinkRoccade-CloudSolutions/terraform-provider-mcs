@@ -11,9 +11,9 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
 Every resource and data source has its own page in the navigation, with a usage example, the full argument and attribute reference and, for resources, import instructions. They are grouped by area:
 
 - **Tenant & Customer Management:** contacts, customers, quota profiles, integrations
-- **Networking:** networks, network and IP pools, public IP addresses, NAT translations, site-to-site VPNs, load balancer pools
+- **Networking:** networks, DHCP servers and static DHCP leases, network and IP pools, public IP addresses, NAT translations, site-to-site VPNs, load balancer pools
 - **Secure Ingress:** secure ingress firewalls, ingress clusters, routes
-- **Firewall:** firewalls, objects, object groups, services, service groups, rules
+- **Firewall:** firewalls, objects, object groups, services, service groups, rules, commits (make staged changes live)
 - **Load Balancing:** applications, certificates, monitors, service groups, virtual servers, content switching and rewrite actions/policies
 - **Monitoring, DNS and Deny/Block Lists:** IP monitors, DNS domains and entries, IP and domain block lists
 - **Compute:** virtual machines, disks, interfaces, virtual datacenters and jobs (data sources only)
@@ -190,6 +190,18 @@ resource "mcs_firewall_rule" "allow_https" {
   service  = ["HTTPS"]
   action   = true
   comment  = "Allow HTTPS to web server"
+}
+
+# Make the firewall changes live; commits again whenever they change.
+resource "mcs_firewall_commit" "vdom_001" {
+  domain   = "VDOM-001"
+  changeid = "CHG0012345"
+
+  triggers = {
+    firewall = sha1(jsonencode([mcs_firewall_object.web_server, mcs_firewall_rule.allow_https]))
+  }
+
+  depends_on = [mcs_firewall_object.web_server, mcs_firewall_rule.allow_https]
 }
 
 # --- Outputs ---

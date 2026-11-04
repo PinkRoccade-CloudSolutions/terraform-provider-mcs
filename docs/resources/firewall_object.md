@@ -9,6 +9,8 @@ description: |-
 
 Manages a firewall address object.
 
+-> **Note:** Changes to this resource are staged on the firewall domain and only go live after a commit. Add an [`mcs_firewall_commit`](firewall_commit.md) for the domain to commit them as part of `terraform apply`.
+
 ## Example Usage
 
 ```hcl
