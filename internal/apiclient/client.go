@@ -23,16 +23,27 @@ const (
 	baseRetryDelay = 1 * time.Second
 	maxRetryDelay  = 30 * time.Second
 	requestTimeout = 60 * time.Second
+
+	// managedByHeader tells MCS that the request comes from Terraform, so it
+	// can mark resources as Terraform-managed and refuse other writes to them.
+	managedByHeader = "X-MCS-Managed-By"
+	managedByValue  = "terraform"
 )
 
 type Client struct {
 	baseURL    string
 	token      string
+	userAgent  string
 	httpClient *http.Client
 }
 
-func NewClient(baseURL, token string, insecure bool) *Client {
+// NewClient creates an MCS API client. version is the provider build version
+// sent in the User-Agent header; "dev" is used when it is empty.
+func NewClient(baseURL, token string, insecure bool, version string) *Client {
 	baseURL = strings.TrimRight(baseURL, "/")
+	if version == "" {
+		version = "dev"
+	}
 
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -45,8 +56,9 @@ func NewClient(baseURL, token string, insecure bool) *Client {
 	}
 
 	return &Client{
-		baseURL: baseURL,
-		token:   token,
+		baseURL:   baseURL,
+		token:     token,
+		userAgent: "terraform-provider-mcs/" + version,
 		httpClient: &http.Client{
 			Transport: transport,
 			Timeout:   requestTimeout,
@@ -236,6 +248,8 @@ func (c *Client) send(ctx context.Context, method, path string, payload []byte, 
 		req.Header.Set("Authorization", "Token "+c.token)
 		req.Header.Set("Content-Type", contentType)
 		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", c.userAgent)
+		req.Header.Set(managedByHeader, managedByValue)
 
 		tflog.Debug(ctx, "MCS API request", map[string]interface{}{
 			"method": method,
