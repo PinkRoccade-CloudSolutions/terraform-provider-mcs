@@ -46,12 +46,15 @@ func TestLbSync_DataSources_Pagination(t *testing.T) {
 		page1    map[string]interface{}
 		page2    map[string]interface{}
 		checks   map[string]string
+		// firstQuery is the query string the data source sends on its first request.
+		firstQuery string
 	}{
 		{
 			typeName: "mcs_certificate", path: "/api/loadbalancing/certificate/", listAttr: "certificates", byName: true,
-			page1:  map[string]interface{}{"id": "c-1", "name": "first", "loadbalancer": "lb-1", "protected": false},
-			page2:  map[string]interface{}{"id": "c-2", "name": "target", "loadbalancer": "lb-1", "customer": "cust-1", "protected": true},
-			checks: map[string]string{"customer": "cust-1", "protected": "true"},
+			page1:      map[string]interface{}{"id": "c-1", "name": "first", "loadbalancer": "lb-1", "protected": false},
+			page2:      map[string]interface{}{"id": "c-2", "name": "target", "loadbalancer": "lb-1", "customer": "cust-1", "protected": true},
+			checks:     map[string]string{"customer": "cust-1", "protected": "true"},
+			firstQuery: "include=endpoints",
 		},
 		{
 			typeName: "mcs_csv_server", path: "/api/loadbalancing/csvserver/", listAttr: "csv_servers", byName: true,
@@ -156,7 +159,7 @@ data %q "one" {
 			})
 
 			for _, q := range queries() {
-				if q != "" && q != "page=2" {
+				if q != tc.firstQuery && q != "page=2" {
 					t.Errorf("unexpected query string %q sent to %s", q, tc.path)
 				}
 			}

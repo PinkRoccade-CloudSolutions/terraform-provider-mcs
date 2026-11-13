@@ -31,6 +31,8 @@ type CertificateResourceModel struct {
 	Loadbalancer     types.String `tfsdk:"loadbalancer"`
 	Customer         types.String `tfsdk:"customer"`
 	Protected        types.Bool   `tfsdk:"protected"`
+	SubjectAltNames  types.List   `tfsdk:"subject_alt_names"`
+	SubjectAltIps    types.List   `tfsdk:"subject_alt_ips"`
 }
 
 type certificateAPIModel struct {
@@ -41,6 +43,9 @@ type certificateAPIModel struct {
 	Loadbalancer     string  `json:"loadbalancer"`
 	Customer         *string `json:"customer,omitempty"`
 	Protected        *bool   `json:"protected,omitempty"`
+	// Read-only: never set on a request, so omitted from the body.
+	SubjectAltNames []string `json:"subject_alt_names,omitempty"`
+	SubjectAltIps   []string `json:"subject_alt_ips,omitempty"`
 }
 
 func NewCertificateResource() resource.Resource {
@@ -84,6 +89,16 @@ func (r *CertificateResource) Schema(_ context.Context, _ resource.SchemaRequest
 				Description:   "Whether the certificate is protected from changes.",
 				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
 			},
+			"subject_alt_names": schema.ListAttribute{
+				ElementType: types.StringType,
+				Computed:    true,
+				Description: "DNS names from the certificate's Subject Alternative Name extension.",
+			},
+			"subject_alt_ips": schema.ListAttribute{
+				ElementType: types.StringType,
+				Computed:    true,
+				Description: "IP addresses from the certificate's Subject Alternative Name extension.",
+			},
 		},
 	}
 }
@@ -121,6 +136,8 @@ func certificateFromAPI(m *CertificateResourceModel, api *certificateAPIModel) {
 	m.Loadbalancer = types.StringValue(api.Loadbalancer)
 	m.Customer = types.StringPointerValue(api.Customer)
 	m.Protected = types.BoolValue(api.Protected != nil && *api.Protected)
+	m.SubjectAltNames = stringList(api.SubjectAltNames)
+	m.SubjectAltIps = stringList(api.SubjectAltIps)
 }
 
 func (r *CertificateResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

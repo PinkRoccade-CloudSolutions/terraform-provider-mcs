@@ -11,7 +11,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -33,6 +35,10 @@ type IntegrationResourceModel struct {
 	Icon         types.String `tfsdk:"icon"`
 	HasSecret    types.Bool   `tfsdk:"has_secret"`
 	HasKey       types.Bool   `tfsdk:"has_key"`
+
+	PlatformShared types.Bool `tfsdk:"platform_shared"`
+	ReadOnly       types.Bool `tfsdk:"read_only"`
+	Config         types.Map  `tfsdk:"config"`
 
 	KubernetesEndpoint types.Object `tfsdk:"kubernetes_endpoint"`
 }
@@ -66,6 +72,10 @@ type integrationAPIModel struct {
 	Icon         string                `json:"icon"`
 	HasSecret    flexBool              `json:"has_secret"`
 	HasKey       flexBool              `json:"has_key"`
+
+	PlatformShared bool        `json:"platform_shared"`
+	ReadOnly       flexBool    `json:"read_only"`
+	Config         settingsMap `json:"config"`
 
 	KubernetesEndpoint *kubernetesEndpointAPIModel `json:"kubernetes_endpoint"`
 }
@@ -134,6 +144,9 @@ type integrationBody struct {
 	Key          *string `json:"key,omitempty"`
 	SecretExpire *string `json:"secret_expire,omitempty"`
 
+	PlatformShared *bool              `json:"platform_shared,omitempty"`
+	Config         *map[string]string `json:"config,omitempty"`
+
 	KubernetesEndpoint *kubernetesEndpointAPIModel `json:"kubernetes_endpoint,omitempty"`
 }
 
@@ -193,6 +206,20 @@ func NewIntegrationResource() resource.Resource {
 				"icon":          rsVolatileString("Icon of the integration."),
 				"has_secret":    rsVolatileBool("Whether a secret is stored."),
 				"has_key":       rsVolatileBool("Whether a key is stored."),
+				"platform_shared": schema.BoolAttribute{
+					Optional:      true,
+					Computed:      true,
+					Description:   "Whether the integration is shared platform-wide with other tenants. Set by the API when omitted.",
+					PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+				},
+				"read_only": rsVolatileBool("Whether the integration is read-only for the caller, e.g. a platform-shared integration of another tenant."),
+				"config": schema.MapAttribute{
+					ElementType:   types.StringType,
+					Optional:      true,
+					Computed:      true,
+					Description:   "Extra integration settings as string key/value pairs. Set by the API when omitted; removing it from the configuration keeps the stored settings.",
+					PlanModifiers: []planmodifier.Map{mapplanmodifier.UseStateForUnknown()},
+				},
 				"kubernetes_endpoint": schema.SingleNestedAttribute{
 					Optional:    true,
 					Description: "Kubernetes endpoint settings of a vSphere integration. Removing it clears the settings.",
@@ -242,6 +269,9 @@ func NewIntegrationResource() resource.Resource {
 			m.Icon = types.StringValue(a.Icon)
 			m.HasSecret = types.BoolValue(bool(a.HasSecret))
 			m.HasKey = types.BoolValue(bool(a.HasKey))
+			m.PlatformShared = types.BoolValue(a.PlatformShared)
+			m.ReadOnly = types.BoolValue(bool(a.ReadOnly))
+			m.Config = stringMap(a.Config)
 			m.KubernetesEndpoint = kubernetesEndpointFromAPI(a.KubernetesEndpoint)
 		},
 	}
@@ -259,6 +289,22 @@ func integrationBodyFromModel(m *IntegrationResourceModel) integrationBody {
 		Key:          stringPtr(m.Key),
 		SecretExpire: stringPtr(m.SecretExpire),
 
+		PlatformShared: boolPtr(m.PlatformShared),
+		Config:         configToAPI(m.Config),
+
 		KubernetesEndpoint: kubernetesEndpointToAPI(m.KubernetesEndpoint),
 	}
+}
+
+// configToAPI sends a configured map, including an empty one so `config = {}` clears the
+// settings; an unset (null or unknown) map is omitted and left unchanged by the API.
+func configToAPI(m types.Map) *map[string]string {
+	if !known(m) {
+		return nil
+	}
+	out := mapToStrings(m)
+	if out == nil {
+		out = map[string]string{}
+	}
+	return &out
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -1147,6 +1148,64 @@ data "mcs_certificate" "test" {
 				),
 			},
 		},
+	})
+}
+
+func TestAccCertificateDataSource_SANsAndEndpoints(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	cert := func(r *http.Request) map[string]interface{} {
+		c := map[string]interface{}{
+			"id": "cert-001", "name": "web-cert", "ca": false, "loadbalancer": "lb-001",
+			"subject_alt_names": []string{"shop.example.com"}, "subject_alt_ips": []string{"203.0.113.10"},
+			"endpoints": nil,
+		}
+		// The API only fills endpoints when asked to.
+		if r.URL.Query().Get("include") == "endpoints" {
+			c["endpoints"] = []map[string]interface{}{
+				{"kind": "http", "hostname": "shop.example.com", "policy_id": "pol-1", "policy_name": "shop",
+					"csvserver_id": "cs-1", "csvserver_name": "cs-web", "lbvserver_id": "lbv-1", "lbvserver_name": "lb-shop",
+					"vip": "203.0.113.10", "port": 443, "bound": true, "covered": true},
+				{"kind": "l4", "hostname": "", "policy_id": nil, "policy_name": nil,
+					"csvserver_id": nil, "csvserver_name": nil, "lbvserver_id": "lbv-2", "lbvserver_name": "lb-tcp",
+					"vip": "203.0.113.11", "port": 8443, "bound": true, "covered": nil},
+			}
+		}
+		return c
+	}
+	mock.On("/api/loadbalancing/certificate", func(w http.ResponseWriter, r *http.Request, _ []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/loadbalancing/certificate"), "/") != "" {
+			_ = json.NewEncoder(w).Encode(cert(r))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"results": []map[string]interface{}{cert(r)}})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{{
+			Config: providerConfigBlock(mock.URL()) + `
+data "mcs_certificate" "by_id" {
+  id = "cert-001"
+}
+data "mcs_certificate" "all" {}`,
+			Check: resource.ComposeAggregateTestCheckFunc(
+				resource.TestCheckResourceAttr("data.mcs_certificate.by_id", "subject_alt_names.0", "shop.example.com"),
+				resource.TestCheckResourceAttr("data.mcs_certificate.by_id", "subject_alt_ips.0", "203.0.113.10"),
+				resource.TestCheckResourceAttr("data.mcs_certificate.by_id", "endpoints.#", "2"),
+				resource.TestCheckResourceAttr("data.mcs_certificate.by_id", "endpoints.0.kind", "http"),
+				resource.TestCheckResourceAttr("data.mcs_certificate.by_id", "endpoints.0.policy_name", "shop"),
+				resource.TestCheckResourceAttr("data.mcs_certificate.by_id", "endpoints.0.port", "443"),
+				resource.TestCheckResourceAttr("data.mcs_certificate.by_id", "endpoints.0.covered", "true"),
+				resource.TestCheckResourceAttr("data.mcs_certificate.by_id", "endpoints.1.hostname", ""),
+				resource.TestCheckNoResourceAttr("data.mcs_certificate.by_id", "endpoints.1.policy_id"),
+				resource.TestCheckNoResourceAttr("data.mcs_certificate.by_id", "endpoints.1.covered"),
+				resource.TestCheckResourceAttr("data.mcs_certificate.all", "certificates.0.endpoints.#", "2"),
+				resource.TestCheckResourceAttr("data.mcs_certificate.all", "certificates.0.subject_alt_ips.0", "203.0.113.10"),
+			),
+		}},
 	})
 }
 

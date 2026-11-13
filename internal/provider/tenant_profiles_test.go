@@ -31,10 +31,14 @@ func TestAccLoadBalancerPoolResource_CRUD(t *testing.T) {
 			{
 				Config: providerConfigBlock(mock.URL()) + `
 resource "mcs_loadbalancer_pool" "test" {
-  name    = "web-pool"
-  ip_pool = "ipp-001"
+  name     = "web-pool"
+  ip_pool  = "ipp-001"
+  customer = "acme"
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
+					checkLastBodyLacks(mock, http.MethodPost, "/api/networking/loadbalancerpools/", "prefix"),
+					checkLastBodyLacks(mock, http.MethodPost, "/api/networking/loadbalancerpools/", "prefix_length"),
+					resource.TestCheckResourceAttr("mcs_loadbalancer_pool.test", "prefix_length", "28"),
 					resource.TestCheckResourceAttr("mcs_loadbalancer_pool.test", "id", "lbp-001"),
 					resource.TestCheckResourceAttr("mcs_loadbalancer_pool.test", "name", "web-pool"),
 					resource.TestCheckResourceAttr("mcs_loadbalancer_pool.test", "description", ""),
@@ -54,6 +58,7 @@ resource "mcs_loadbalancer_pool" "test" {
   name        = "web-pool-2"
   description = "Web frontends"
   ip_pool     = "ipp-001"
+  customer    = "acme"
 }`,
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{
@@ -63,7 +68,25 @@ resource "mcs_loadbalancer_pool" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("mcs_loadbalancer_pool.test", "name", "web-pool-2"),
 					resource.TestCheckResourceAttr("mcs_loadbalancer_pool.test", "description", "Web frontends"),
+					checkLastBodyLacks(mock, http.MethodPut, "/api/networking/loadbalancerpools/lbp-001/", "customer"),
+					checkLastBodyLacks(mock, http.MethodPut, "/api/networking/loadbalancerpools/lbp-001/", "ip_pool"),
 				),
+			},
+			{
+				// The customer is create-only.
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_loadbalancer_pool" "test" {
+  name        = "web-pool-2"
+  description = "Web frontends"
+  ip_pool     = "ipp-001"
+  customer    = "globex"
+}`,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("mcs_loadbalancer_pool.test", plancheck.ResourceActionDestroyBeforeCreate),
+					},
+				},
+				Check: resource.TestCheckResourceAttr("mcs_loadbalancer_pool.test", "customer", "globex"),
 			},
 			{
 				PreConfig:   func() { pool.SetDeleteStatus(http.StatusConflict) },
@@ -75,6 +98,60 @@ resource "mcs_loadbalancer_pool" "test" {
 				Config:    providerConfigBlock(mock.URL()),
 			},
 		},
+	})
+}
+
+func TestAccLoadBalancerPoolResource_RequestedPrefix(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	mock.OnStateful("/api/networking/loadbalancerpools", map[string]interface{}{
+		"id": "lbp-002", "description": "", "ip_pool": "ipp-001", "ip_pool_name": "lbpools-1",
+		"prefix": "203.0.113.32/29", "status": "free", "customer": "acme",
+		"assigned_object_type": "", "assigned_object_id": nil, "assigned_object_label": "",
+	})
+
+	const addr = "mcs_loadbalancer_pool.test"
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_loadbalancer_pool" "test" {
+  name          = "k8s-pool"
+  ip_pool       = "ipp-001"
+  customer      = "acme"
+  prefix_length = 29
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "prefix", "203.0.113.32/29"),
+					resource.TestCheckResourceAttr(addr, "prefix_length", "29"),
+					checkLastBodyLacks(mock, http.MethodPost, "/api/networking/loadbalancerpools/", "prefix"),
+					checkLastBodyJSON(mock, http.MethodPost, "/api/networking/loadbalancerpools/", "prefix_length", "29"),
+					checkLastBodyJSON(mock, http.MethodPost, "/api/networking/loadbalancerpools/", "customer", `"acme"`),
+				),
+			},
+			{
+				ResourceName:      addr,
+				ImportState:       true,
+				ImportStateId:     "lbp-002",
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+func TestAccLoadBalancerPoolResource_RequiresCustomer(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories("http://127.0.0.1:1"),
+		Steps: []resource.TestStep{{
+			Config: providerConfigBlock("http://127.0.0.1:1") + `
+resource "mcs_loadbalancer_pool" "test" {
+  name    = "web-pool"
+  ip_pool = "ipp-001"
+}`,
+			ExpectError: regexpMustCompile(`The argument "customer" is required`),
+		}},
 	})
 }
 

@@ -160,6 +160,10 @@ type integrationItem struct {
 	HasSecret    types.Bool   `tfsdk:"has_secret"`
 	HasKey       types.Bool   `tfsdk:"has_key"`
 
+	PlatformShared types.Bool `tfsdk:"platform_shared"`
+	ReadOnly       types.Bool `tfsdk:"read_only"`
+	Config         types.Map  `tfsdk:"config"`
+
 	KubernetesEndpoint types.Object `tfsdk:"kubernetes_endpoint"`
 }
 
@@ -173,16 +177,23 @@ func NewIntegrationDataSource() datasource.DataSource {
 		nameFilter:  "name__icontains",
 		idIsInt:     true,
 		itemAttrs: map[string]dschema.Attribute{
-			"id":            dsInt64("Integration ID."),
-			"name":          dsString("Name of the integration."),
-			"type_name":     dsString("Name of the integration type."),
-			"subtype":       dsString("Integration subtype."),
-			"baseurl":       dsString("Base URL of the external system."),
-			"username":      dsString("Username used to authenticate."),
-			"secret_expire": dsString("Expiry timestamp of the credentials."),
-			"icon":          dsString("Icon of the integration."),
-			"has_secret":    dsBool("Whether a secret is stored."),
-			"has_key":       dsBool("Whether a key is stored."),
+			"id":              dsInt64("Integration ID."),
+			"name":            dsString("Name of the integration."),
+			"type_name":       dsString("Name of the integration type."),
+			"subtype":         dsString("Integration subtype."),
+			"baseurl":         dsString("Base URL of the external system."),
+			"username":        dsString("Username used to authenticate."),
+			"secret_expire":   dsString("Expiry timestamp of the credentials."),
+			"icon":            dsString("Icon of the integration."),
+			"has_secret":      dsBool("Whether a secret is stored."),
+			"has_key":         dsBool("Whether a key is stored."),
+			"platform_shared": dsBool("Whether the integration is shared platform-wide with other tenants."),
+			"read_only":       dsBool("Whether the integration is read-only for the caller, e.g. a platform-shared integration of another tenant."),
+			"config": dschema.MapAttribute{
+				ElementType: types.StringType,
+				Computed:    true,
+				Description: "Extra integration settings as string key/value pairs.",
+			},
 			"kubernetes_endpoint": dschema.SingleNestedAttribute{
 				Computed:    true,
 				Description: "Kubernetes endpoint settings of a vSphere integration; null when not set.",
@@ -207,6 +218,10 @@ func NewIntegrationDataSource() datasource.DataSource {
 				Icon:         types.StringValue(a.Icon),
 				HasSecret:    types.BoolValue(bool(a.HasSecret)),
 				HasKey:       types.BoolValue(bool(a.HasKey)),
+
+				PlatformShared: types.BoolValue(a.PlatformShared),
+				ReadOnly:       types.BoolValue(bool(a.ReadOnly)),
+				Config:         stringMap(a.Config),
 
 				KubernetesEndpoint: kubernetesEndpointFromAPI(a.KubernetesEndpoint),
 			}

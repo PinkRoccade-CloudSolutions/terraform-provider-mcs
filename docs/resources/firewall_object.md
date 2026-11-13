@@ -30,7 +30,7 @@ resource "mcs_firewall_object" "web_server" {
 | `domain` | String | **Yes**  | Firewall domain (VDOM). Changing this forces a new resource. |
 | `name`   | String | **Yes**  | Object name. Renaming updates in place. |
 | `address` | String | **Yes** | IP address. |
-| `subnet` | String | **Yes**  | Subnet mask. |
+| `subnet` | String | No       | Subnet mask, e.g. `255.255.255.255`. Leave unset for an object without a mask; removing it clears the mask. Cannot be empty. |
 | `comment` | String | No      | Comment / description. Server value is kept when omitted. |
 
 **Read-only attributes:** `id` (String), `uuid` (String — firewall UUID), `used` (Bool — whether the object is in use by a policy), `managed` (Bool — whether the object is managed by MCS).
