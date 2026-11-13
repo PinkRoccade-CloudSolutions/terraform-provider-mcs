@@ -34,6 +34,8 @@ export MCS_HOST="https://mcs.example.com"
 export MCS_TOKEN="your-api-token"
 ```
 
+Every API request carries `X-MCS-Managed-By: terraform` and a `User-Agent: terraform-provider-mcs/<version>` header. MCS uses this to mark resources as managed by Terraform and to refuse changes to them from other clients, as a guard against accidental edits (not a security control).
+
 ### Importing existing resources
 
 Every resource supports `terraform import`, so objects that already exist in MCS can be brought under Terraform management without recreating them. Write a matching resource block first, then import it:
