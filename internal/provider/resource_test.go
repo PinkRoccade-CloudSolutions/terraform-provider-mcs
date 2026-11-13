@@ -20,6 +20,7 @@ func TestAccCertificateResource_CRUD(t *testing.T) {
 	cert := map[string]interface{}{
 		"id": "cert-001", "ca": false, "valid_to_timestamp": nil,
 		"customer": "cust-001", "protected": true,
+		"subject_alt_names": []string{"www.example.com", "example.com"}, "subject_alt_ips": []string{},
 	}
 	var bodies []map[string]interface{}
 
@@ -61,6 +62,9 @@ resource "mcs_certificate" "test" {
 					resource.TestCheckResourceAttr("mcs_certificate.test", "protected", "true"),
 					resource.TestCheckResourceAttr("mcs_certificate.test", "ca", "false"),
 					resource.TestCheckNoResourceAttr("mcs_certificate.test", "valid_to_timestamp"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "subject_alt_names.#", "2"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "subject_alt_names.1", "example.com"),
+					resource.TestCheckResourceAttr("mcs_certificate.test", "subject_alt_ips.#", "0"),
 				),
 			},
 			{
@@ -89,6 +93,13 @@ resource "mcs_certificate" "test" {
 
 	if len(bodies) == 0 {
 		t.Fatal("expected a POST body")
+	}
+	for _, b := range bodies {
+		for _, k := range []string{"subject_alt_names", "subject_alt_ips"} {
+			if _, ok := b[k]; ok {
+				t.Errorf("read-only %s was sent: %v", k, b)
+			}
+		}
 	}
 	if _, ok := bodies[0]["customer"]; ok {
 		t.Errorf("unset customer must not be sent, got body %v", bodies[0])

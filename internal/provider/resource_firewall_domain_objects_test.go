@@ -137,6 +137,81 @@ func fwCheckCall(mock *mockAPIServer, method, path string, fields map[string]str
 	}
 }
 
+func TestAccFirewallObjectResource_OptionalSubnet(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+	store := newFwDomainStore(mock)
+	store.kind("objects", "name", map[string]interface{}{"used": false, "managed": true})
+
+	const addr = "mcs_firewall_object.test"
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				// No subnet: sent as null and stored as null.
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_firewall_object" "test" {
+  domain  = "d1"
+  name    = "web"
+  address = "www.example.com"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr(addr, "subnet"),
+					fwCheckCall(mock, http.MethodPost, "/api/networking/domain/d1/objects/", map[string]string{"subnet": "null"}),
+				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_firewall_object" "test" {
+  domain  = "d1"
+  name    = "web"
+  address = "10.0.0.0"
+  subnet  = "255.255.255.0"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "subnet", "255.255.255.0"),
+					checkLastBodyJSON(mock, http.MethodPatch, "/api/networking/domain/d1/objects/web/", "subnet", `"255.255.255.0"`),
+				),
+			},
+			{
+				// Removing the subnet clears it.
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_firewall_object" "test" {
+  domain  = "d1"
+  name    = "web"
+  address = "www.example.com"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr(addr, "subnet"),
+					checkLastBodyJSON(mock, http.MethodPatch, "/api/networking/domain/d1/objects/web/", "subnet", "null"),
+				),
+			},
+			{
+				ResourceName:      addr,
+				ImportState:       true,
+				ImportStateId:     "d1/web",
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+func TestAccFirewallObjectResource_EmptySubnetRejected(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories("http://127.0.0.1:1"),
+		Steps: []resource.TestStep{{
+			Config: providerConfigBlock("http://127.0.0.1:1") + `
+resource "mcs_firewall_object" "test" {
+  domain  = "d1"
+  name    = "web"
+  address = "10.0.0.1"
+  subnet  = ""
+}`,
+			ExpectError: regexpMustCompile(`Invalid Attribute Value Length`),
+		}},
+	})
+}
+
 func TestAccFirewallObjectResource_RenameAndReplace(t *testing.T) {
 	mock := newMockAPIServer()
 	defer mock.Close()

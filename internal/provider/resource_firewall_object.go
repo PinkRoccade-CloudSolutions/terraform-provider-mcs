@@ -5,12 +5,14 @@ import (
 	"fmt"
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -38,7 +40,7 @@ type FirewallObjectModel struct {
 type firewallObjectRequest struct {
 	Name    string  `json:"name"`
 	Address string  `json:"address"`
-	Subnet  string  `json:"subnet"`
+	Subnet  *string `json:"subnet"`
 	Comment *string `json:"comment,omitempty"`
 }
 
@@ -46,7 +48,7 @@ type firewallObjectAPI struct {
 	Name    string  `json:"name"`
 	Uuid    string  `json:"uuid"`
 	Address string  `json:"address"`
-	Subnet  string  `json:"subnet"`
+	Subnet  *string `json:"subnet"`
 	Comment *string `json:"comment"`
 	Used    bool    `json:"used"`
 	Managed bool    `json:"managed"`
@@ -87,8 +89,9 @@ func (r *FirewallObjectResource) Schema(_ context.Context, _ resource.SchemaRequ
 				Description: "IP address of the object.",
 			},
 			"subnet": schema.StringAttribute{
-				Required:    true,
-				Description: "Subnet mask of the object.",
+				Optional:    true,
+				Description: "Subnet mask of the object, e.g. `255.255.255.255`. Leave unset for an object without a mask; removing it clears the mask.",
+				Validators:  []validator.String{stringvalidator.LengthBetween(1, 2048)},
 			},
 			"comment": schema.StringAttribute{
 				Optional:      true,
@@ -126,7 +129,7 @@ func firewallObjectBody(plan *FirewallObjectModel) firewallObjectRequest {
 	return firewallObjectRequest{
 		Name:    plan.Name.ValueString(),
 		Address: plan.Address.ValueString(),
-		Subnet:  plan.Subnet.ValueString(),
+		Subnet:  stringPtr(plan.Subnet),
 		Comment: stringPtr(plan.Comment),
 	}
 }
@@ -138,8 +141,17 @@ func mapFirewallObjectToState(model *FirewallObjectModel, api *firewallObjectAPI
 	model.Used = types.BoolValue(api.Used)
 	model.Managed = types.BoolValue(api.Managed)
 	model.Address = types.StringValue(api.Address)
-	model.Subnet = types.StringValue(api.Subnet)
+	model.Subnet = firewallSubnetValue(api.Subnet)
 	model.Comment = firewallCommentValue(api.Comment)
+}
+
+// firewallSubnetValue maps the nullable subnet; an empty subnet is stored as null, the
+// same as an unset one.
+func firewallSubnetValue(v *string) types.String {
+	if v == nil || *v == "" {
+		return types.StringNull()
+	}
+	return types.StringValue(*v)
 }
 
 // firewallCommentValue maps an Optional+Computed comment; an absent comment is stored as "".

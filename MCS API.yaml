@@ -97,6 +97,16 @@ paths:
         explode: true
         style: form
       - in: query
+        name: scope
+        schema:
+          type: string
+          enum:
+          - all
+          - tenant
+        description: 'User list scope. `tenant`: only users/groups linked to the current
+          tenant. `all`: every user/group (platform admin only; 403 otherwise). Omitted:
+          platform admins see all, tenant admins see their tenant.'
+      - in: query
         name: search
         schema:
           type: string
@@ -357,6 +367,16 @@ paths:
         schema:
           type: integer
       - in: query
+        name: scope
+        schema:
+          type: string
+          enum:
+          - all
+          - tenant
+        description: 'User list scope. `tenant`: only users/groups linked to the current
+          tenant. `all`: every user/group (platform admin only; 403 otherwise). Omitted:
+          platform admins see all, tenant admins see their tenant.'
+      - in: query
         name: search
         schema:
           type: string
@@ -499,8 +519,19 @@ paths:
           description: ''
     delete:
       operationId: access_management_users_destroy
-      description: API endpoint that allows objects to be viewed, edited or deleted.
+      description: 'Hard-delete a user. Platform admin only. Refused with 409 and
+        `reasons` when anything but the user''s own personal data still references
+        it (jobs, change requests, audit entries, customers as SDM, created or edited
+        records, …): disable the user instead. Reasons that `force=true` would resolve
+        carry `forceable: true`; `capped: true` means the count is a lower bound.'
       parameters:
+      - in: query
+        name: force
+        schema:
+          type: boolean
+        description: Hand the user's jobs (with their sub jobs), audit entries and
+          impersonation logs over to the `deleted-user` placeholder instead of refusing.
+          Refused while the user has unfinished jobs; all other reasons still apply.
       - in: path
         name: id
         schema:
@@ -516,6 +547,19 @@ paths:
       responses:
         '204':
           description: No response body
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDeleteRefused'
+          description: ''
   /api/alerts/alert/:
     get:
       operationId: alerts_alert_list
@@ -4063,7 +4107,8 @@ paths:
   /api/dns/domains/providers/:
     get:
       operationId: dns_domains_providers_retrieve
-      description: The tenant's DNS providers and whether each can create zones.
+      description: The tenant's DNS providers, own and platform-shared, and whether
+        each can create zones.
       tags:
       - dns
       security:
@@ -5004,6 +5049,12 @@ paths:
       operationId: loadbalancing_certificate_list
       description: API endpoint that allows lbvservers to be viewed or edited.
       parameters:
+      - in: query
+        name: include
+        schema:
+          type: string
+        description: Comma-separated extras. ``endpoints`` fills ``endpoints`` for
+          every certificate (a fixed number of queries per page, not one per certificate).
       - name: ordering
         required: false
         in: query
@@ -5085,6 +5136,12 @@ paths:
           format: uuid
         description: A UUID string identifying this certificate.
         required: true
+      - in: query
+        name: include
+        schema:
+          type: string
+        description: Comma-separated extras. ``endpoints`` fills ``endpoints`` for
+          every certificate (a fixed number of queries per page, not one per certificate).
       tags:
       - loadbalancing
       security:
@@ -5213,6 +5270,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Certificater'
+          description: ''
+  /api/loadbalancing/certificate/{id}/endpoints/:
+    get:
+      operationId: loadbalancing_certificate_endpoints_list
+      description: Published endpoints (domain names) that use this certificate or
+        that its SANs cover.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this certificate.
+        required: true
+      tags:
+      - loadbalancing
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CertificateEndpoint'
           description: ''
   /api/loadbalancing/certificate/{id}/link/:
     post:
@@ -6926,7 +7011,6 @@ paths:
       - basicAuth: []
       - cookieAuth: []
       - tokenAuth: []
-      - tokenAuth: []
       - {}
       responses:
         '201':
@@ -7213,7 +7297,6 @@ paths:
       security:
       - basicAuth: []
       - cookieAuth: []
-      - tokenAuth: []
       - tokenAuth: []
       - {}
       responses:
@@ -8687,7 +8770,8 @@ paths:
       description: |-
         API endpoint for Load Balancer Pools: subnets cut from an ``lbpools`` IP
         pool. Create allocates the subnet in NetBox; only name and description can
-        be edited; a pool can only be deleted while it is free.
+        be edited; a pool can only be deleted while it is free or a Kubernetes
+        Cluster's (ADR-0043).
       parameters:
       - in: query
         name: customer
@@ -8751,20 +8835,22 @@ paths:
       description: |-
         API endpoint for Load Balancer Pools: subnets cut from an ``lbpools`` IP
         pool. Create allocates the subnet in NetBox; only name and description can
-        be edited; a pool can only be deleted while it is free.
+        be edited; a pool can only be deleted while it is free or a Kubernetes
+        Cluster's (ADR-0043).
       tags:
       - networking
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LoadBalancerPool'
+              $ref: '#/components/schemas/LoadBalancerPoolCreate'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/LoadBalancerPool'
+              $ref: '#/components/schemas/LoadBalancerPoolCreate'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/LoadBalancerPool'
+              $ref: '#/components/schemas/LoadBalancerPoolCreate'
+        required: true
       security:
       - cookieAuth: []
       - basicAuth: []
@@ -8782,7 +8868,8 @@ paths:
       description: |-
         API endpoint for Load Balancer Pools: subnets cut from an ``lbpools`` IP
         pool. Create allocates the subnet in NetBox; only name and description can
-        be edited; a pool can only be deleted while it is free.
+        be edited; a pool can only be deleted while it is free or a Kubernetes
+        Cluster's (ADR-0043).
       parameters:
       - in: path
         name: id
@@ -8809,7 +8896,8 @@ paths:
       description: |-
         API endpoint for Load Balancer Pools: subnets cut from an ``lbpools`` IP
         pool. Create allocates the subnet in NetBox; only name and description can
-        be edited; a pool can only be deleted while it is free.
+        be edited; a pool can only be deleted while it is free or a Kubernetes
+        Cluster's (ADR-0043).
       parameters:
       - in: path
         name: id
@@ -8847,7 +8935,8 @@ paths:
       description: |-
         API endpoint for Load Balancer Pools: subnets cut from an ``lbpools`` IP
         pool. Create allocates the subnet in NetBox; only name and description can
-        be edited; a pool can only be deleted while it is free.
+        be edited; a pool can only be deleted while it is free or a Kubernetes
+        Cluster's (ADR-0043).
       parameters:
       - in: path
         name: id
@@ -8885,7 +8974,8 @@ paths:
       description: |-
         API endpoint for Load Balancer Pools: subnets cut from an ``lbpools`` IP
         pool. Create allocates the subnet in NetBox; only name and description can
-        be edited; a pool can only be deleted while it is free.
+        be edited; a pool can only be deleted while it is free or a Kubernetes
+        Cluster's (ADR-0043).
       parameters:
       - in: path
         name: id
@@ -9694,7 +9784,6 @@ paths:
       - basicAuth: []
       - cookieAuth: []
       - tokenAuth: []
-      - tokenAuth: []
       - {}
       responses:
         '200':
@@ -9730,7 +9819,6 @@ paths:
       security:
       - basicAuth: []
       - cookieAuth: []
-      - tokenAuth: []
       - tokenAuth: []
       - {}
       responses:
@@ -10350,6 +10438,7 @@ paths:
         schema:
           type: string
           enum:
+          - api_token
           - dbl
           - dns_domain
           - domain_tag
@@ -10363,6 +10452,7 @@ paths:
           * `domain_tag` - domain_tag
           * `loadbalancing` - loadbalancing
           * `secureingress` - secureingress
+          * `api_token` - api_token
       - in: query
         name: objectid
         schema:
@@ -13644,6 +13734,210 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v3/networking/dhcp-leases/:
+    get:
+      operationId: v3_networking_dhcp_leases_list
+      description: |-
+        GET  /api/v3/networking/dhcp-leases/   Static DHCP leases in the caller's tenant.
+        POST /api/v3/networking/dhcp-leases/   Add one to a Network with DHCP enabled; answers 202.
+      parameters:
+      - in: query
+        name: ip
+        schema:
+          type: string
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: mac
+        schema:
+          type: string
+      - in: query
+        name: network
+        schema:
+          type: string
+          format: uuid
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Search
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDhcpLeaseV3List'
+          description: ''
+    post:
+      operationId: v3_networking_dhcp_leases_create
+      description: |-
+        GET  /api/v3/networking/dhcp-leases/   Static DHCP leases in the caller's tenant.
+        POST /api/v3/networking/dhcp-leases/   Add one to a Network with DHCP enabled; answers 202.
+      tags:
+      - v3/networking
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DhcpLeaseWriteV3'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DhcpLeaseWriteV3'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DhcpLeaseWriteV3'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkOperation'
+          description: ''
+        '400':
+          description: Validation error
+        '403':
+          description: networking.add_dhcplease required
+        '409':
+          description: The Network is not active, or a deploy or teardown of it is
+            queued
+  /api/v3/networking/dhcp-leases/{id}/:
+    get:
+      operationId: v3_networking_dhcp_leases_retrieve
+      description: |-
+        GET    /api/v3/networking/dhcp-leases/<id>/
+        PATCH  /api/v3/networking/dhcp-leases/<id>/   Change IP, MAC or description; answers 202.
+        DELETE /api/v3/networking/dhcp-leases/<id>/   Answers 202.
+
+        A lease never moves to another Network (Terraform: replace).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DhcpLeaseV3'
+          description: ''
+    patch:
+      operationId: v3_networking_dhcp_leases_partial_update
+      description: |-
+        GET    /api/v3/networking/dhcp-leases/<id>/
+        PATCH  /api/v3/networking/dhcp-leases/<id>/   Change IP, MAC or description; answers 202.
+        DELETE /api/v3/networking/dhcp-leases/<id>/   Answers 202.
+
+        A lease never moves to another Network (Terraform: replace).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v3/networking
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDhcpLeaseWriteV3'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDhcpLeaseWriteV3'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDhcpLeaseWriteV3'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkOperation'
+          description: ''
+        '400':
+          description: Validation error, or an attempt to move the lease
+        '403':
+          description: networking.change_dhcplease required
+        '404':
+          description: Not found
+        '409':
+          description: The Network is not active, or a deploy or teardown of it is
+            queued
+    delete:
+      operationId: v3_networking_dhcp_leases_destroy
+      description: |-
+        GET    /api/v3/networking/dhcp-leases/<id>/
+        PATCH  /api/v3/networking/dhcp-leases/<id>/   Change IP, MAC or description; answers 202.
+        DELETE /api/v3/networking/dhcp-leases/<id>/   Answers 202.
+
+        A lease never moves to another Network (Terraform: replace).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkOperation'
+          description: ''
+        '403':
+          description: networking.delete_dhcplease required
+        '404':
+          description: Not found
+        '409':
+          description: The Network is not active, or a deploy or teardown of it is
+            queued
   /api/v3/networking/fortimanager-installs/:
     post:
       operationId: v3_networking_fortimanager_installs_create
@@ -13951,6 +14245,121 @@ paths:
           description: Not found
         '409':
           description: The Network is not planned
+  /api/v3/networking/networks/{id}/dhcp-server/:
+    get:
+      operationId: v3_networking_networks_dhcp_server_retrieve
+      description: |-
+        GET/PUT/DELETE /api/v3/networking/networks/<id>/dhcp-server/
+
+        The Network's DHCP server, one per Network: a Terraform
+        ``mcs_network_dhcp_server`` keyed by the Network's id. DELETE disables it;
+        a disabled server reads ``enabled: false``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DhcpServerV3'
+          description: ''
+        '404':
+          description: Not found
+    put:
+      operationId: v3_networking_networks_dhcp_server_update
+      description: |-
+        GET/PUT/DELETE /api/v3/networking/networks/<id>/dhcp-server/
+
+        The Network's DHCP server, one per Network: a Terraform
+        ``mcs_network_dhcp_server`` keyed by the Network's id. DELETE disables it;
+        a disabled server reads ``enabled: false``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v3/networking
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DhcpServerWriteV3'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DhcpServerWriteV3'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DhcpServerWriteV3'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkOperation'
+          description: ''
+        '400':
+          description: Validation error
+        '403':
+          description: networking.change_network required
+        '404':
+          description: Not found
+        '409':
+          description: The Network is not active, or a deploy or teardown of it is
+            queued
+    delete:
+      operationId: v3_networking_networks_dhcp_server_destroy
+      description: |-
+        GET/PUT/DELETE /api/v3/networking/networks/<id>/dhcp-server/
+
+        The Network's DHCP server, one per Network: a Terraform
+        ``mcs_network_dhcp_server`` keyed by the Network's id. DELETE disables it;
+        a disabled server reads ``enabled: false``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkOperation'
+          description: ''
+        '403':
+          description: networking.change_network required
+        '404':
+          description: Not found
+        '409':
+          description: Static DHCP leases exist, the Network is not active, or a deploy
+            or teardown of it is queued
   /api/v3/networking/operations/{job_id}/:
     get:
       operationId: v3_networking_operations_retrieve
@@ -15041,6 +15450,65 @@ components:
     BlankEnum:
       enum:
       - ''
+    CertificateEndpoint:
+      type: object
+      description: A published endpoint (domain name) related to a certificate.
+      properties:
+        kind:
+          type: string
+          description: '``http`` (hostname route on a content switch) or ``l4`` (load-balancing
+            vserver).'
+        hostname:
+          type: string
+          description: Empty for an L4 endpoint or a vserver without hostname routing.
+        policy_id:
+          type: string
+          format: uuid
+          nullable: true
+        policy_name:
+          type: string
+          nullable: true
+        csvserver_id:
+          type: string
+          format: uuid
+          nullable: true
+        csvserver_name:
+          type: string
+          nullable: true
+        lbvserver_id:
+          type: string
+          format: uuid
+          nullable: true
+        lbvserver_name:
+          type: string
+          nullable: true
+        vip:
+          type: string
+          nullable: true
+        port:
+          type: integer
+          nullable: true
+        bound:
+          type: boolean
+          description: The certificate is bound to the vserver serving this endpoint.
+        covered:
+          type: boolean
+          nullable: true
+          description: The certificate's SANs cover the hostname; null when unknown
+            (no SANs or no hostname).
+      required:
+      - bound
+      - covered
+      - csvserver_id
+      - csvserver_name
+      - hostname
+      - kind
+      - lbvserver_id
+      - lbvserver_name
+      - policy_id
+      - policy_name
+      - port
+      - vip
     CertificateRoute:
       type: object
       description: The Secure Ingress route a certificate belongs to.
@@ -15095,7 +15563,17 @@ components:
           type: string
           readOnly: true
         subject_alt_names:
+          type: array
+          items:
+            type: string
           readOnly: true
+          description: DNS names from the Subject Alternative Name extension.
+        subject_alt_ips:
+          type: array
+          items:
+            type: string
+          readOnly: true
+          description: IP addresses from the Subject Alternative Name extension.
         issuer:
           type: string
           readOnly: true
@@ -15116,8 +15594,17 @@ components:
           nullable: true
           readOnly: true
           description: The Secure Ingress route using this certificate, if any.
+        endpoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/CertificateEndpoint'
+          nullable: true
+          readOnly: true
+          description: Endpoints (domain names) using this certificate or covered
+            by its SANs; only filled with ``?include=endpoints``, otherwise null.
       required:
       - common_name
+      - endpoints
       - fingerprint_sha256
       - id
       - issuer
@@ -15127,6 +15614,7 @@ components:
       - route
       - serial_number
       - source
+      - subject_alt_ips
       - subject_alt_names
       - valid_from_timestamp
     CipEnum:
@@ -15408,6 +15896,7 @@ components:
       - domain_tag
       - loadbalancing
       - secureingress
+      - api_token
       type: string
       description: |-
         * `request` - change request
@@ -15416,6 +15905,7 @@ components:
         * `domain_tag` - domain_tag
         * `loadbalancing` - loadbalancing
         * `secureingress` - secureingress
+        * `api_token` - api_token
     CoverageStatusEnum:
       enum:
       - cve_covered
@@ -16047,6 +16537,136 @@ components:
       - firmware_count
       - id
       - type_count
+    DhcpLeaseV3:
+      type: object
+      description: A static DHCP lease as the FortiGate runs it.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        network:
+          type: string
+          format: uuid
+          readOnly: true
+        ip:
+          type: string
+          readOnly: true
+        mac:
+          type: string
+          readOnly: true
+          description: 'Lower case, colon separated: 00:50:56:aa:bb:01.'
+        description:
+          type: string
+          readOnly: true
+        created_at_timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Time when this object was created
+        updated_at_timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Time when this object was last updated
+      required:
+      - created_at_timestamp
+      - description
+      - id
+      - ip
+      - mac
+      - network
+      - updated_at_timestamp
+    DhcpLeaseWriteV3:
+      type: object
+      description: 'A static lease to add (``network`` required) or edit (context
+        ``lease``: fields default to its own).'
+      properties:
+        network:
+          type: string
+          format: uuid
+          description: Set on create only.
+        ip:
+          type: string
+          description: IPv4, inside the Network's prefix.
+        mac:
+          type: string
+          description: Any common notation; stored as 00:50:56:aa:bb:01.
+        description:
+          type: string
+          maxLength: 255
+    DhcpServerV3:
+      type: object
+      description: 'A Network''s DHCP server as the FortiGate runs it; ``enabled:
+        false`` when there is none.'
+      properties:
+        network:
+          type: string
+          format: uuid
+        enabled:
+          type: boolean
+        pool_start:
+          type: string
+          format: ipv4
+          nullable: true
+        pool_end:
+          type: string
+          format: ipv4
+          nullable: true
+        netmask:
+          type: string
+          nullable: true
+          description: From the Network's prefix.
+        default_gateway:
+          type: string
+          nullable: true
+          description: The Network's gateway.
+        dns_servers:
+          type: array
+          items:
+            type: string
+            format: ipv4
+        lease_time:
+          type: integer
+          nullable: true
+          description: Seconds.
+      required:
+      - default_gateway
+      - dns_servers
+      - enabled
+      - lease_time
+      - netmask
+      - network
+      - pool_end
+      - pool_start
+    DhcpServerWriteV3:
+      type: object
+      description: The settings a caller chooses; the netmask and gateway follow the
+        Network (context ``network``).
+      properties:
+        pool_start:
+          type: string
+          format: ipv4
+        pool_end:
+          type: string
+          format: ipv4
+        dns_servers:
+          type: array
+          items:
+            type: string
+            format: ipv4
+          maxItems: 4
+          minItems: 1
+        lease_time:
+          type: integer
+          maximum: 8604800
+          minimum: 300
+          description: Seconds.
+      required:
+      - dns_servers
+      - lease_time
+      - pool_end
+      - pool_start
     Disk:
       type: object
       properties:
@@ -16788,6 +17408,7 @@ components:
           maxLength: 2048
         subnet:
           type: string
+          nullable: true
           maxLength: 2048
         comment:
           type: string
@@ -16802,7 +17423,6 @@ components:
       - address
       - managed
       - name
-      - subnet
       - used
       - uuid
     FirewallObjectGroup:
@@ -17342,10 +17962,19 @@ components:
         has_key:
           type: string
           readOnly: true
+        platform_shared:
+          type: boolean
+        read_only:
+          type: string
+          readOnly: true
         kubernetes_endpoint:
           allOf:
           - $ref: '#/components/schemas/KubernetesEndpoint'
           nullable: true
+        config:
+          type: object
+          additionalProperties:
+            type: string
         created_at_timestamp:
           type: string
           format: date-time
@@ -17363,6 +17992,7 @@ components:
       - has_secret
       - icon
       - id
+      - read_only
       - type
       - updated_at_timestamp
     IntegrationBinding:
@@ -18115,6 +18745,31 @@ components:
       - ip_pool_name
       - prefix
       - status
+    LoadBalancerPoolCreate:
+      type: object
+      properties:
+        ip_pool:
+          type: string
+          format: uuid
+        prefix_length:
+          type: integer
+          nullable: true
+        prefix:
+          type: string
+          nullable: true
+        customer:
+          type: string
+        name:
+          type: string
+          default: ''
+          maxLength: 100
+        description:
+          type: string
+          default: ''
+          maxLength: 255
+      required:
+      - customer
+      - ip_pool
     LoadBalancerPoolStatusEnum:
       enum:
       - free
@@ -18494,7 +19149,7 @@ components:
     NetworkOperation:
       type: object
       description: |-
-        A queued deploy or undeploy, and its Network once there is one.
+        A queued deploy, undeploy or DHCP change, and its Network once there is one.
 
         ``steps`` and ``rollback`` are V2 only: V1 jobs have no step table, so
         they answer an empty list and null.
@@ -18519,6 +19174,12 @@ components:
           allOf:
           - $ref: '#/components/schemas/NetworkV3'
           nullable: true
+        dhcp_lease:
+          allOf:
+          - $ref: '#/components/schemas/DhcpLeaseV3'
+          nullable: true
+          description: 'A static DHCP lease change: the lease once its row exists
+            (as the FortiGate runs it).'
         steps:
           type: array
           items:
@@ -18534,6 +19195,7 @@ components:
           description: 'V2: what succeeded with a caveat, e.g. a FortiManager install
             that was deferred (ADR-0033).'
       required:
+      - dhcp_lease
       - dry_run
       - job_id
       - jobname
@@ -19513,6 +20175,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DeviceVendor'
+    PaginatedDhcpLeaseV3List:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DhcpLeaseV3'
     PaginatedDiskList:
       type: object
       required:
@@ -20962,7 +21647,17 @@ components:
           type: string
           readOnly: true
         subject_alt_names:
+          type: array
+          items:
+            type: string
           readOnly: true
+          description: DNS names from the Subject Alternative Name extension.
+        subject_alt_ips:
+          type: array
+          items:
+            type: string
+          readOnly: true
+          description: IP addresses from the Subject Alternative Name extension.
         issuer:
           type: string
           readOnly: true
@@ -20983,6 +21678,14 @@ components:
           nullable: true
           readOnly: true
           description: The Secure Ingress route using this certificate, if any.
+        endpoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/CertificateEndpoint'
+          nullable: true
+          readOnly: true
+          description: Endpoints (domain names) using this certificate or covered
+            by its SANs; only filled with ``?include=endpoints``, otherwise null.
     PatchedComponent:
       type: object
       properties:
@@ -21653,6 +22356,24 @@ components:
         firmware_count:
           type: integer
           readOnly: true
+    PatchedDhcpLeaseWriteV3:
+      type: object
+      description: 'A static lease to add (``network`` required) or edit (context
+        ``lease``: fields default to its own).'
+      properties:
+        network:
+          type: string
+          format: uuid
+          description: Set on create only.
+        ip:
+          type: string
+          description: IPv4, inside the Network's prefix.
+        mac:
+          type: string
+          description: Any common notation; stored as 00:50:56:aa:bb:01.
+        description:
+          type: string
+          maxLength: 255
     PatchedDnsDomain:
       type: object
       properties:
@@ -22005,6 +22726,7 @@ components:
           maxLength: 2048
         subnet:
           type: string
+          nullable: true
           maxLength: 2048
         comment:
           type: string
@@ -22352,10 +23074,19 @@ components:
         has_key:
           type: string
           readOnly: true
+        platform_shared:
+          type: boolean
+        read_only:
+          type: string
+          readOnly: true
         kubernetes_endpoint:
           allOf:
           - $ref: '#/components/schemas/KubernetesEndpoint'
           nullable: true
+        config:
+          type: object
+          additionalProperties:
+            type: string
         created_at_timestamp:
           type: string
           format: date-time
@@ -23324,6 +24055,12 @@ components:
       properties:
         id:
           type: integer
+          readOnly: true
+        status_name:
+          type: string
+          readOnly: true
+        result_name:
+          type: string
           readOnly: true
         created_at_timestamp:
           type: string
@@ -24308,6 +25045,12 @@ components:
         id:
           type: integer
           readOnly: true
+        status_name:
+          type: string
+          readOnly: true
+        result_name:
+          type: string
+          readOnly: true
         created_at_timestamp:
           type: string
           format: date-time
@@ -24361,7 +25104,9 @@ components:
       - created_by_user
       - id
       - result
+      - result_name
       - status
+      - status_name
       - tenant
       - timestamp
       - updated_at_timestamp
@@ -24653,6 +25398,19 @@ components:
       - last_name
       - permissions
       - username
+    UserDeleteRefused:
+      type: object
+      properties:
+        detail:
+          type: string
+        reasons:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+      required:
+      - detail
+      - reasons
     UserLanguageResponse:
       type: object
       properties:

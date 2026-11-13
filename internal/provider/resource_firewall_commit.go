@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/PinkRoccade-CloudSolutions/terraform-provider-mcs/internal/apiclient"
@@ -76,7 +77,7 @@ func (r *FirewallCommitResource) Schema(ctx context.Context, _ resource.SchemaRe
 			},
 			"domain": schema.StringAttribute{
 				Required:      true,
-				Description:   "Name of the firewall domain (VDOM) to commit, as used by `mcs_firewall_rule`. Changing this commits the new domain.",
+				Description:   "Firewall domain to commit as `VDOM-<vdom_id>` (e.g. `VDOM-001`), the same value as `mcs_firewall_rule.domain`. This is not the domain's `name`. Changing this commits the new domain.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"changeid": schema.StringAttribute{
@@ -142,7 +143,7 @@ func (r *FirewallCommitResource) Create(ctx context.Context, req resource.Create
 	defer cancel()
 
 	name := plan.Domain.ValueString()
-	domain, err := findDomainByName(ctx, r.client, name)
+	domain, err := findDomainByVdom(ctx, r.client, name)
 	if err != nil {
 		resp.Diagnostics.AddError("Error looking up firewall domain", err.Error())
 		return
@@ -154,7 +155,7 @@ func (r *FirewallCommitResource) Create(ctx context.Context, req resource.Create
 	case "v1":
 		r.commitV1(ctx, name, plan.ChangeId.ValueString(), &resp.Diagnostics)
 	case "v2":
-		plan.JobId = r.installV2(ctx, domain, plan.ChangeId.ValueString(), &resp.Diagnostics)
+		plan.JobId = r.installV2(ctx, name, domain, plan.ChangeId.ValueString(), &resp.Diagnostics)
 	default:
 		resp.Diagnostics.AddError("Unsupported deploy flow",
 			fmt.Sprintf("Domain %q has deploy flow %q; only v1 and v2 can be committed.", name, domain.DeployFlow))
@@ -177,21 +178,40 @@ func (r *FirewallCommitResource) commitV1(ctx context.Context, domain, changeID 
 
 // installV2 queues a FortiManager install and waits for it. It returns the job ID, or null when
 // nothing was pending.
-func (r *FirewallCommitResource) installV2(ctx context.Context, domain *domainAPIModel, changeID string, diags *diag.Diagnostics) types.Int64 {
+func (r *FirewallCommitResource) installV2(ctx context.Context, vdom string, domain *domainAPIModel, changeID string, diags *diag.Diagnostics) types.Int64 {
 	var queued fortiManagerInstallQueuedAPI
 	err := r.client.PostOnce(ctx, "/api/v3/networking/fortimanager-installs/",
 		fortiManagerInstallAPI{Domain: domain.Uuid, ChangeId: changeID}, &queued)
 	if err != nil || queued.JobId == 0 {
-		addCommitError(err, "Error installing FortiManager policy package for domain "+domain.Name, diags)
+		addCommitError(err, "Error installing FortiManager policy package for domain "+vdom, diags)
 		return types.Int64Null()
 	}
 
 	op, err := waitForNetworkOperation(ctx, r.client, &networkOperationAPIModel{JobID: queued.JobId})
 	op.addWarnings("FortiManager install warning", diags)
 	if err != nil {
-		diags.AddError("FortiManager install for domain "+domain.Name+" failed", err.Error())
+		diags.AddError("FortiManager install for domain "+vdom+" failed", err.Error())
 	}
 	return types.Int64Value(queued.JobId)
+}
+
+// findDomainByVdom resolves a firewall domain as the firewall API addresses it: "VDOM-<vdom_id>"
+// (or the bare vdom_id). The API strips the "VDOM-" prefix and matches the domain's vdom_id; the
+// domain's name is a separate, free-form label. The domain list has no vdom_id filter, so every
+// domain of the tenant is listed and matched here.
+func findDomainByVdom(ctx context.Context, c *apiclient.Client, vdom string) (*domainAPIModel, error) {
+	vdomID := strings.ReplaceAll(vdom, "VDOM-", "")
+	items, err := listAll[domainAPIModel](ctx, c, "/api/tenant/domains/")
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if items[i].VdomId == vdomID {
+			return &items[i], nil
+		}
+	}
+	return nil, fmt.Errorf("%w: no domain with vdom_id %q (from %q) was found; "+
+		"use the VDOM name, e.g. \"VDOM-001\" for vdom_id 001, not the domain's name", errDomainNotFound, vdomID, vdom)
 }
 
 // addCommitError reports a commit or install error. A 409 means nothing was pending (or an

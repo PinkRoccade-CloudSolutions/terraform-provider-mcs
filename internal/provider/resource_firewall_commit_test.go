@@ -16,13 +16,16 @@ import (
 
 const commitDomainUUID = "6f1c2c1e-7c3b-4b8e-9d1e-0a1b2c3d4e5f"
 
-// commitDomainMock serves the domain lookup with one domain named VDOM-001 of the given flow.
+// commitDomainMock serves the domain list as MCS does: the target has vdom_id 001 (addressed as
+// VDOM-001) and the name "Default". Decoys check that the lookup neither matches on name nor on a
+// vdom_id prefix.
 func commitDomainMock(m *mockAPIServer, flow string) {
 	m.On("/api/tenant/domains/", func(w http.ResponseWriter, _ *http.Request, _ []byte) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"count":2,"next":null,"results":[
-			{"id":2,"uuid":"other","name":"VDOM-0011","deploy_flow":"v1","state":"active"},
-			{"id":1,"uuid":%q,"name":"VDOM-001","deploy_flow":%q,"state":"active"}]}`, commitDomainUUID, flow)
+			{"id":3,"uuid":"decoy-name","name":"VDOM-001","vdom_id":"777","deploy_flow":"v1","state":"active"},
+			{"id":2,"uuid":"decoy-prefix","name":"Other","vdom_id":"0011","deploy_flow":"v1","state":"active"},
+			{"id":1,"uuid":%q,"name":"Default","vdom_id":"001","deploy_flow":%q,"state":"active"}]}`, commitDomainUUID, flow)
 	})
 }
 
@@ -232,7 +235,7 @@ func TestAccFirewallCommitResource_UnknownDomain(t *testing.T) {
 		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
 		Steps: []resource.TestStep{{
 			Config:      strings.Replace(commitConfig(mock.URL(), "CHG-1", "a"), `"VDOM-001"`, `"VDOM-999"`, 1),
-			ExpectError: regexp.MustCompile(`no domain with exact name "VDOM-999"`),
+			ExpectError: regexp.MustCompile(`no domain with vdom_id "999"`),
 		}},
 	})
 }

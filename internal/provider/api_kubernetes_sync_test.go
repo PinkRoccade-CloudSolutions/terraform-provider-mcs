@@ -181,6 +181,75 @@ resource "mcs_integration" "test" {
 	})
 }
 
+func TestAccIntegrationResource_PlatformSharedAndConfig(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	store := newSingleObjectStore(mock, "/api/tenant/integrations/", "7",
+		map[string]interface{}{
+			"type": map[string]interface{}{"name": "vSphere"}, "subtype": "", "username": "",
+			"secret_expire": nil, "icon": "vsphere", "has_secret": false, "has_key": false,
+			"platform_shared": false, "read_only": "False", "config": map[string]interface{}{}, "kubernetes_endpoint": nil,
+		},
+		func(obj, _ map[string]interface{}) { obj["id"] = 7 })
+
+	const addr = "mcs_integration.test"
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				// Neither set: not sent, and the API's values are adopted.
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_integration" "test" {
+  name    = "vcenter01"
+  type_id = 3
+  baseurl = "https://vcenter01.example.org"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "platform_shared", "false"),
+					resource.TestCheckResourceAttr(addr, "read_only", "false"),
+					resource.TestCheckResourceAttr(addr, "config.%", "0"),
+					checkLastBodyLacks(mock, http.MethodPost, "/api/tenant/integrations/", "platform_shared"),
+					checkLastBodyLacks(mock, http.MethodPost, "/api/tenant/integrations/", "config"),
+				),
+			},
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_integration" "test" {
+  name            = "vcenter01"
+  type_id         = 3
+  baseurl         = "https://vcenter01.example.org"
+  platform_shared = true
+  config = {
+    datacenter = "dc01"
+  }
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "platform_shared", "true"),
+					resource.TestCheckResourceAttr(addr, "config.datacenter", "dc01"),
+					store.checkWrite(http.MethodPut, "/api/tenant/integrations/7/"),
+					store.checkStored("platform_shared", true),
+				),
+			},
+			{
+				// An empty map clears the settings.
+				Config: providerConfigBlock(mock.URL()) + `
+resource "mcs_integration" "test" {
+  name            = "vcenter01"
+  type_id         = 3
+  baseurl         = "https://vcenter01.example.org"
+  platform_shared = true
+  config          = {}
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "config.%", "0"),
+					checkLastBodyJSON(mock, http.MethodPut, "/api/tenant/integrations/7/", "config", "{}"),
+				),
+			},
+		},
+	})
+}
+
 func TestAccIntegrationResource_KubernetesEndpointValidation(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testProtoV6ProviderFactories("http://127.0.0.1:1"),
@@ -297,6 +366,20 @@ func checkLastBodyLacks(mock *mockAPIServer, method, path, key string) resource.
 	}
 }
 
+// checkLastBodyJSON asserts the raw JSON value of key in the last matching request body.
+func checkLastBodyJSON(mock *mockAPIServer, method, path, key, want string) resource.TestCheckFunc {
+	return func(*terraform.State) error {
+		body, err := lastBody(mock, method, path)
+		if err != nil {
+			return err
+		}
+		if v, ok := body[key]; !ok || string(v) != want {
+			return fmt.Errorf("%s %s sent %s = %q, want %s", method, path, key, v, want)
+		}
+		return nil
+	}
+}
+
 func checkLastBodyHasNull(mock *mockAPIServer, method, path, key string) resource.TestCheckFunc {
 	return func(*terraform.State) error {
 		body, err := lastBody(mock, method, path)
@@ -317,6 +400,7 @@ func TestAccIntegrationDataSource_KubernetesEndpoint(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprint(w, `{"count": 2, "next": null, "previous": null, "results": [
 			{"id": 5, "name": "vcenter01", "type": {"name": "vSphere"}, "baseurl": "https://vc", "has_secret": true, "has_key": false,
+			 "platform_shared": true, "read_only": "True", "config": {"datacenter": "dc01"},
 			 "kubernetes_endpoint": {"credentials_key": "vc-k8s", "content_library": "k8s-images", "data_disk_max_size": 2000, "nodestorage_step": 50}},
 			{"id": 6, "name": "prtg", "type": {"name": "PRTG"}, "baseurl": "https://prtg", "has_secret": true, "has_key": false, "kubernetes_endpoint": null}]}`)
 	})
@@ -334,6 +418,11 @@ data "mcs_integration" "all" {}`,
 				resource.TestCheckResourceAttr("data.mcs_integration.vc", "kubernetes_endpoint.content_library", "k8s-images"),
 				resource.TestCheckResourceAttr("data.mcs_integration.vc", "kubernetes_endpoint.data_disk_max_size", "2000"),
 				resource.TestCheckResourceAttr("data.mcs_integration.vc", "kubernetes_endpoint.nodestorage_step", "50"),
+				resource.TestCheckResourceAttr("data.mcs_integration.vc", "platform_shared", "true"),
+				resource.TestCheckResourceAttr("data.mcs_integration.vc", "read_only", "true"),
+				resource.TestCheckResourceAttr("data.mcs_integration.vc", "config.datacenter", "dc01"),
+				resource.TestCheckResourceAttr("data.mcs_integration.all", "integrations.1.platform_shared", "false"),
+				resource.TestCheckResourceAttr("data.mcs_integration.all", "integrations.1.config.%", "0"),
 				resource.TestCheckResourceAttr("data.mcs_integration.all", "integrations.0.kubernetes_endpoint.credentials_key", "vc-k8s"),
 				resource.TestCheckNoResourceAttr("data.mcs_integration.all", "integrations.1.kubernetes_endpoint.credentials_key"),
 			),

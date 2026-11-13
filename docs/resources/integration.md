@@ -41,6 +41,8 @@ resource "mcs_integration" "prtg" {
 | `secret`        | String | No       | Secret or password. Sensitive, write-only. |
 | `key`           | String | No       | API key. Sensitive, write-only. |
 | `secret_expire` | String | No       | Expiry timestamp of the credentials (RFC 3339). |
+| `platform_shared` | Bool | No     | Whether the integration is shared platform-wide with other tenants. Computed from the API when omitted. |
+| `config`        | Map of String | No | Extra integration settings as key/value pairs. Computed from the API when omitted; removing it keeps the stored settings, set `config = {}` to clear them. |
 | `kubernetes_endpoint` | Object | No | Kubernetes endpoint settings of a vSphere integration; see below. Removing it clears the settings. |
 
 **`kubernetes_endpoint` attributes:**
@@ -72,7 +74,7 @@ resource "mcs_integration" "vcenter" {
 }
 ```
 
-**Read-only attributes:** `id` (Number), `type_name` (String), `icon` (String), `has_secret` (Bool), `has_key` (Bool).
+**Read-only attributes:** `id` (Number), `type_name` (String), `icon` (String), `has_secret` (Bool), `has_key` (Bool), `read_only` (Bool, whether the integration is read-only for the caller, e.g. a platform-shared integration of another tenant).
 
 
 ## Import

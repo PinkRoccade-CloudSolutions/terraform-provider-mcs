@@ -75,7 +75,7 @@ resource "mcs_firewall_commit" "vdom_001" {
 
 | Attribute  | Type        | Required | Description |
 |-----------|------------|----------|-------------|
-| `domain`   | String      | **Yes**  | Firewall domain (VDOM) to commit, as used by `mcs_firewall_rule`. Changing this commits the new domain. |
+| `domain`   | String      | **Yes**  | Firewall domain to commit as `VDOM-<vdom_id>` (e.g. `VDOM-001`), the same value as `mcs_firewall_rule.domain`. This is the domain's `vdom_id` with a `VDOM-` prefix, **not** its `name`; look it up with the `mcs_domain` data source if needed. Changing this commits the new domain. |
 | `changeid` | String      | **Yes**  | Free-text change ID recorded with the commit, e.g. an ITSM ticket or pipeline run ID. Changing only this does not commit again. |
 | `triggers` | Map(String) | No       | Arbitrary values; any change commits again. |
 | `timeouts` | Block       | No       | `create` (default `20m`): how long to wait for a V2 FortiManager install. |
