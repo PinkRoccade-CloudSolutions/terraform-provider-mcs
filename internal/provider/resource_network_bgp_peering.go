@@ -118,25 +118,8 @@ func bgpPeeringFromAPI(m *NetworkBgpPeeringResourceModel, networkID string, api 
 	m.AcceptedPrefixes = stringList(api.AcceptedPrefixes)
 }
 
-// applyBgpPeeringChange waits for a queued BGP peering change. A job that finished unsuccessfully
-// has been rolled back, so rolledBack tells the caller that nothing changed; otherwise (a timeout
-// or a polling error) the outcome is unknown.
-func applyBgpPeeringChange(ctx context.Context, c *apiclient.Client, op *networkOperationAPIModel, diags *diag.Diagnostics) (rolledBack bool, err error) {
-	final, err := waitForNetworkOperation(ctx, c, op)
-	if err != nil {
-		return final.state() == networkOperationFailed, err
-	}
-	final.addWarnings("BGP peering change applied with a warning", diags)
-	return false, nil
-}
-
-// bgpPeeringChangeError explains a failed BGP peering change.
-func bgpPeeringChangeError(err error, rolledBack bool) string {
-	if rolledBack {
-		return fmt.Sprintf("%s\n\nThe change was rolled back: the FortiGate and MCS are as they were before.", err)
-	}
-	return fmt.Sprintf("%s\n\nThe change may still be applied; check the job in MCS.", err)
-}
+// bgpPeeringChangeWarning heads the warnings of an applied BGP peering change.
+const bgpPeeringChangeWarning = "BGP peering change applied with a warning"
 
 // switchOn queues a PUT and waits for it. PUT is idempotent: it also (re)applies peering that is
 // already on, e.g. after `bgp_peering = true` on the network's create. On failure it returns the
@@ -149,8 +132,8 @@ func (r *NetworkBgpPeeringResource) switchOn(ctx context.Context, networkID stri
 		}
 		return err.Error(), false
 	}
-	if rolledBack, err := applyBgpPeeringChange(ctx, r.client, &op, diags); err != nil {
-		return bgpPeeringChangeError(err, rolledBack), !rolledBack
+	if _, rolledBack, err := applyNetworkChange(ctx, r.client, &op, bgpPeeringChangeWarning, diags); err != nil {
+		return networkChangeError(err, rolledBack), !rolledBack
 	}
 	return "", false
 }
@@ -289,8 +272,8 @@ func (r *NetworkBgpPeeringResource) Delete(ctx context.Context, req resource.Del
 		resp.Diagnostics.AddError("Error switching off network BGP peering", err.Error())
 		return
 	}
-	if rolledBack, err := applyBgpPeeringChange(waitCtx, r.client, &op, &resp.Diagnostics); err != nil {
-		resp.Diagnostics.AddError("Error switching off network BGP peering", bgpPeeringChangeError(err, rolledBack))
+	if _, rolledBack, err := applyNetworkChange(waitCtx, r.client, &op, bgpPeeringChangeWarning, &resp.Diagnostics); err != nil {
+		resp.Diagnostics.AddError("Error switching off network BGP peering", networkChangeError(err, rolledBack))
 	}
 }
 

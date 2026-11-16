@@ -195,6 +195,27 @@ func waitForNetworkOperation(ctx context.Context, c *apiclient.Client, op *netwo
 	}
 }
 
+// applyNetworkChange waits for a queued change of an existing network (DHCP, BGP peering) and adds
+// the job's warnings under warningSummary. A job that finished unsuccessfully has been rolled back,
+// so rolledBack tells the caller that nothing changed; otherwise (a timeout or a polling error)
+// the outcome is unknown.
+func applyNetworkChange(ctx context.Context, c *apiclient.Client, op *networkOperationAPIModel, warningSummary string, diags *diag.Diagnostics) (final *networkOperationAPIModel, rolledBack bool, err error) {
+	final, err = waitForNetworkOperation(ctx, c, op)
+	if err != nil {
+		return final, final.state() == networkOperationFailed, err
+	}
+	final.addWarnings(warningSummary, diags)
+	return final, false, nil
+}
+
+// networkChangeError explains a failed change of an existing network.
+func networkChangeError(err error, rolledBack bool) string {
+	if rolledBack {
+		return fmt.Sprintf("%s\n\nThe change was rolled back: the FortiGate and MCS are as they were before.", err)
+	}
+	return fmt.Sprintf("%s\n\nThe change may still be applied; check the job in MCS.", err)
+}
+
 // waitForNetworkGone polls a network until the API answers 404, or ctx is done.
 func waitForNetworkGone(ctx context.Context, c *apiclient.Client, networkPath string) error {
 	for {

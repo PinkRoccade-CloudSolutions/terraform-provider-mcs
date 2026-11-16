@@ -172,17 +172,8 @@ func dhcpServerFromAPI(m *NetworkDhcpServerResourceModel, api *dhcpServerAPIMode
 	m.DefaultGateway = strOrNull(api.DefaultGateway)
 }
 
-// applyDhcpChange waits for a queued DHCP change. A job that finished unsuccessfully has been
-// rolled back, so rolledBack tells the caller that nothing changed; otherwise (a timeout or a
-// polling error) the outcome is unknown.
-func applyDhcpChange(ctx context.Context, c *apiclient.Client, op *networkOperationAPIModel, diags *diag.Diagnostics) (final *networkOperationAPIModel, rolledBack bool, err error) {
-	final, err = waitForNetworkOperation(ctx, c, op)
-	if err != nil {
-		return final, final.state() == networkOperationFailed, err
-	}
-	final.addWarnings("DHCP change applied with a warning", diags)
-	return final, false, nil
-}
+// dhcpChangeWarning heads the warnings of an applied DHCP change.
+const dhcpChangeWarning = "DHCP change applied with a warning"
 
 func (r *NetworkDhcpServerResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan NetworkDhcpServerResourceModel
@@ -219,7 +210,7 @@ func (r *NetworkDhcpServerResource) Create(ctx context.Context, req resource.Cre
 		resp.Diagnostics.AddError("Error enabling network DHCP server", err.Error())
 		return
 	}
-	if _, rolledBack, err := applyDhcpChange(waitCtx, r.client, &op, &resp.Diagnostics); err != nil {
+	if _, rolledBack, err := applyNetworkChange(waitCtx, r.client, &op, dhcpChangeWarning, &resp.Diagnostics); err != nil {
 		if !rolledBack {
 			// The change may still be applied: keep the server in state so Terraform marks it
 			// tainted and the next apply puts it right.
@@ -228,7 +219,7 @@ func (r *NetworkDhcpServerResource) Create(ctx context.Context, req resource.Cre
 			plan.DefaultGateway = strOrNull(current.DefaultGateway)
 			resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 		}
-		resp.Diagnostics.AddError("Error enabling network DHCP server", dhcpChangeError(err, rolledBack))
+		resp.Diagnostics.AddError("Error enabling network DHCP server", networkChangeError(err, rolledBack))
 		return
 	}
 
@@ -237,14 +228,6 @@ func (r *NetworkDhcpServerResource) Create(ctx context.Context, req resource.Cre
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-}
-
-// dhcpChangeError explains a failed DHCP change.
-func dhcpChangeError(err error, rolledBack bool) string {
-	if rolledBack {
-		return fmt.Sprintf("%s\n\nThe change was rolled back: the FortiGate and MCS are as they were before.", err)
-	}
-	return fmt.Sprintf("%s\n\nThe change may still be applied; check the job in MCS.", err)
 }
 
 // readInto reads the server after a successful change. The configured dns_servers, pool and
@@ -316,10 +299,10 @@ func (r *NetworkDhcpServerResource) Update(ctx context.Context, req resource.Upd
 		resp.Diagnostics.AddError("Error changing network DHCP server", err.Error())
 		return
 	}
-	if _, rolledBack, err := applyDhcpChange(waitCtx, r.client, &op, &resp.Diagnostics); err != nil {
+	if _, rolledBack, err := applyNetworkChange(waitCtx, r.client, &op, dhcpChangeWarning, &resp.Diagnostics); err != nil {
 		// Keep the prior state; the next refresh shows what the FortiGate runs.
 		resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
-		resp.Diagnostics.AddError("Error changing network DHCP server", dhcpChangeError(err, rolledBack))
+		resp.Diagnostics.AddError("Error changing network DHCP server", networkChangeError(err, rolledBack))
 		return
 	}
 
@@ -359,8 +342,8 @@ func (r *NetworkDhcpServerResource) Delete(ctx context.Context, req resource.Del
 		resp.Diagnostics.AddError("Error disabling network DHCP server", err.Error())
 		return
 	}
-	if _, rolledBack, err := applyDhcpChange(waitCtx, r.client, &op, &resp.Diagnostics); err != nil {
-		resp.Diagnostics.AddError("Error disabling network DHCP server", dhcpChangeError(err, rolledBack))
+	if _, rolledBack, err := applyNetworkChange(waitCtx, r.client, &op, dhcpChangeWarning, &resp.Diagnostics); err != nil {
+		resp.Diagnostics.AddError("Error disabling network DHCP server", networkChangeError(err, rolledBack))
 	}
 }
 
