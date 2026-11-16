@@ -754,6 +754,10 @@ func (r *NetworkResource) Delete(ctx context.Context, req resource.DeleteRequest
 	switch {
 	case apiclient.IsNotFound(err):
 		return
+	case apiclient.IsConflict(err) && apiclient.Code(err) == bgpPeeringOnCode:
+		// The teardown would leave the network's BGP peering on the FortiGate: waiting does not help.
+		resp.Diagnostics.AddError("Error deleting network", apiclient.Detail(err))
+		return
 	case apiclient.IsConflict(err):
 		// A teardown is already running (or there was nothing left to tear down): wait for the
 		// network to disappear.
@@ -774,6 +778,10 @@ func (r *NetworkResource) Delete(ctx context.Context, req resource.DeleteRequest
 		resp.Diagnostics.AddError("Error deleting network", err.Error())
 	}
 }
+
+// bgpPeeringOnCode marks the 409 MCS answers a teardown with while the network's BGP peering is on
+// and the teardown would leave it behind (ADR-0045): switch it off first.
+const bgpPeeringOnCode = "bgp_peering_on"
 
 func (r *NetworkResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -41,18 +42,19 @@ var networkMockDryRunSteps = []interface{}{
 // networkV3Mock serves the v3 networking API for one tenant: deploys and teardowns are queued
 // as jobs that report pending for pendingPolls polls before finishing.
 type networkV3Mock struct {
-	mu           sync.Mutex
-	networks     map[string]map[string]interface{}
-	jobs         map[int]*networkMockJob
-	nextJob      int
-	nextNet      int
-	pendingPolls int
-	deployFails  bool // the deploy writes the network row, then the job fails
-	neverFinish  bool // deploys stay pending forever
-	postStatus   int  // when set, POST answers with this status instead of queueing a deploy
-	conflictOnce bool // the next DELETE answers 409 and the network disappears after a few GETs
-	goneAfter    int
-	lastPostBody map[string]interface{}
+	mu             sync.Mutex
+	networks       map[string]map[string]interface{}
+	jobs           map[int]*networkMockJob
+	nextJob        int
+	nextNet        int
+	pendingPolls   int
+	deployFails    bool // the deploy writes the network row, then the job fails
+	neverFinish    bool // deploys stay pending forever
+	postStatus     int  // when set, POST answers with this status instead of queueing a deploy
+	conflictOnce   bool // the next DELETE answers 409 and the network disappears after a few GETs
+	bgpRefusalOnce bool // the next DELETE answers 409 bgp_peering_on: the teardown would leave BGP peering
+	goneAfter      int
+	lastPostBody   map[string]interface{}
 	// plannedDeployFails makes deploys of planned networks fail and roll back.
 	plannedDeployFails bool
 }
@@ -261,6 +263,12 @@ func (m *networkV3Mock) handleNetworks(w http.ResponseWriter, r *http.Request, b
 	case http.MethodDelete:
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if m.bgpRefusalOnce {
+			m.bgpRefusalOnce = false
+			w.WriteHeader(http.StatusConflict)
+			_, _ = fmt.Fprint(w, `{"detail":"This Network has BGP peering. Switch BGP peering off first.","code":"bgp_peering_on"}`)
 			return
 		}
 		if m.conflictOnce {
@@ -949,6 +957,38 @@ func TestAccNetworkResource_DeleteConflictWaitsForRemoval(t *testing.T) {
 
 	if got := countCalls(mock, http.MethodDelete, "/api/v3/networking/networks/"); got != 1 {
 		t.Errorf("expected 1 DELETE, got %d", got)
+	}
+}
+
+func TestAccNetworkResource_DeleteRefusedForBgpPeeringFailsAtOnce(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+	nm := newNetworkV3Mock(mock)
+	config := networkResourceConfig(mock.URL(), networkDescription)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: func(_ *terraform.State) error {
+					nm.mu.Lock()
+					nm.bgpRefusalOnce = true
+					nm.mu.Unlock()
+					return nil
+				},
+			},
+			{
+				Config:      config,
+				Destroy:     true,
+				ExpectError: regexp.MustCompile(`Switch BGP peering off first`),
+			},
+		},
+	})
+
+	// The refused DELETE, then the one that tears it down at the end of the test.
+	if got := countCalls(mock, http.MethodDelete, "/api/v3/networking/networks/"); got != 2 {
+		t.Errorf("expected 2 DELETEs, got %d", got)
 	}
 }
 

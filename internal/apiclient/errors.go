@@ -49,3 +49,19 @@ func Detail(err error) string {
 	}
 	return strings.TrimSpace(body.Detail)
 }
+
+// Code returns the machine-readable `code` next to an API error's detail (e.g. why MCS answered
+// 409), or "" when err is not an APIError or its body carries no code.
+func Code(err error) string {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return ""
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if json.Unmarshal([]byte(apiErr.Body), &body) != nil {
+		return ""
+	}
+	return strings.TrimSpace(body.Code)
+}
