@@ -23,7 +23,7 @@ func TestListAll_FollowsPages(t *testing.T) {
 		_, _ = fmt.Fprintf(w, `{"count":2,"next":"%s/api/things/?page=2","results":[{"id":"a"}]}`, mock.URL())
 	})
 
-	c := apiclient.NewClient(mock.URL(), "t", true)
+	c := apiclient.NewClient(mock.URL(), "t", true, "test")
 	items, err := listAll[struct {
 		Id string `json:"id"`
 	}](context.Background(), c, "/api/things/")

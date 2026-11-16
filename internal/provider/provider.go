@@ -86,7 +86,7 @@ func (p *MCSProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		insecure = config.Insecure.ValueBool()
 	}
 
-	client := apiclient.NewClient(host, token, insecure)
+	client := apiclient.NewClient(host, token, insecure, p.version)
 	resp.DataSourceData = client
 	resp.ResourceData = client
 }

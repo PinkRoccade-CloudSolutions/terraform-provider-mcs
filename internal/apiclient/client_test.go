@@ -15,7 +15,7 @@ import (
 
 func testClient(handler http.Handler) (*Client, *httptest.Server) {
 	srv := httptest.NewServer(handler)
-	c := NewClient(srv.URL, "test-token", false)
+	c := NewClient(srv.URL, "test-token", false, "test")
 	c.httpClient = srv.Client()
 	return c, srv
 }
@@ -25,14 +25,14 @@ func testClient(handler http.Handler) (*Client, *httptest.Server) {
 // ---------------------------------------------------------------------------
 
 func TestNewClient_TrimsTrailingSlash(t *testing.T) {
-	c := NewClient("https://api.example.com/", "tok", false)
+	c := NewClient("https://api.example.com/", "tok", false, "test")
 	if strings.HasSuffix(c.baseURL, "/") {
 		t.Errorf("baseURL should not end with slash, got %q", c.baseURL)
 	}
 }
 
 func TestNewClient_InsecureFalse(t *testing.T) {
-	c := NewClient("https://api.example.com", "tok", false)
+	c := NewClient("https://api.example.com", "tok", false, "test")
 	tr := c.httpClient.Transport.(*http.Transport)
 	if tr.TLSClientConfig.InsecureSkipVerify {
 		t.Error("InsecureSkipVerify should be false")
@@ -40,7 +40,7 @@ func TestNewClient_InsecureFalse(t *testing.T) {
 }
 
 func TestNewClient_InsecureTrue(t *testing.T) {
-	c := NewClient("https://api.example.com", "tok", true)
+	c := NewClient("https://api.example.com", "tok", true, "test")
 	tr := c.httpClient.Transport.(*http.Transport)
 	if !tr.TLSClientConfig.InsecureSkipVerify {
 		t.Error("InsecureSkipVerify should be true")
@@ -67,6 +67,30 @@ func TestClient_SetsAuthHeaders(t *testing.T) {
 	defer srv.Close()
 
 	_ = c.Get(context.Background(), "/test", nil)
+}
+
+func TestClient_SetsManagedByAndUserAgentHeaders(t *testing.T) {
+	c, srv := testClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-MCS-Managed-By"); got != "terraform" {
+			t.Errorf("X-MCS-Managed-By = %q, want terraform", got)
+		}
+		if got := r.Header.Get("User-Agent"); got != "terraform-provider-mcs/test" {
+			t.Errorf("User-Agent = %q, want terraform-provider-mcs/test", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if err := c.Post(context.Background(), "/test", map[string]string{"a": "b"}, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNewClient_EmptyVersionFallsBackToDev(t *testing.T) {
+	c := NewClient("https://api.example.com", "tok", false, "")
+	if c.userAgent != "terraform-provider-mcs/dev" {
+		t.Errorf("userAgent = %q, want terraform-provider-mcs/dev", c.userAgent)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -533,7 +557,7 @@ func TestClient_ListAll_BasePathPrefix(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL+"/mcs", "test-token", false)
+	c := NewClient(srv.URL+"/mcs", "test-token", false, "test")
 	items, err := c.ListAll(context.Background(), "/api/things/")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
