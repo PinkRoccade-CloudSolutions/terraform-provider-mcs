@@ -186,14 +186,14 @@ func (r *NetworkDhcpLeaseResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
-	final, rolledBack, err := applyDhcpChange(waitCtx, r.client, &op, &resp.Diagnostics)
+	final, rolledBack, err := applyNetworkChange(waitCtx, r.client, &op, dhcpChangeWarning, &resp.Diagnostics)
 	if err != nil {
 		if !rolledBack && final.DhcpLease != nil && final.DhcpLease.Id != "" {
 			// The lease row exists: keep it in state so Terraform marks it tainted instead of losing it.
 			dhcpLeaseFromAPI(&plan, final.DhcpLease)
 			resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 		}
-		resp.Diagnostics.AddError("Error creating network DHCP lease", dhcpChangeError(err, rolledBack))
+		resp.Diagnostics.AddError("Error creating network DHCP lease", networkChangeError(err, rolledBack))
 		return
 	}
 	if final.DhcpLease == nil || final.DhcpLease.Id == "" {
@@ -269,9 +269,9 @@ func (r *NetworkDhcpLeaseResource) Update(ctx context.Context, req resource.Upda
 		resp.Diagnostics.AddError("Error changing network DHCP lease", err.Error())
 		return
 	}
-	if _, rolledBack, err := applyDhcpChange(waitCtx, r.client, &op, &resp.Diagnostics); err != nil {
+	if _, rolledBack, err := applyNetworkChange(waitCtx, r.client, &op, dhcpChangeWarning, &resp.Diagnostics); err != nil {
 		resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
-		resp.Diagnostics.AddError("Error changing network DHCP lease", dhcpChangeError(err, rolledBack))
+		resp.Diagnostics.AddError("Error changing network DHCP lease", networkChangeError(err, rolledBack))
 		return
 	}
 
@@ -306,8 +306,8 @@ func (r *NetworkDhcpLeaseResource) Delete(ctx context.Context, req resource.Dele
 		resp.Diagnostics.AddError("Error deleting network DHCP lease", err.Error())
 		return
 	}
-	if _, rolledBack, err := applyDhcpChange(waitCtx, r.client, &op, &resp.Diagnostics); err != nil {
-		resp.Diagnostics.AddError("Error deleting network DHCP lease", dhcpChangeError(err, rolledBack))
+	if _, rolledBack, err := applyNetworkChange(waitCtx, r.client, &op, dhcpChangeWarning, &resp.Diagnostics); err != nil {
+		resp.Diagnostics.AddError("Error deleting network DHCP lease", networkChangeError(err, rolledBack))
 	}
 }
 

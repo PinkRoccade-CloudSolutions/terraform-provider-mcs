@@ -19,6 +19,8 @@ Networks cannot be changed in place: changing any argument destroys the network 
 
 **Dry run.** With V2, `dry_run = true` checks every system without changing anything: MCS reserves the VLAN and prefix and keeps the network *planned*. The changes the deploy would make are listed in `dry_run_changes`; changes with action `conflict` are also reported as a warning, since the deploy would fail on them. Change `dry_run` to `false` to deploy the planned network in place (the `update` timeout applies). If that deploy fails it is rolled back, the network stays planned and `dry_run` stays `true` in state, so the next apply retries the deploy. Changing `dry_run` from `false` to `true` destroys the deployed network and creates a new planned one.
 
+**BGP peering.** With V2, `bgp_peering = true` switches BGP peering on as part of the deploy, so Kubernetes nodes on the network can peer with the domain's FortiGate VDOM. It can be combined with `dry_run`. The API does not return it, so it stays in state as configured; changing it later neither changes nor recreates the network (Terraform shows a warning). Use `mcs_network_bgp_peering` to switch peering on or off for an existing network, and to see the prefixes the VDOM accepts. MCS refuses to destroy a network whose teardown would leave its peering on the FortiGate (a V1 network with peering, or a V2 network whose deploy record cannot remove it); switch peering off first, and the destroy fails at once instead of waiting.
+
 ## Example Usage
 
 ```hcl
@@ -70,6 +72,7 @@ resource "mcs_network" "k8s" {
   network_pool_id = data.mcs_networkpool.lan.id
   deploy_flow     = "v2"
   placement       = "kubernetes"
+  bgp_peering     = true
 
   # Apply with true to see what the deploy would do, then set to false to deploy in place.
   dry_run = true
@@ -97,11 +100,12 @@ output "k8s_planned_changes" {
 | `deploy_flow`     | String | No       | `v1` (default) or `v2` (beta). Undeploy follows the same flow. |
 | `placement`       | String | No       | V2 only: `standard` (default for V2) or `kubernetes`. Null with V1. |
 | `dry_run`         | Bool   | No       | V2 only: plan the deploy without changing anything (default `false`). See *Dry run* above. |
+| `bgp_peering`     | Bool   | No       | V2 only: switch BGP peering on as part of the deploy (default `false`). Only sent on create. See *BGP peering* above. |
 | `timeouts`        | Block  | No       | `create`, `update` (deploying a planned network) and `delete` durations (e.g. `"45m"`). All default to 30 minutes. |
 
-To manage the network's DHCP server and static leases, use `mcs_network_dhcp_server` and `mcs_network_dhcp_lease`; the `dhcp_server_*` attributes below are read-only.
+To manage the network's DHCP server and static leases, use `mcs_network_dhcp_server` and `mcs_network_dhcp_lease`; the `dhcp_server_*` attributes below are read-only. To manage BGP peering after create, use `mcs_network_bgp_peering`.
 
-All arguments except `timeouts` force a new network when changed, apart from `dry_run` going from `true` to `false`, which deploys in place. Setting `placement` or `dry_run = true` without `deploy_flow = "v2"` is rejected at plan time.
+All arguments except `timeouts` and `bgp_peering` force a new network when changed, apart from `dry_run` going from `true` to `false`, which deploys in place. Setting `placement`, `dry_run = true` or `bgp_peering = true` without `deploy_flow = "v2"` is rejected at plan time.
 
 **Read-only attributes:**
 
@@ -141,4 +145,4 @@ All arguments except `timeouts` force a new network when changed, apart from `dr
 terraform import mcs_network.web <network-uuid>
 ```
 
-The API does not return `product`, `network_pool_id`, `prefix` or `placement`, so after an import they are taken from your configuration on the next apply as an in-place update, without recreating the network. `domain_uuid` is looked up from the network's domain, `bitmask` is derived from `ipv4_prefix`, `deploy_flow` is read from the network, and `dry_run` is `true` when the network is still planned. `dry_run_changes` is empty after an import.
+The API does not return `product`, `network_pool_id`, `prefix`, `placement` or `bgp_peering`, so after an import they are taken from your configuration on the next apply as an in-place update, without recreating the network (`bgp_peering` is `false` until then). `domain_uuid` is looked up from the network's domain, `bitmask` is derived from `ipv4_prefix`, `deploy_flow` is read from the network, and `dry_run` is `true` when the network is still planned. `dry_run_changes` is empty after an import.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -41,18 +42,19 @@ var networkMockDryRunSteps = []interface{}{
 // networkV3Mock serves the v3 networking API for one tenant: deploys and teardowns are queued
 // as jobs that report pending for pendingPolls polls before finishing.
 type networkV3Mock struct {
-	mu           sync.Mutex
-	networks     map[string]map[string]interface{}
-	jobs         map[int]*networkMockJob
-	nextJob      int
-	nextNet      int
-	pendingPolls int
-	deployFails  bool // the deploy writes the network row, then the job fails
-	neverFinish  bool // deploys stay pending forever
-	postStatus   int  // when set, POST answers with this status instead of queueing a deploy
-	conflictOnce bool // the next DELETE answers 409 and the network disappears after a few GETs
-	goneAfter    int
-	lastPostBody map[string]interface{}
+	mu             sync.Mutex
+	networks       map[string]map[string]interface{}
+	jobs           map[int]*networkMockJob
+	nextJob        int
+	nextNet        int
+	pendingPolls   int
+	deployFails    bool // the deploy writes the network row, then the job fails
+	neverFinish    bool // deploys stay pending forever
+	postStatus     int  // when set, POST answers with this status instead of queueing a deploy
+	conflictOnce   bool // the next DELETE answers 409 and the network disappears after a few GETs
+	bgpRefusalOnce bool // the next DELETE answers 409 bgp_peering_on: the teardown would leave BGP peering
+	goneAfter      int
+	lastPostBody   map[string]interface{}
 	// plannedDeployFails makes deploys of planned networks fail and roll back.
 	plannedDeployFails bool
 }
@@ -263,6 +265,12 @@ func (m *networkV3Mock) handleNetworks(w http.ResponseWriter, r *http.Request, b
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		if m.bgpRefusalOnce {
+			m.bgpRefusalOnce = false
+			w.WriteHeader(http.StatusConflict)
+			_, _ = fmt.Fprint(w, `{"detail":"This Network has BGP peering. Switch BGP peering off first.","code":"bgp_peering_on"}`)
+			return
+		}
 		if m.conflictOnce {
 			m.conflictOnce = false
 			m.goneAfter = 3
@@ -344,6 +352,7 @@ func TestAccNetworkResource_CreateImportDestroy(t *testing.T) {
 					resource.TestCheckResourceAttr(addr, "deploy_flow", "v1"),
 					resource.TestCheckNoResourceAttr(addr, "placement"),
 					resource.TestCheckResourceAttr(addr, "dry_run", "false"),
+					resource.TestCheckResourceAttr(addr, "bgp_peering", "false"),
 					resource.TestCheckResourceAttr(addr, "dry_run_changes.#", "0"),
 					resource.TestCheckResourceAttr(addr, "datacenters.#", "1"),
 					resource.TestCheckResourceAttr(addr, "datacenters.0.id", "1"),
@@ -375,7 +384,7 @@ func TestAccNetworkResource_CreateImportDestroy(t *testing.T) {
 			t.Errorf("POST body %s = %v, want %v", k, nm.lastPostBody[k], v)
 		}
 	}
-	for _, k := range []string{"prefix", "placement", "dry_run"} {
+	for _, k := range []string{"prefix", "placement", "dry_run", "bgp_peering"} {
 		if _, ok := nm.lastPostBody[k]; ok {
 			t.Errorf("POST body should omit %s, got %v", k, nm.lastPostBody)
 		}
@@ -554,6 +563,60 @@ func TestAccNetworkResource_DryRunThenDeploy(t *testing.T) {
 	}
 	if nm.lastPostBody["dry_run"] != true {
 		t.Errorf("POST body dry_run = %v, want true", nm.lastPostBody["dry_run"])
+	}
+}
+
+func TestAccNetworkResource_V2BgpPeeringIsCreateOnly(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+	nm := newNetworkV3Mock(mock)
+
+	addr := "mcs_network.test"
+	bgp := func(v bool) string {
+		return networkResourceConfig(mock.URL(), networkDescription+fmt.Sprintf(`
+  deploy_flow     = "v2"
+  placement       = "kubernetes"
+  bgp_peering     = %t`, v))
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: bgp(true),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "id", "net-uuid-1"),
+					resource.TestCheckResourceAttr(addr, "bgp_peering", "true"),
+				),
+			},
+			{
+				// Not read back, so the refresh keeps the configured value.
+				Config: bgp(true),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+			{
+				// A later change neither recreates the network nor calls MCS; it only updates state.
+				Config: bgp(false),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction(addr, plancheck.ResourceActionUpdate)},
+				},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "id", "net-uuid-1"),
+					resource.TestCheckResourceAttr(addr, "bgp_peering", "false"),
+				),
+			},
+		},
+	})
+
+	if got := countCalls(mock, http.MethodPost, "/api/v3/networking/networks/"); got != 1 {
+		t.Errorf("expected 1 deploy POST, got %d", got)
+	}
+	if got := countCalls(mock, http.MethodPut, "/api/v3/networking/networks/"); got != 0 {
+		t.Errorf("changing bgp_peering must not call MCS, got %d PUTs", got)
+	}
+	if nm.lastPostBody["bgp_peering"] != true {
+		t.Errorf("POST body bgp_peering = %v, want true", nm.lastPostBody["bgp_peering"])
 	}
 }
 
@@ -897,6 +960,38 @@ func TestAccNetworkResource_DeleteConflictWaitsForRemoval(t *testing.T) {
 	}
 }
 
+func TestAccNetworkResource_DeleteRefusedForBgpPeeringFailsAtOnce(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+	nm := newNetworkV3Mock(mock)
+	config := networkResourceConfig(mock.URL(), networkDescription)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: func(_ *terraform.State) error {
+					nm.mu.Lock()
+					nm.bgpRefusalOnce = true
+					nm.mu.Unlock()
+					return nil
+				},
+			},
+			{
+				Config:      config,
+				Destroy:     true,
+				ExpectError: regexp.MustCompile(`Switch BGP peering off first`),
+			},
+		},
+	})
+
+	// The refused DELETE, then the one that tears it down at the end of the test.
+	if got := countCalls(mock, http.MethodDelete, "/api/v3/networking/networks/"); got != 2 {
+		t.Errorf("expected 2 DELETEs, got %d", got)
+	}
+}
+
 func TestAccNetworkResource_Validation(t *testing.T) {
 	mock := newMockAPIServer()
 	defer mock.Close()
@@ -939,6 +1034,15 @@ func TestAccNetworkResource_Validation(t *testing.T) {
   description = "x"
   placement   = "kubernetes"`,
 			err: `Placement requires deploy_flow v2`,
+		},
+		"bgp peering with v1": {
+			config: `
+  domain_uuid = "dom-uuid-5"
+  product     = "DMZ"
+  bitmask     = 26
+  description = "x"
+  bgp_peering = true`,
+			err: `BGP peering on create requires deploy_flow v2`,
 		},
 		"dry run with explicit v1": {
 			config: `

@@ -14208,6 +14208,108 @@ paths:
           description: Nothing to tear down, a teardown or the deploy of this planned
             Network is already queued or running, or the Network is deploying, rolling
             back or undeploying
+  /api/v3/networking/networks/{id}/bgp-peering/:
+    get:
+      operationId: v3_networking_networks_bgp_peering_retrieve
+      description: |-
+        GET/PUT/DELETE /api/v3/networking/networks/<id>/bgp-peering/
+
+        The Network's BGP peering, one per Network: a Terraform
+        ``mcs_network_bgp_peering`` keyed by the Network's id. PUT switches it on,
+        DELETE off; GET reads ``enabled: false`` while it is off.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BgpPeeringV3'
+          description: ''
+        '404':
+          description: Not found
+    put:
+      operationId: v3_networking_networks_bgp_peering_update
+      description: |-
+        GET/PUT/DELETE /api/v3/networking/networks/<id>/bgp-peering/
+
+        The Network's BGP peering, one per Network: a Terraform
+        ``mcs_network_bgp_peering`` keyed by the Network's id. PUT switches it on,
+        DELETE off; GET reads ``enabled: false`` while it is off.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkOperation'
+          description: ''
+        '403':
+          description: networking.change_network required
+        '404':
+          description: Not found
+        '409':
+          description: The Network has no Domain, is not active, or a deploy or teardown
+            of it is queued
+    delete:
+      operationId: v3_networking_networks_bgp_peering_destroy
+      description: |-
+        GET/PUT/DELETE /api/v3/networking/networks/<id>/bgp-peering/
+
+        The Network's BGP peering, one per Network: a Terraform
+        ``mcs_network_bgp_peering`` keyed by the Network's id. PUT switches it on,
+        DELETE off; GET reads ``enabled: false`` while it is off.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v3/networking
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - tokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkOperation'
+          description: ''
+        '403':
+          description: networking.change_network required
+        '404':
+          description: Not found
+        '409':
+          description: The Network has no Domain, is not active, a deploy or teardown
+            of it is queued, or a Kubernetes Cluster that has not been destroyed uses
+            it
   /api/v3/networking/networks/{id}/deploy/:
     post:
       operationId: v3_networking_networks_deploy_create
@@ -15439,6 +15541,30 @@ components:
         * `500` - 500 Mbps
         * `1000` - 1 Gbps
         * `5000` - 5 Gbps
+    BgpPeeringV3:
+      type: object
+      description: 'GET .../networks/<id>/bgp-peering/: whether the VDOM peers with
+        hosts in this Network, and what it accepts.'
+      properties:
+        enabled:
+          type: boolean
+          description: The Domain's VDOM accepts BGP sessions from hosts in this Network.
+        neighbor_group:
+          type: string
+          nullable: true
+          description: The FortiGate neighbor-group of this Network (MCS-K8S-<vlanid>);
+            null when off.
+        accepted_prefixes:
+          type: array
+          items:
+            type: string
+          description: 'The prefixes the VDOM accepts from peers on this Network:
+            the Load Balancer Pools of the Kubernetes Clusters using it. Empty: it
+            accepts nothing.'
+      required:
+      - accepted_prefixes
+      - enabled
+      - neighbor_group
     BindpointEnum:
       enum:
       - REQUEST
@@ -19123,6 +19249,13 @@ components:
             record the Network as planned, but only check FortiGate, FortiManager
             and Apstra and report what would change. Deploy the planned Network later
             with POST .../networks/<id>/deploy/. Refused with v1.'
+        bgp_peering:
+          type: boolean
+          default: false
+          description: 'V2 only: switch BGP peering on for the Network as part of
+            the deploy, so Kubernetes nodes on it can peer with the Domain''s FortiGate
+            VDOM (ADR-0045). Later changes go through .../networks/<id>/bgp-peering/.
+            Refused with v1.'
       required:
       - bitmask
       - description

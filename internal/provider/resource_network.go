@@ -80,6 +80,7 @@ type NetworkResourceModel struct {
 	DeployFlow            types.String   `tfsdk:"deploy_flow"`
 	Placement             types.String   `tfsdk:"placement"`
 	DryRun                types.Bool     `tfsdk:"dry_run"`
+	BgpPeering            types.Bool     `tfsdk:"bgp_peering"`
 	DryRunChanges         types.List     `tfsdk:"dry_run_changes"`
 	Datacenters           types.List     `tfsdk:"datacenters"`
 	LeftoverSteps         types.List     `tfsdk:"leftover_steps"`
@@ -100,6 +101,7 @@ type networkCreateAPIModel struct {
 	DeployFlow  string  `json:"deploy_flow"`
 	Placement   *string `json:"placement,omitempty"`
 	DryRun      *bool   `json:"dry_run,omitempty"`
+	BgpPeering  *bool   `json:"bgp_peering,omitempty"`
 }
 
 const (
@@ -233,7 +235,8 @@ func (r *NetworkResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 		Description: "Manages an MCS network through the v3 networking API. Creating the resource queues a deploy " +
 			"(VLAN, prefix and interface) and waits for it to finish; destroying it queues a teardown and waits " +
 			"for the network to be gone. Networks cannot be changed in place, so changing any argument recreates the network. " +
-			"The exception is `dry_run`: switching it from `true` to `false` deploys the planned network in place.",
+			"The exceptions are `dry_run`: switching it from `true` to `false` deploys the planned network in place, " +
+			"and the create-only `bgp_peering`, which a later change only records in state.",
 		Attributes: map[string]schema.Attribute{
 			"id":   networkComputedString("UUID of the network."),
 			"name": networkComputedString("Name of the network, assigned by MCS."),
@@ -327,6 +330,16 @@ func (r *NetworkResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 					"afterwards to deploy the planned network in place.",
 				PlanModifiers: []planmodifier.Bool{replaceWhenReplanning()},
 			},
+			// Create-only and not returned by the network API: kept in state as configured. A later
+			// change does not recreate the network; use mcs_network_bgp_peering to switch it.
+			"bgp_peering": schema.BoolAttribute{
+				Optional: true,
+				Computed: true,
+				Default:  booldefault.StaticBool(false),
+				Description: "V2 only: switch BGP peering on as part of the deploy, so hosts on the network (e.g. Kubernetes " +
+					"nodes) can peer with the domain's FortiGate VDOM. Only sent on create; changing it later does not " +
+					"change or recreate the network. Use `mcs_network_bgp_peering` to switch peering on or off afterwards.",
+			},
 			"dry_run_changes": schema.ListNestedAttribute{
 				Computed:    true,
 				Description: "What the dry run found each infrastructure step would change. Empty unless `dry_run` is `true`.",
@@ -397,6 +410,11 @@ func (r *NetworkResource) ValidateConfig(ctx context.Context, req resource.Valid
 		resp.Diagnostics.AddAttributeError(path.Root("dry_run"), "Dry run requires deploy_flow v2",
 			"`dry_run` is only supported with `deploy_flow = \"v2\"`.")
 	}
+	if config.BgpPeering.ValueBool() {
+		resp.Diagnostics.AddAttributeError(path.Root("bgp_peering"), "BGP peering on create requires deploy_flow v2",
+			"`bgp_peering` is only supported with `deploy_flow = \"v2\"`. To switch BGP peering on for a V1 network, "+
+				"use `mcs_network_bgp_peering`.")
+	}
 }
 
 // ModifyPlan resolves the default placement and empties dry_run_changes once dry_run is false.
@@ -431,13 +449,16 @@ func networkToAPI(plan *NetworkResourceModel) networkCreateAPIModel {
 		if plan.DryRun.ValueBool() {
 			body.DryRun = boolPtr(plan.DryRun)
 		}
+		if plan.BgpPeering.ValueBool() {
+			body.BgpPeering = boolPtr(plan.BgpPeering)
+		}
 	}
 	return body
 }
 
 // networkFromAPI copies the API record into the model. The create-only arguments the API never
-// returns (domain_uuid, product, network_pool_id, prefix, placement, dry_run) are left untouched;
-// bitmask is only derived from ipv4_prefix when it is not known yet (after an import).
+// returns (domain_uuid, product, network_pool_id, prefix, placement, dry_run, bgp_peering) are left
+// untouched; bitmask is only derived from ipv4_prefix when it is not known yet (after an import).
 func networkFromAPI(m *NetworkResourceModel, api *networkV3APIModel) {
 	n := api.toModel()
 	m.Id = n.Id
@@ -601,6 +622,11 @@ func (r *NetworkResource) Read(ctx context.Context, req resource.ReadRequest, re
 	if state.DryRunChanges.IsNull() || state.DryRunChanges.IsUnknown() {
 		state.DryRunChanges = emptyDryRunChanges()
 	}
+	// bgp_peering is create-only and not read back; after an import it takes its default, so a
+	// configured true is filled in as an API-free update.
+	if state.BgpPeering.IsNull() || state.BgpPeering.IsUnknown() {
+		state.BgpPeering = types.BoolValue(false)
+	}
 
 	if state.DomainUuid.IsNull() || state.DomainUuid.IsUnknown() {
 		state.DomainUuid = r.lookupDomainUuid(ctx, apiResp.Domain, &resp.Diagnostics)
@@ -645,6 +671,11 @@ func (r *NetworkResource) Update(ctx context.Context, req resource.UpdateRequest
 	}
 	resolvePlacement(&plan)
 	id := state.Id.ValueString()
+	if !state.BgpPeering.IsNull() && !plan.BgpPeering.Equal(state.BgpPeering) {
+		resp.Diagnostics.AddAttributeWarning(path.Root("bgp_peering"), "bgp_peering only applies on create",
+			"Changing `bgp_peering` on an existing network does not switch BGP peering on or off; it is only "+
+				"recorded in state. Use `mcs_network_bgp_peering` to change BGP peering of an existing network.")
+	}
 
 	if state.DryRun.ValueBool() && !plan.DryRun.ValueBool() {
 		updateTimeout, diags := plan.Timeouts.Update(ctx, networkDefaultUpdateTimeout)
@@ -723,6 +754,10 @@ func (r *NetworkResource) Delete(ctx context.Context, req resource.DeleteRequest
 	switch {
 	case apiclient.IsNotFound(err):
 		return
+	case apiclient.IsConflict(err) && apiclient.Code(err) == bgpPeeringOnCode:
+		// The teardown would leave the network's BGP peering on the FortiGate: waiting does not help.
+		resp.Diagnostics.AddError("Error deleting network", apiclient.Detail(err))
+		return
 	case apiclient.IsConflict(err):
 		// A teardown is already running (or there was nothing left to tear down): wait for the
 		// network to disappear.
@@ -743,6 +778,10 @@ func (r *NetworkResource) Delete(ctx context.Context, req resource.DeleteRequest
 		resp.Diagnostics.AddError("Error deleting network", err.Error())
 	}
 }
+
+// bgpPeeringOnCode marks the 409 MCS answers a teardown with while the network's BGP peering is on
+// and the teardown would leave it behind (ADR-0045): switch it off first.
+const bgpPeeringOnCode = "bgp_peering_on"
 
 func (r *NetworkResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
