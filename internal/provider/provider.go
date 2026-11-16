@@ -125,6 +125,7 @@ func (p *MCSProvider) Resources(_ context.Context) []func() resource.Resource {
 		NewMonitorIPResource,
 		NewNATTranslationResource,
 		NewNetworkResource,
+		NewNetworkBgpPeeringResource,
 		NewNetworkDhcpLeaseResource,
 		NewNetworkDhcpServerResource,
 		NewNetworkPoolResource,

@@ -134,3 +134,45 @@ func TestIsConflict(t *testing.T) {
 		})
 	}
 }
+
+func TestDetail(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "detail of a conflict",
+			err: &APIError{StatusCode: 409, Method: "DELETE", Endpoint: "/x/",
+				Body: `{"detail":"Kubernetes Cluster k8s-a uses this Network.","clusters":["k8s-a"]}`},
+			want: "Kubernetes Cluster k8s-a uses this Network.",
+		},
+		{
+			name: "wrapped error",
+			err:  fmt.Errorf("wrapped: %w", &APIError{StatusCode: 409, Body: `{"detail":" busy "}`}),
+			want: "busy",
+		},
+		{
+			name: "field errors without detail",
+			err:  &APIError{StatusCode: 400, Body: `{"bgp_peering":["Refused with v1."]}`},
+			want: "",
+		},
+		{
+			name: "truncated body",
+			err:  &APIError{StatusCode: 409, Body: `{"detail":"Kubernetes Clu...`},
+			want: "",
+		},
+		{
+			name: "not an API error",
+			err:  errors.New("boom"),
+			want: "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Detail(tc.err); got != tc.want {
+				t.Errorf("Detail() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

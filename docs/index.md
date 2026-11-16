@@ -11,7 +11,7 @@ The MCS (Mijn Cloud Solutions) Terraform provider allows you to manage cloud inf
 Every resource and data source has its own page in the navigation, with a usage example, the full argument and attribute reference and, for resources, import instructions. They are grouped by area:
 
 - **Tenant & Customer Management:** contacts, customers, quota profiles, integrations
-- **Networking:** networks, DHCP servers and static DHCP leases, network and IP pools, public IP addresses, NAT translations, site-to-site VPNs, load balancer pools
+- **Networking:** networks, DHCP servers and static DHCP leases, BGP peering, network and IP pools, public IP addresses, NAT translations, site-to-site VPNs, load balancer pools
 - **Secure Ingress:** secure ingress firewalls, ingress clusters, routes
 - **Firewall:** firewalls, objects, object groups, services, service groups, rules, commits (make staged changes live)
 - **Load Balancing:** applications, certificates, monitors, service groups, virtual servers, content switching and rewrite actions/policies

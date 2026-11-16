@@ -344,6 +344,7 @@ func TestAccNetworkResource_CreateImportDestroy(t *testing.T) {
 					resource.TestCheckResourceAttr(addr, "deploy_flow", "v1"),
 					resource.TestCheckNoResourceAttr(addr, "placement"),
 					resource.TestCheckResourceAttr(addr, "dry_run", "false"),
+					resource.TestCheckResourceAttr(addr, "bgp_peering", "false"),
 					resource.TestCheckResourceAttr(addr, "dry_run_changes.#", "0"),
 					resource.TestCheckResourceAttr(addr, "datacenters.#", "1"),
 					resource.TestCheckResourceAttr(addr, "datacenters.0.id", "1"),
@@ -375,7 +376,7 @@ func TestAccNetworkResource_CreateImportDestroy(t *testing.T) {
 			t.Errorf("POST body %s = %v, want %v", k, nm.lastPostBody[k], v)
 		}
 	}
-	for _, k := range []string{"prefix", "placement", "dry_run"} {
+	for _, k := range []string{"prefix", "placement", "dry_run", "bgp_peering"} {
 		if _, ok := nm.lastPostBody[k]; ok {
 			t.Errorf("POST body should omit %s, got %v", k, nm.lastPostBody)
 		}
@@ -554,6 +555,60 @@ func TestAccNetworkResource_DryRunThenDeploy(t *testing.T) {
 	}
 	if nm.lastPostBody["dry_run"] != true {
 		t.Errorf("POST body dry_run = %v, want true", nm.lastPostBody["dry_run"])
+	}
+}
+
+func TestAccNetworkResource_V2BgpPeeringIsCreateOnly(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+	nm := newNetworkV3Mock(mock)
+
+	addr := "mcs_network.test"
+	bgp := func(v bool) string {
+		return networkResourceConfig(mock.URL(), networkDescription+fmt.Sprintf(`
+  deploy_flow     = "v2"
+  placement       = "kubernetes"
+  bgp_peering     = %t`, v))
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: bgp(true),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "id", "net-uuid-1"),
+					resource.TestCheckResourceAttr(addr, "bgp_peering", "true"),
+				),
+			},
+			{
+				// Not read back, so the refresh keeps the configured value.
+				Config: bgp(true),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+			{
+				// A later change neither recreates the network nor calls MCS; it only updates state.
+				Config: bgp(false),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction(addr, plancheck.ResourceActionUpdate)},
+				},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "id", "net-uuid-1"),
+					resource.TestCheckResourceAttr(addr, "bgp_peering", "false"),
+				),
+			},
+		},
+	})
+
+	if got := countCalls(mock, http.MethodPost, "/api/v3/networking/networks/"); got != 1 {
+		t.Errorf("expected 1 deploy POST, got %d", got)
+	}
+	if got := countCalls(mock, http.MethodPut, "/api/v3/networking/networks/"); got != 0 {
+		t.Errorf("changing bgp_peering must not call MCS, got %d PUTs", got)
+	}
+	if nm.lastPostBody["bgp_peering"] != true {
+		t.Errorf("POST body bgp_peering = %v, want true", nm.lastPostBody["bgp_peering"])
 	}
 }
 
@@ -939,6 +994,15 @@ func TestAccNetworkResource_Validation(t *testing.T) {
   description = "x"
   placement   = "kubernetes"`,
 			err: `Placement requires deploy_flow v2`,
+		},
+		"bgp peering with v1": {
+			config: `
+  domain_uuid = "dom-uuid-5"
+  product     = "DMZ"
+  bitmask     = 26
+  description = "x"
+  bgp_peering = true`,
+			err: `BGP peering on create requires deploy_flow v2`,
 		},
 		"dry run with explicit v1": {
 			config: `
