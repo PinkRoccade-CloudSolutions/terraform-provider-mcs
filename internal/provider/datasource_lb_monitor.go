@@ -103,7 +103,8 @@ func (d *LbMonitorDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 		Attributes: map[string]schema.Attribute{
 			"name": schema.StringAttribute{
 				Optional:    true,
-				Description: "Exact monitor name to look up.",
+				Computed:    true,
+				Description: "Exact monitor name to look up, or the name of the matched monitor when looking up by `id`.",
 			},
 			"id": schema.StringAttribute{
 				Optional:    true,

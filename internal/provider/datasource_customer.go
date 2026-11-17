@@ -83,11 +83,13 @@ func (d *CustomerDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Optional:    true,
-				Description: "Customer id to fetch.",
+				Computed:    true,
+				Description: "ID of a specific customer to look up, or the ID of the matched customer when looking up by `name`.",
 			},
 			"name": schema.StringAttribute{
 				Optional:    true,
-				Description: "Filter by name (uses name__icontains then exact match).",
+				Computed:    true,
+				Description: "Exact customer name to look up (uses name__icontains then exact match), or the name of the matched customer when looking up by `id`.",
 			},
 			"slug":       schema.StringAttribute{Computed: true, Description: customerSlugDesc},
 			"contractid": schema.StringAttribute{Computed: true},

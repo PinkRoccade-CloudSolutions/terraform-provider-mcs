@@ -51,7 +51,7 @@ data "mcs_virtualmachine" "in_domain" {
 
 | Attribute          | Type   | Mode     | Description |
 |-------------------|--------|----------|-------------|
-| `name`            | String | Optional | Exact VM name to look up (sent as `name__icontains`, matched exactly client-side). |
+| `name`            | String | Optional/Computed | Exact VM name to look up (sent as `name__icontains`, matched exactly client-side). Filled in with the matched name when looking up by `id`. |
 | `id`              | String | Optional/Computed | VM UUID. |
 | `domain_id`       | Number | Optional | Only consider VMs with an interface in a network of this domain (`interfaces__network__domain__id`). Combines with `name`. |
 | `cpu`             | Number | Computed | Number of vCPUs (set when a single VM is matched). |

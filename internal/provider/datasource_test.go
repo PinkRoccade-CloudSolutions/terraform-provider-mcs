@@ -2097,6 +2097,38 @@ data "mcs_customer" "all" {}`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.mcs_customer.all", "customers.#", "2"),
 					resource.TestCheckResourceAttr("data.mcs_customer.all", "customers.0.name", "Test Customer"),
+					resource.TestCheckResourceAttr("data.mcs_customer.all", "customers.0.id", "cust-001"),
+					resource.TestCheckNoResourceAttr("data.mcs_customer.all", "id"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccCustomerDataSource_ByID(t *testing.T) {
+	mock := newMockAPIServer()
+	defer mock.Close()
+
+	mock.On("/api/tenant/customers/cust-001/", func(w http.ResponseWriter, r *http.Request, _ []byte) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "cust-001", "name": "Test Customer", "contractid": "C-001", "admin_contacts": []int{1}, "tech_contacts": []int{2},
+		})
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories(mock.URL()),
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfigBlock(mock.URL()) + `
+data "mcs_customer" "test" {
+  id = "cust-001"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.mcs_customer.test", "id", "cust-001"),
+					resource.TestCheckResourceAttr("data.mcs_customer.test", "name", "Test Customer"),
+					resource.TestCheckResourceAttr("data.mcs_customer.test", "contractid", "C-001"),
+					resource.TestCheckResourceAttr("data.mcs_customer.test", "customers.#", "0"),
 				),
 			},
 		},

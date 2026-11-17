@@ -21,7 +21,7 @@ data "mcs_lbv_server" "web_lb" {
 
 | Attribute      | Type         | Mode     | Description |
 |---------------|-------------|----------|-------------|
-| `name`        | String       | Optional | Exact LB vServer name. |
+| `name`        | String       | Optional/Computed | Exact LB vServer name. Filled in with the matched name when looking up by `id`. |
 | `id`          | String       | Optional/Computed | LB vServer UUID. |
 | `ipaddress`   | String       | Computed | UUID of the associated PublicIPAddress. |
 | `port`        | Number       | Computed | Listening port. |

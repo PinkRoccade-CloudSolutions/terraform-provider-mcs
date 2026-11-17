@@ -100,7 +100,8 @@ func (d *IPPoolDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 		Attributes: map[string]schema.Attribute{
 			"name": schema.StringAttribute{
 				Optional:    true,
-				Description: "Exact IP pool name to look up.",
+				Computed:    true,
+				Description: "Exact IP pool name to look up, or the name of the matched IP pool when looking up by `id`.",
 			},
 			"id": schema.StringAttribute{
 				Optional:    true,

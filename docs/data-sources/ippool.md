@@ -25,7 +25,7 @@ output "pool_id" {
 
 | Attribute  | Type   | Mode     | Description |
 |-----------|--------|----------|-------------|
-| `name`    | String | Optional | Exact pool name. |
+| `name`    | String | Optional/Computed | Exact pool name. Filled in with the matched name when looking up by `id`. |
 | `id`      | String | Optional/Computed | Pool ID. |
 | `subnet`  | String | Computed | Pool subnet. |
 | `customer` | String | Optional/Computed | Filter by customer; set to the matched pool's customer. |

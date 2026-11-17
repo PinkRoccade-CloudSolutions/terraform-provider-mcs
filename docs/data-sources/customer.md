@@ -21,8 +21,8 @@ data "mcs_customer" "prod" {
 
 | Attribute        | Type         | Mode     | Description |
 |-----------------|-------------|----------|-------------|
-| `name`          | String       | Optional | Exact customer name (sent as `name__icontains`, matched exactly client-side). |
-| `id`            | String       | Optional/Computed | Customer ID. |
+| `name`          | String       | Optional/Computed | Exact customer name (sent as `name__icontains`, matched exactly client-side). Filled in with the matched name when looking up by `id`. |
+| `id`            | String       | Optional/Computed | ID of a specific customer to look up, or the ID of the matched customer when looking up by `name`. |
 | `slug`          | String       | Computed | Short DNS label of the customer; prefixes its Kubernetes cluster names. |
 | `contractid`    | String       | Computed | Contract identifier. |
 | `sdm`           | Number       | Computed | Service Delivery Manager user ID; null when not set. |

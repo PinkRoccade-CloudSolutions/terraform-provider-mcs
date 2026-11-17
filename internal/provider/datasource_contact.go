@@ -66,7 +66,8 @@ func (d *ContactDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Optional:    true,
-				Description: "Numeric id of the contact to fetch.",
+				Computed:    true,
+				Description: "Numeric id of the contact to fetch, or the id of the matched contact when looking up by `name`.",
 			},
 			"name": schema.StringAttribute{
 				Optional:    true,

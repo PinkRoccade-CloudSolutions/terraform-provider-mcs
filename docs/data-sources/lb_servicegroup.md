@@ -21,7 +21,7 @@ data "mcs_lb_servicegroup" "backend" {
 
 | Attribute        | Type         | Mode     | Description |
 |-----------------|-------------|----------|-------------|
-| `name`          | String       | Optional | Exact service group name. |
+| `name`          | String       | Optional/Computed | Exact service group name. Filled in with the matched name when looking up by `id`. |
 | `id`            | String       | Optional/Computed | Service group UUID. |
 | `type`          | String       | Computed | Service type. |
 | `state`         | String       | Computed | State: `enable` or `disable`. |

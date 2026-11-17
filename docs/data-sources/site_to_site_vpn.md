@@ -21,7 +21,7 @@ data "mcs_site_to_site_vpn" "office" {
 
 | Attribute              | Type   | Mode     | Description |
 |-----------------------|--------|----------|-------------|
-| `name`                | String | Optional | Exact VPN tunnel name. |
+| `name`                | String | Optional/Computed | Exact VPN tunnel name. Filled in with the matched name when looking up by `id`. |
 | `id`                  | String | Optional/Computed | VPN ID. |
 | `uuid`                | String | Computed | VPN UUID. |
 | `domain`              | Number | Computed | Domain ID. |

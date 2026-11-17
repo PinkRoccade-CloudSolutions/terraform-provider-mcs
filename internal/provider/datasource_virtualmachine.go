@@ -137,7 +137,8 @@ func (d *VirtualMachineDataSource) Schema(_ context.Context, _ datasource.Schema
 		Attributes: map[string]schema.Attribute{
 			"name": schema.StringAttribute{
 				Optional:    true,
-				Description: "Exact VM name to look up.",
+				Computed:    true,
+				Description: "Exact VM name to look up, or the name of the matched VM when looking up by `id`.",
 			},
 			"id": schema.StringAttribute{
 				Optional:    true,

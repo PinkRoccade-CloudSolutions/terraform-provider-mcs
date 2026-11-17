@@ -21,7 +21,7 @@ data "mcs_networkpool" "lan_pool" {
 
 | Attribute      | Type   | Mode     | Description |
 |---------------|--------|----------|-------------|
-| `name`        | String | Optional | Exact network pool name. |
+| `name`        | String | Optional/Computed | Exact network pool name. Filled in with the matched name when looking up by `id`. |
 | `id`          | String | Optional | Network pool ID for direct lookup. |
 | `network`     | String | Computed | Associated network. |
 | `description` | String | Computed | Description. |

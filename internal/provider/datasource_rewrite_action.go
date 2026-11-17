@@ -79,7 +79,8 @@ func (d *RewriteActionDataSource) Schema(_ context.Context, _ datasource.SchemaR
 		Attributes: map[string]schema.Attribute{
 			"name": schema.StringAttribute{
 				Optional:    true,
-				Description: "Exact rewrite action name to look up.",
+				Computed:    true,
+				Description: "Exact rewrite action name to look up, or the name of the matched rewrite action when looking up by `id`.",
 			},
 			"id": schema.StringAttribute{
 				Optional:    true,
