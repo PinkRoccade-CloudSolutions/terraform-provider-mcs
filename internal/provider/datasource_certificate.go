@@ -116,7 +116,8 @@ func (d *CertificateDataSource) Schema(_ context.Context, _ datasource.SchemaReq
 	attrs := map[string]schema.Attribute{
 		"name": schema.StringAttribute{
 			Optional:    true,
-			Description: "Exact certificate name to look up.",
+			Computed:    true,
+			Description: "Exact certificate name to look up, or the name of the matched certificate when looking up by `id`.",
 		},
 		"id": schema.StringAttribute{
 			Optional:    true,

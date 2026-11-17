@@ -21,7 +21,7 @@ data "mcs_csv_server" "frontend" {
 
 | Attribute      | Type         | Mode     | Description |
 |---------------|-------------|----------|-------------|
-| `name`        | String       | Optional | Exact CS vServer name. |
+| `name`        | String       | Optional/Computed | Exact CS vServer name. Filled in with the matched name when looking up by `id`. |
 | `id`          | String       | Optional/Computed | CS vServer UUID. |
 | `ufname`      | String       | Computed | User-friendly name. |
 | `ipaddress`   | String       | Computed | UUID of the associated PublicIPAddress. |

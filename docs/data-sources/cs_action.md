@@ -21,7 +21,7 @@ data "mcs_cs_action" "route" {
 
 | Attribute      | Type   | Mode     | Description |
 |---------------|--------|----------|-------------|
-| `name`        | String | Optional | Exact action name. |
+| `name`        | String | Optional/Computed | Exact action name. Filled in with the matched name when looking up by `id`. |
 | `id`          | String | Optional/Computed | Action UUID. |
 | `lbvserver`   | String | Computed | Target LB vServer. |
 | `customer`    | String | Computed | Customer identifier. |

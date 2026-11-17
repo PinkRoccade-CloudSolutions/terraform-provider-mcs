@@ -116,7 +116,8 @@ func (d *SiteToSiteVPNDataSource) Schema(_ context.Context, _ datasource.SchemaR
 	attrs := siteToSiteVPNComputedAttrs()
 	attrs["name"] = schema.StringAttribute{
 		Optional:    true,
-		Description: "Exact VPN name to look up.",
+		Computed:    true,
+		Description: "Exact VPN name to look up, or the name of the matched VPN when looking up by `id`.",
 	}
 	attrs["id"] = schema.StringAttribute{
 		Optional:    true,

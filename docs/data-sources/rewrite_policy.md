@@ -21,7 +21,7 @@ data "mcs_rewrite_policy" "request_rules" {
 
 | Attribute | Type | Mode | Description |
 |-----------|------|------|-------------|
-| `name` | String | Optional | Exact rewrite policy name. |
+| `name` | String | Optional/Computed | Exact rewrite policy name. Filled in with the matched name when looking up by `id`. |
 | `id` | String | Optional/Computed | Rewrite policy UUID. |
 | `rule` | String | Computed | Rewrite rule expression. |
 | `action` | String | Computed | Rewrite action UUID. |

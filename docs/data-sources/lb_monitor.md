@@ -21,7 +21,7 @@ data "mcs_lb_monitor" "http" {
 
 | Attribute      | Type   | Mode     | Description |
 |---------------|--------|----------|-------------|
-| `name`        | String | Optional | Exact monitor name. |
+| `name`        | String | Optional/Computed | Exact monitor name. Filled in with the matched name when looking up by `id`. |
 | `id`          | String | Optional/Computed | Monitor UUID. |
 | `type`        | String | Computed | Monitor type (e.g. `HTTP`, `TCP`). |
 | `interval`    | Number | Computed | Check interval in seconds. |

@@ -56,7 +56,8 @@ func (d *VirtualDatacenterDataSource) Schema(_ context.Context, _ datasource.Sch
 		Attributes: map[string]schema.Attribute{
 			"name": schema.StringAttribute{
 				Optional:    true,
-				Description: "Exact virtual datacenter name to look up.",
+				Computed:    true,
+				Description: "Exact virtual datacenter name to look up, or the name of the matched virtual datacenter when looking up by `id`.",
 			},
 			"id": schema.StringAttribute{
 				Optional:    true,

@@ -21,7 +21,7 @@ data "mcs_cs_policy" "routing" {
 
 | Attribute      | Type   | Mode     | Description |
 |---------------|--------|----------|-------------|
-| `name`        | String | Optional | Exact policy name. |
+| `name`        | String | Optional/Computed | Exact policy name. Filled in with the matched name when looking up by `id`. |
 | `id`          | String | Optional/Computed | Policy UUID. |
 | `action`      | String | Computed | CS action name. |
 | `expression`  | String | Computed | Policy expression. |

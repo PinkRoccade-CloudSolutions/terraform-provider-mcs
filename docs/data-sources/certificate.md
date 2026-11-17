@@ -21,7 +21,7 @@ data "mcs_certificate" "web_cert" {
 
 | Attribute            | Type   | Mode     | Description |
 |---------------------|--------|----------|-------------|
-| `name`              | String | Optional | Exact certificate name. |
+| `name`              | String | Optional/Computed | Exact certificate name. Filled in with the matched name when looking up by `id`. |
 | `id`                | String | Optional/Computed | Certificate UUID. |
 | `ca`                | Bool   | Computed | Whether this is a CA certificate. |
 | `valid_to_timestamp` | String | Computed | Certificate expiry timestamp. |

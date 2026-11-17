@@ -21,7 +21,7 @@ data "mcs_rewrite_action" "hostname_replace" {
 
 | Attribute | Type | Mode | Description |
 |-----------|------|------|-------------|
-| `name` | String | Optional | Exact rewrite action name. |
+| `name` | String | Optional/Computed | Exact rewrite action name. Filled in with the matched name when looking up by `id`. |
 | `id` | String | Optional/Computed | Rewrite action UUID. |
 | `type` | String | Computed | Rewrite action type. |
 | `target` | String | Computed | Rewrite target expression. |

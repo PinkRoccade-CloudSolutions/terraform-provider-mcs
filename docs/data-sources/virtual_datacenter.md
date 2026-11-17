@@ -21,7 +21,7 @@ data "mcs_virtual_datacenter" "prod" {
 
 | Attribute             | Type   | Mode     | Description |
 |----------------------|--------|----------|-------------|
-| `name`               | String | Optional | Exact virtual datacenter name (sent as `name__icontains`, matched exactly client-side). |
+| `name`               | String | Optional/Computed | Exact virtual datacenter name (sent as `name__icontains`, matched exactly client-side). Filled in with the matched name when looking up by `id`. |
 | `id`                 | String | Optional/Computed | Virtual datacenter UUID. |
 | `cluster`            | String | Computed | UUID of the cluster the VDC deploys VMs on. |
 | `virtual_datacenters` | List  | Computed | All virtual datacenters (populated when neither `name` nor `id` is set). |

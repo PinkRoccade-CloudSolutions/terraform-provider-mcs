@@ -25,7 +25,7 @@ output "disk_size" {
 
 | Attribute | Type   | Mode     | Description |
 |----------|--------|----------|-------------|
-| `name`   | String | Optional | Exact disk name to look up (the API has no name filter, so all disks are listed and matched client-side). |
+| `name`   | String | Optional/Computed | Exact disk name to look up (the API has no name filter, so all disks are listed and matched client-side). Filled in with the matched name when looking up by `id`. |
 | `id`     | String | Optional/Computed | Disk UUID. |
 | `size`   | Number | Computed | Size in GB. |
 | `path`   | String | Computed | Disk path. |

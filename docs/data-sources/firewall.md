@@ -25,7 +25,7 @@ output "firewall_id" {
 
 | Attribute    | Type   | Mode     | Description |
 |-------------|--------|----------|-------------|
-| `name`      | String | Optional | Exact firewall name. |
+| `name`      | String | Optional/Computed | Exact firewall name. Filled in with the matched name when looking up by `id`. |
 | `id`        | String | Optional/Computed | Firewall ID (use as filter or read from result). |
 | `customer`  | String | Optional/Computed | Customer filter for name and list lookups; the customer of the matched firewall. |
 | `description` | String | Computed | Firewall description. |

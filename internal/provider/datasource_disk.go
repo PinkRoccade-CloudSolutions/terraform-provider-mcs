@@ -63,7 +63,8 @@ func (d *DiskDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, r
 		Attributes: map[string]schema.Attribute{
 			"name": schema.StringAttribute{
 				Optional:    true,
-				Description: "Exact disk name to look up.",
+				Computed:    true,
+				Description: "Exact disk name to look up, or the name of the matched disk when looking up by `id`.",
 			},
 			"id": schema.StringAttribute{
 				Optional:    true,

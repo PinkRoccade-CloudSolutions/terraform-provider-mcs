@@ -25,7 +25,7 @@ output "interface_ip" {
 
 | Attribute    | Type   | Mode     | Description |
 |-------------|--------|----------|-------------|
-| `name`      | String | Optional | Exact interface name. |
+| `name`      | String | Optional/Computed | Exact interface name. Filled in with the matched name when looking up by `id`. |
 | `id`        | String | Optional/Computed | Interface ID. |
 | `ipaddress` | String | Computed | IPv4 address. |
 | `ipv6address` | String | Computed | IPv6 address. |
